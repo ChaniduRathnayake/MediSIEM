@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import WazuhDashboard from './WazuhDashboard';
 import {
   Shield, Activity, AlertTriangle, Users, Server, Bell,
   LogOut, Settings, ChevronDown, Menu, X, BarChart3,
@@ -103,6 +104,7 @@ const AdminDashboard: React.FC = () => {
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { label: 'Users', icon: <Users className="w-4 h-4" /> },
     { label: 'IP Reputation', icon: <Network className="w-4 h-4" /> },
+    { label: 'Wazuh SIEM', icon: <Shield className="w-4 h-4 text-cyan-400" /> },
     { label: 'Playbooks', icon: <Zap className="w-4 h-4" /> },
     { label: 'Audit Log', icon: <Database className="w-4 h-4" /> },
     { label: 'Settings', icon: <Settings className="w-4 h-4" /> },
@@ -215,7 +217,9 @@ const AdminDashboard: React.FC = () => {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-5 space-y-6 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto">
+          {activeNav === 'Wazuh SIEM' && <WazuhDashboard />}
+          {activeNav !== 'Wazuh SIEM' && <div className="p-5 space-y-6">
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Critical Alerts" value="3" sub="Requires immediate action" color="red" trend="+2" />
@@ -330,6 +334,7 @@ const AdminDashboard: React.FC = () => {
           <div className="text-center py-4 text-xs text-slate-700">
             MediSIEM Admin Console · R26-CS-008 · SLIIT 2026 · Logged in as {user?.name}
           </div>
+          </div>}
         </main>
       </div>
     </div>
