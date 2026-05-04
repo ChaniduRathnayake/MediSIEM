@@ -9,108 +9,6 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-// ─── CAS Demo Banner (inline for dashboard — no fixed positioning conflict) ───
-const CasDemoBanner: React.FC = () => (
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 1.25rem',
-      height: '36px',
-      flexShrink: 0,
-      background: 'linear-gradient(90deg, #0d1117 0%, #0f1f33 50%, #0d1117 100%)',
-      borderBottom: '1px solid rgba(88,166,255,0.18)',
-      position: 'relative',
-      overflow: 'hidden',
-    }}
-  >
-    {/* Left accent line */}
-    <div
-      style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: '3px',
-        background: 'linear-gradient(180deg, #58a6ff, #bc8cff)',
-      }}
-    />
-
-    {/* Left side */}
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-      <span
-        style={{
-          display: 'inline-block',
-          width: '6px',
-          height: '6px',
-          borderRadius: '50%',
-          background: '#3fb950',
-          boxShadow: '0 0 6px #3fb950',
-          animation: 'casBannerPulse 2.2s ease-in-out infinite',
-          flexShrink: 0,
-        }}
-      />
-      <span
-        style={{
-          fontFamily: "'DM Mono', 'Courier New', monospace",
-          fontSize: '9px',
-          fontWeight: 500,
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          padding: '2px 9px',
-          borderRadius: '20px',
-          background: 'rgba(88,166,255,0.12)',
-          border: '1px solid rgba(88,166,255,0.30)',
-          color: '#58a6ff',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Live Demo
-      </span>
-      <span
-        style={{
-          fontFamily: 'Georgia, serif',
-          fontSize: '12px',
-          fontWeight: 600,
-          letterSpacing: '-0.01em',
-          color: '#e6edf3',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        CAAP —{' '}
-        <span style={{ color: '#58a6ff' }}>CAS</span>{' '}
-        Demo Presentation
-      </span>
-    </div>
-
-    {/* Right side */}
-    <div
-      style={{
-        fontSize: '10px',
-        color: '#8b949e',
-        letterSpacing: '0.04em',
-        textTransform: 'uppercase',
-        textAlign: 'right',
-        lineHeight: 1.5,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{ color: '#e6edf3', fontWeight: 500 }}>
-        Clinically Aware Alert Prioritization
-      </span>
-      {' · '}SLIIT · IT22061270
-    </div>
-
-    <style>{`
-      @keyframes casBannerPulse {
-        0%, 100% { opacity: 1; box-shadow: 0 0 6px #3fb950; }
-        50%       { opacity: 0.45; box-shadow: 0 0 2px #3fb950; }
-      }
-    `}</style>
-  </div>
-);
-
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard: React.FC<{
   icon: React.ReactNode;
@@ -215,9 +113,6 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
 
-      {/* ── CAS Demo Banner — full width, above everything ── */}
-      <CasDemoBanner />
-
       {/* ── Below-banner layout: sidebar + main ── */}
       <div className="flex flex-1 min-h-0">
 
@@ -226,7 +121,6 @@ const AdminDashboard: React.FC = () => {
           className={`fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0 lg:static lg:z-auto`}
-          style={{ top: '36px' }}   /* offset for the banner */
         >
           {/* Logo */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
