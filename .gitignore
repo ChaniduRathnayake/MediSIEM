@@ -23,3 +23,7 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+#Model Dataset
+ai_server/data/
+ai_server/models/
