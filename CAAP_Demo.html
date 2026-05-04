@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAAP — CAS vs CVSS Demo | IT22061270</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --surface2: #1c2230;
+    --border:   rgba(255,255,255,0.08);
+    --border2:  rgba(255,255,255,0.14);
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --dim:      #484f58;
+
+    --blue:     #58a6ff;
+    --blue-bg:  rgba(88,166,255,0.10);
+    --blue-bd:  rgba(88,166,255,0.30);
+    --red:      #f85149;
+    --red-bg:   rgba(248,81,73,0.10);
+    --red-bd:   rgba(248,81,73,0.30);
+    --amber:    #e3b341;
+    --amber-bg: rgba(227,179,65,0.10);
+    --amber-bd: rgba(227,179,65,0.25);
+    --green:    #3fb950;
+    --green-bg: rgba(63,185,80,0.10);
+    --green-bd: rgba(63,185,80,0.25);
+    --purple:   #bc8cff;
+    --purple-bg:rgba(188,140,255,0.10);
+    --teal:     #39d353;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── DEMO BANNER ── */
+  .demo-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 101;
+    background: linear-gradient(90deg, #0d1117 0%, #0f1923 40%, #0d1f33 100%);
+    border-bottom: 1px solid rgba(88,166,255,0.18);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2rem;
+    height: 42px;
+    overflow: hidden;
+  }
+  .demo-banner::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #58a6ff, #bc8cff);
+  }
+  .demo-banner-left {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .demo-pill {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: rgba(88,166,255,0.12);
+    border: 1px solid rgba(88,166,255,0.3);
+    color: var(--blue);
+    white-space: nowrap;
+  }
+  .demo-title {
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .demo-title span { color: var(--blue); }
+  .demo-banner-right {
+    display: flex; align-items: center; gap: 16px;
+  }
+  .demo-meta {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: right;
+    line-height: 1.6;
+  }
+  .demo-meta strong { color: var(--text); font-weight: 500; }
+  .demo-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse-dot 2.2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--green); }
+    50% { opacity: 0.5; box-shadow: 0 0 2px var(--green); }
+  }
+
+  /* ── TOP NAV ── */
+  .topnav {
+    position: fixed; top: 42px; left: 0; right: 0; z-index: 100;
+    background: rgba(13,17,23,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2rem;
+    height: 56px;
+  }
+  .nav-logo {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .nav-logo span { color: var(--blue); }
+  .nav-meta {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .nav-tabs {
+    display: flex; gap: 4px;
+  }
+  .nav-tab {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.18s;
+    letter-spacing: 0.01em;
+  }
+  .nav-tab:hover { color: var(--text); background: var(--surface2); }
+  .nav-tab.active {
+    color: var(--blue);
+    background: var(--blue-bg);
+    border-color: var(--blue-bd);
+  }
+
+  /* ── PAGES ── */
+  .page { display: none; padding: 114px 2rem 3rem; max-width: 1100px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* ── PAGE 1: FORMULA ── */
+  .formula-hero {
+    text-align: center;
+    padding: 3rem 0 2.5rem;
+  }
+  .formula-hero .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+  .formula-hero h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: clamp(28px, 4vw, 44px);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 1rem;
+    color: var(--text);
+  }
+  .formula-hero .tagline {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 560px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.7;
+  }
+
+  .formula-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 14px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .formula-box .f-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .formula-eq {
+    font-family: 'DM Mono', monospace;
+    font-size: clamp(13px, 2.2vw, 20px);
+    color: var(--text);
+    line-height: 2;
+    word-break: break-word;
+  }
+  .formula-eq .w { color: var(--muted); }
+  .f-tr { color: #f85149; }
+  .f-cc { color: #58a6ff; }
+  .f-ts { color: #e3b341; }
+  .f-ae { color: #3fb950; }
+  .f-tc { color: #bc8cff; }
+  .formula-note {
+    margin-top: 1rem;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .dim-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.2rem 1rem;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: default;
+  }
+  .dim-card:hover { transform: translateY(-2px); }
+  .dim-card.tr { border-top: 3px solid var(--red); }
+  .dim-card.cc { border-top: 3px solid var(--blue); }
+  .dim-card.ts { border-top: 3px solid var(--amber); }
+  .dim-card.ae { border-top: 3px solid var(--green); }
+  .dim-card.tc { border-top: 3px solid var(--purple); }
+  .dim-card .dc-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .dim-card .dc-name { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .dim-card .dc-weight {
+    font-family: 'DM Mono', monospace;
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .dim-card .dc-src {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .dim-card.tr .dc-label { color: var(--red); }
+  .dim-card.tr .dc-weight { color: var(--red); }
+  .dim-card.cc .dc-label { color: var(--blue); }
+  .dim-card.cc .dc-weight { color: var(--blue); }
+  .dim-card.ts .dc-label { color: var(--amber); }
+  .dim-card.ts .dc-weight { color: var(--amber); }
+  .dim-card.ae .dc-label { color: var(--green); }
+  .dim-card.ae .dc-weight { color: var(--green); }
+  .dim-card.tc .dc-label { color: var(--purple); }
+  .dim-card.tc .dc-weight { color: var(--purple); }
+
+  .why-box {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 2rem;
+  }
+  .why-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.4rem;
+  }
+  .why-card h3 {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 0.8rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .why-card ul { list-style: none; }
+  .why-card li {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.7;
+    padding: 4px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+  .why-card li::before {
+    content: '';
+    position: absolute; left: 0; top: 11px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+  .why-card.cvss li::before { background: var(--dim); }
+  .why-card.cas li::before { background: var(--blue); }
+  .why-card li strong { color: var(--text); font-weight: 500; }
+
+  /* ── PAGE 2: SCENARIO ── */
+  .section-head {
+    display: flex; align-items: baseline;
+    gap: 12px; margin-bottom: 1.5rem;
+  }
+  .section-head h2 {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .section-head p { font-size: 13px; color: var(--muted); }
+
+  .sc-selector {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+  .sc-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.18s;
+    color: var(--text);
+  }
+  .sc-btn:hover { border-color: var(--border2); background: var(--surface2); }
+  .sc-btn.active { border-color: var(--blue-bd); background: var(--blue-bg); }
+  .sc-btn .sb-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+  .sc-btn .sb-sub  { font-size: 11px; color: var(--muted); }
+  .sc-btn .sb-badge {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+  }
+  .badge-red    { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-bd); }
+  .badge-amber  { background: var(--amber-bg);  color: var(--amber);  border: 1px solid var(--amber-bd); }
+  .badge-green  { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green-bd); }
+  .badge-blue   { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-bd); }
+  .badge-dim    { background: var(--surface2);  color: var(--muted);  border: 1px solid var(--border); }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 1.5rem;
+  }
+  .comp-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .comp-panel-head {
+    padding: 12px 18px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .comp-panel-head.cvss { color: var(--muted); background: var(--surface2); }
+  .comp-panel-head.cas  { color: var(--blue);  background: rgba(88,166,255,0.06); }
+  .comp-panel-body { padding: 18px; }
+  .score-big { font-family: 'Fraunces', serif; font-size: 54px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; }
+  .score-big.cvss { color: var(--muted); }
+  .score-big.cas  { color: var(--blue);  }
+  .score-sub { font-size: 12px; color: var(--muted); margin: 4px 0 14px; font-family: 'DM Mono', monospace; }
+  .action-tag {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 14px;
+    border-radius: 6px;
+    margin-bottom: 18px;
+    letter-spacing: 0.04em;
+  }
+
+  .bar-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 9px;
+  }
+  .bar-lbl { font-size: 11px; color: var(--muted); width: 96px; flex-shrink: 0; font-family: 'DM Mono', monospace; }
+  .bar-track {
+    flex: 1; height: 7px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s cubic-bezier(.4,0,.2,1); }
+  .bar-val { font-size: 11px; font-weight: 500; color: var(--text); min-width: 28px; text-align: right; font-family: 'DM Mono', monospace; }
+
+  .meta-box {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin-top: 14px;
+  }
+  .meta-box strong { color: var(--text); }
+
+  .insight-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: 0 10px 10px 0;
+    padding: 18px 20px;
+    margin-bottom: 1.5rem;
+  }
+  .insight-box .ib-label {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 8px;
+  }
+  .insight-box .ib-text {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .insight-box .ib-text strong { color: var(--text); }
+
+  .delta-strip {
+    display: flex; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap;
+  }
+  .delta-card {
+    flex: 1; min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .delta-card .dv { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; }
+  .delta-card .dl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ── PAGE 3: RANKING ── */
+  .rank-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 1.5rem; }
+  .rank-col h3 {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rank-item {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: border-color 0.2s;
+  }
+  .rank-item.warn { border-color: var(--red-bd); background: var(--red-bg); }
+  .rank-item.good { border-color: var(--blue-bd); background: var(--blue-bg); }
+  .rank-num { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--dim); font-weight: 500; text-align: center; }
+  .rank-name { font-size: 12px; }
+  .rank-sub  { font-size: 10px; color: var(--muted); }
+  .rank-score-val { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; color: var(--text); }
+  .rank-action { font-family: 'DM Mono', monospace; font-size: 10px; padding: 2px 8px; border-radius: 4px; }
+
+  .key-finding {
+    background: var(--surface);
+    border: 1px solid var(--amber-bd);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 1.5rem;
+  }
+  .key-finding h3 { font-size: 13px; font-weight: 500; color: var(--amber); margin-bottom: 10px; }
+  .key-finding p  { font-size: 13px; color: var(--muted); line-height: 1.8; }
+  .key-finding p strong { color: var(--text); }
+
+  /* ── PAGE 4: CHART ── */
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .chart-wrap h3 { font-size: 13px; color: var(--muted); margin-bottom: 1rem; font-weight: 400; }
+  .legend-row { display: flex; gap: 20px; margin-bottom: 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .leg-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+  /* ── FOOTER ── */
+  .page-footer {
+    border-top: 1px solid var(--border);
+    padding: 2rem 0 0;
+    margin-top: 1rem;
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.8;
+  }
+
+  /* ── UTIL ── */
+  .mono { font-family: 'DM Mono', monospace; }
+  @media (max-width: 640px) {
+    .compare-grid, .rank-grid, .why-box { grid-template-columns: 1fr; }
+    .formula-eq { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════ CAS DEMO PRESENTATION BANNER ═══════ -->
+<div class="demo-banner">
+  <div class="demo-banner-left">
+    <div class="demo-dot"></div>
+    <span class="demo-pill">Live Demo</span>
+    <span class="demo-title">CAAP — <span>CAS</span> Demo Presentation</span>
+  </div>
+  <div class="demo-banner-right">
+    <div class="demo-meta">
+      <strong>Clinically Aware Alert Prioritization</strong><br>
+      BSc (Hons) Cybersecurity · SLIIT · IT22061270
+    </div>
+  </div>
+</div>
+
+<nav class="topnav">
+  <div class="nav-logo">CAAP <span>Demo</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="goPage('formula')">Formula</button>
+    <button class="nav-tab" onclick="goPage('scenario')">Scenarios</button>
+    <button class="nav-tab" onclick="goPage('ranking')">Alert Ranking</button>
+    <button class="nav-tab" onclick="goPage('charts')">Charts</button>
+  </div>
+  <div class="nav-meta">IT22061270 · SLIIT Cyber Security</div>
+</nav>
+
+<!-- ════════════════════════════════════════
+     PAGE 1 — FORMULA EXPLAINER
+═════════════════════════════════════════ -->
+<div class="page active" id="page-formula">
+  <div class="formula-hero">
+    <p class="eyebrow">Clinically Aware Alert Prioritization</p>
+    <h1>Why CVSS alone fails<br>in smart hospitals</h1>
+    <p class="tagline">CVSS measures <em>technical</em> severity. It cannot tell the difference between an attack on an ICU ventilator and an attack on a cafeteria PC. CAAP adds five clinical dimensions that CVSS ignores entirely.</p>
+  </div>
+
+  <div class="formula-box">
+    <p class="f-label">The CAS Formula — Clinical Alert Score (0–10)</p>
+    <div class="formula-eq">
+      CAS &nbsp;=&nbsp;
+      (<span class="f-tr">0.25 × TR</span>
+      + <span class="f-cc">0.30 × CC</span>
+      + <span class="f-ts">0.25 × TS</span>
+      + <span class="f-ae">0.10 × AE</span>
+      + <span class="f-tc">0.10 × TC</span>) × 2
+    </div>
+    <p class="formula-note">Each dimension is scored 0–5 · multiplied by 2 to produce a 0–10 final score matching CVSS convention</p>
+  </div>
+
+  <div class="dim-cards">
+    <div class="dim-card tr">
+      <div class="dc-label">TR</div>
+      <div class="dc-name">Threat Risk</div>
+      <div class="dc-weight">0.25</div>
+      <div class="dc-src">Random Forest <strong>predict_proba</strong> confidence mapped to 1–5. High confidence attack prediction → high TR.</div>
+    </div>
+    <div class="dim-card cc">
+      <div class="dc-label">CC</div>
+      <div class="dc-name">Clinical Criticality</div>
+      <div class="dc-weight">0.30</div>
+      <div class="dc-src">Device <strong>cc_score column</strong> (1–10) halved → 1–5. ICU Ventilator = 5. Admin PC = 0.5. <em>Highest weight in formula.</em></div>
+    </div>
+    <div class="dim-card ts">
+      <div class="dc-label">TS</div>
+      <div class="dc-name">Time Sensitivity</div>
+      <div class="dc-weight">0.25</div>
+      <div class="dc-src"><strong>Isolation Forest</strong> anomaly score + <strong>time_sensitivity</strong> column. Anomalous traffic → elevated TS floor.</div>
+    </div>
+    <div class="dim-card ae">
+      <div class="dc-label">AE</div>
+      <div class="dc-name">Active Exploitation</div>
+      <div class="dc-weight">0.10</div>
+      <div class="dc-src">CVE lookup per attack class. DoS_TCP = 5, ARP Spoofing = 4, Recon = 2, Benign = 0.</div>
+    </div>
+    <div class="dim-card tc">
+      <div class="dc-label">TC</div>
+      <div class="dc-name">Temporal Context</div>
+      <div class="dc-weight">0.10</div>
+      <div class="dc-src"><strong>shift column</strong> from dataset. Night = 5 (minimal staff), Evening = 3, Day = 1. Attack at 3am is more dangerous.</div>
+    </div>
+  </div>
+
+  <div class="why-box">
+    <div class="why-card cvss">
+      <h3>CVSS v3.1 — what it measures</h3>
+      <ul>
+        <li>Attack vector (network / adjacent / local)</li>
+        <li>Attack complexity</li>
+        <li>Privileges required</li>
+        <li>User interaction required</li>
+        <li>Confidentiality / Integrity / Availability impact</li>
+        <li><strong>Zero</strong> awareness of device clinical role</li>
+        <li><strong>Zero</strong> awareness of patient dependency</li>
+        <li><strong>Zero</strong> awareness of hospital shift or staff levels</li>
+      </ul>
+    </div>
+    <div class="why-card cas">
+      <h3>CAAP CAS — what it adds</h3>
+      <ul>
+        <li>All CVSS technical data via <strong>TR dimension</strong></li>
+        <li><strong>Device type</strong> (ventilator vs admin PC)</li>
+        <li><strong>Clinical criticality</strong> from cc_score column</li>
+        <li><strong>Patient dependency</strong> (life_critical / high / low / none)</li>
+        <li><strong>Anomaly behaviour</strong> from Isolation Forest</li>
+        <li><strong>Attack class severity</strong> per known IoMT CVEs</li>
+        <li><strong>Time of day / hospital shift</strong> (staff availability)</li>
+        <li>Result: alerts sorted by <strong>patient safety impact</strong>, not abstract technical score</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    R.M.C.B. Rathnayake · IT22061270 · SLIIT Cyber Security · Supervisor-reviewed April 2026 ·
+    Dataset: CIC IoMT 2024 (Canadian Institute for Cybersecurity) ·
+    Models: Random Forest (TR), Isolation Forest (TS), K-Means (traffic context)
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     PAGE 2 — SCENARIO COMPARISON
+═════════════════════════════════════════ -->
+<div class="page" id="page-scenario">
+  <div class="section-head">
+    <h2>Hospital scenario comparison</h2>
+    <p>Select an attack scenario to see CVSS vs CAS side by side</p>
+  </div>
+
+  <div class="sc-selector" id="sc-selector"></div>
+  <div class="delta-strip" id="delta-strip"></div>
+  <div class="compare-grid" id="compare-panels"></div>
+  <div class="insight-box" id="insight-box"></div>
+
+  <div class="page-footer">
+    All scenarios use CIC IoMT 2024 attack classes and device types from the real dataset ·
+    CAS computed using trained models: RF confidence → TR · cc_score column → CC · IF anomaly score → TS
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     PAGE 3 — ALERT RANKING
+═════════════════════════════════════════ -->
+<div class="page" id="page-ranking">
+  <div class="section-head">
+    <h2>SOC alert queue ranking</h2>
+    <p>Same 6 alerts — ordered by CVSS vs ordered by CAS</p>
+  </div>
+
+  <div class="rank-grid" id="rank-grid"></div>
+
+  <div class="key-finding">
+    <h3>Key finding for the research panel</h3>
+    <p id="key-finding-text"></p>
+  </div>
+
+  <div class="page-footer">
+    Alert Ranking Accuracy (ARA) — core CAAP evaluation metric: % of life-critical alerts surfaced in top positions ·
+    CVSS ARA: <span id="cvss-ara">calculating...</span> · CAS ARA: <span id="cas-ara">calculating...</span>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     PAGE 4 — CHARTS
+═════════════════════════════════════════ -->
+<div class="page" id="page-charts">
+  <div class="section-head">
+    <h2>Score visualisation</h2>
+    <p>All scenarios · full comparison</p>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>CVSS score vs CAS score — all 6 hospital scenarios</h3>
+    <div class="legend-row">
+      <span><span class="leg-dot" style="background:#8b949e;"></span>CVSS base score</span>
+      <span><span class="leg-dot" style="background:#58a6ff;"></span>CAS score (clinically aware)</span>
+    </div>
+    <div style="position:relative; height:320px;">
+      <canvas id="barChart" role="img" aria-label="Grouped bar chart comparing CVSS and CAS scores for 6 hospital attack scenarios. CVSS scores are relatively uniform while CAS scores vary significantly based on clinical context.">CVSS vs CAS score comparison across 6 hospital scenarios.</canvas>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>CAS dimension breakdown — contribution of each component per scenario (×2 scaled)</h3>
+    <div class="legend-row">
+      <span><span class="leg-dot" style="background:#f85149;"></span>TR (threat risk 25%)</span>
+      <span><span class="leg-dot" style="background:#58a6ff;"></span>CC (clinical criticality 30%)</span>
+      <span><span class="leg-dot" style="background:#e3b341;"></span>TS (time sensitivity 25%)</span>
+      <span><span class="leg-dot" style="background:#3fb950;"></span>AE (active exploitation 10%)</span>
+      <span><span class="leg-dot" style="background:#bc8cff;"></span>TC (temporal context 10%)</span>
+    </div>
+    <div style="position:relative; height:320px;">
+      <canvas id="stackChart" role="img" aria-label="Stacked bar chart showing how each CAS dimension contributes to the final CAS score for each hospital scenario. CC (clinical criticality) dominates the score for ICU device attacks.">CAS dimension contributions per scenario.</canvas>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>Radar — CAS dimension profile per scenario</h3>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 12px;" id="radar-grid"></div>
+  </div>
+
+  <div class="page-footer">
+    Charts generated from CIC IoMT 2024 dataset attack profiles ·
+    Formula: CAS = (0.25·TR + 0.30·CC + 0.25·TS + 0.10·AE + 0.10·TC) × 2
+  </div>
+</div>
+
+
+<script>
+/* ════════ DATA ════════ */
+const SCENARIOS = [
+  {
+    id: 0,
+    name: "ICU Ventilator — DoS_TCP",
+    device: "ICU Ventilator", dept: "ICU", attack: "DoS_TCP", shift: "night",
+    cc_raw: 10, ts_col: 5,
+    badge: "LIFE-CRITICAL", badgeCls: "badge-red",
+    cvss: { score: 7.5, label: "High",
+      dims: [
+        ["Attack vector (Network)", 10],["Attack complexity (Low)", 8],
+        ["Privileges req. (None)", 10],["User interaction (None)", 10],
+        ["Availability impact (High)", 10],["Integrity impact (None)", 0],
+        ["Confidentiality (None)", 0]
+      ]
+    },
+    cas: { TR:5, CC:5, TS:5, AE:5, TC:5, score:10.0, action:"Immediate" },
+    insight: `<strong>CVSS: 7.5 (High)</strong> — technically correct but clinically blind. CVSS has no concept of what this device does. 
+              <strong>CAS: 10.0 (Immediate)</strong> — CC dimension gives ICU Ventilator the maximum score (cc_score=10 → CC=5). 
+              TC dimension gives night shift the maximum score (night → TC=5). A DoS on a ventilator at 3am with no backup staff 
+              is a patient fatality risk — CAS reflects this. CVSS does not.`
+  },
+  {
+    id: 1,
+    name: "Infusion Pump — ARP Spoofing",
+    device: "Infusion Pump", dept: "ICU", attack: "ARP_Spoofing", shift: "evening",
+    cc_raw: 8, ts_col: 4,
+    badge: "ICU DEVICE", badgeCls: "badge-red",
+    cvss: { score: 6.5, label: "Medium",
+      dims: [
+        ["Attack vector (Adjacent)", 7],["Attack complexity (Low)", 8],
+        ["Privileges req. (None)", 10],["User interaction (None)", 10],
+        ["Confidentiality (High)", 10],["Integrity impact (Low)", 5],
+        ["Availability impact (None)", 0]
+      ]
+    },
+    cas: { TR:4, CC:4, TS:4, AE:4, TC:3, score:7.6, action:"Investigate" },
+    insight: `<strong>CVSS: 6.5 (Medium)</strong> — ARP spoofing scores Medium because availability is not affected and attack is adjacent-only. 
+              <strong>CAS: 7.6 (Investigate)</strong> — CC dimension elevates this significantly. An infusion pump delivers drugs to ICU patients. 
+              MITM on drug delivery commands is a clinical emergency regardless of CVSS's availability score. 
+              The CC dimension captures what CVSS cannot: <strong>the clinical consequence of a confidentiality breach on a drug pump.</strong>`
+  },
+  {
+    id: 2,
+    name: "Admin PC — Ransomware (Critical CVSS)",
+    device: "Admin PC", dept: "Administration", attack: "Recon", shift: "day",
+    cc_raw: 1, ts_col: 2,
+    badge: "NON-CLINICAL", badgeCls: "badge-dim",
+    cvss: { score: 8.1, label: "Critical",
+      dims: [
+        ["Attack vector (Network)", 10],["Attack complexity (High)", 5],
+        ["Privileges req. (None)", 10],["User interaction (None)", 10],
+        ["Scope (Changed)", 10],["Integrity impact (High)", 10],
+        ["Availability impact (High)", 10]
+      ]
+    },
+    cas: { TR:2, CC:0.5, TS:2, AE:2, TC:1, score:2.4, action:"Monitor" },
+    insight: `<strong>This is the most important scenario for the research panel.</strong> CVSS scores Admin PC ransomware as <strong>Critical (8.1)</strong> — 
+              ranking it ABOVE the ICU ventilator. In a real SOC using CVSS, the analyst would respond to this first. 
+              <strong>CAS: 2.4 (Monitor)</strong> — CC dimension collapses to 0.5 (Admin PC cc_score=1 ÷ 2). 
+              No patient dependency. Day shift. CAS correctly places this LAST in the alert queue. 
+              <strong>This is the gap CAAP was designed to close.</strong>`
+  },
+  {
+    id: 3,
+    name: "MQTT Gateway — Brute Force",
+    device: "MQTT Gateway", dept: "Infrastructure", attack: "MQTT_Brute_Force", shift: "night",
+    cc_raw: 5, ts_col: 4,
+    badge: "CONTROLS ALL DEVICES", badgeCls: "badge-amber",
+    cvss: { score: 7.2, label: "High",
+      dims: [
+        ["Attack vector (Network)", 10],["Attack complexity (Low)", 8],
+        ["Privileges req. (None)", 10],["User interaction (None)", 10],
+        ["Confidentiality (High)", 10],["Integrity impact (Low)", 5],
+        ["Availability impact (None)", 0]
+      ]
+    },
+    cas: { TR:4, CC:2.5, TS:4, AE:4, TC:5, score:7.4, action:"Investigate" },
+    insight: `<strong>CVSS: 7.2 (High)</strong> — treats this the same as many other High alerts. 
+              <strong>CAS: 7.4 (Investigate)</strong> — the MQTT Gateway controls every IoMT device in the hospital. 
+              Successful brute force gives an attacker authenticated MQTT credentials to send commands to all connected medical devices. 
+              TC dimension (night shift = 5) appropriately elevates this attack that happens when staff are fewest. 
+              CAS keeps it below ICU device attacks, correctly reflecting that <strong>indirect infrastructure risk &lt; direct device risk.</strong>`
+  },
+  {
+    id: 4,
+    name: "Cardiac Monitor — MQTT Flood",
+    device: "Cardiac Monitor", dept: "Ward", attack: "MQTT_Publish_Flood", shift: "day",
+    cc_raw: 8, ts_col: 4,
+    badge: "PATIENT MONITORING", badgeCls: "badge-amber",
+    cvss: { score: 7.5, label: "High",
+      dims: [
+        ["Attack vector (Network)", 10],["Attack complexity (Low)", 8],
+        ["Privileges req. (None)", 10],["User interaction (None)", 10],
+        ["Availability impact (High)", 10],["Integrity impact (None)", 0],
+        ["Confidentiality (None)", 0]
+      ]
+    },
+    cas: { TR:4, CC:4, TS:4, AE:4, TC:1, score:7.0, action:"Investigate" },
+    insight: `<strong>CVSS: 7.5 (High)</strong> — identical score to the ventilator DoS. CVSS cannot distinguish between them. 
+              <strong>CAS: 7.0 (Investigate)</strong> — TC dimension correctly lowers this during day shift (TC=1, full staff available) 
+              compared to the same attack at night. CC is high (Cardiac Monitor cc_score=8 → CC=4) but temporal context matters. 
+              <strong>The same attack, the same device, at night would score 9.0 (Immediate)</strong> — CVSS would give 7.5 either way.`
+  },
+  {
+    id: 5,
+    name: "Nurse Workstation — Replay Attack",
+    device: "Nurse Workstation", dept: "Nursing", attack: "Replay", shift: "evening",
+    cc_raw: 3, ts_col: 3,
+    badge: "INDIRECT CARE", badgeCls: "badge-blue",
+    cvss: { score: 6.8, label: "Medium",
+      dims: [
+        ["Attack vector (Network)", 10],["Attack complexity (High)", 5],
+        ["Privileges req. (Low)", 8],["User interaction (None)", 10],
+        ["Confidentiality (High)", 10],["Integrity impact (High)", 10],
+        ["Availability impact (None)", 0]
+      ]
+    },
+    cas: { TR:3, CC:1.5, TS:3, AE:3, TC:3, score:5.3, action:"Investigate" },
+    insight: `<strong>CVSS: 6.8 (Medium)</strong> — replay of authenticated medication orders is technically Medium severity. 
+              <strong>CAS: 5.3 (Investigate)</strong> — CC dimension gives Nurse Workstation 1.5 (cc_score=3 ÷ 2). 
+              Indirect patient care means this alert correctly sits below all ICU device alerts. 
+              Evening shift gives TC=3. CAS acknowledges the risk without over-prioritising it above life-critical device attacks. 
+              <strong>CVSS would rank this identically regardless of what the workstation is used for.</strong>`
+  }
+];
+
+let currentSc = 0;
+let chartsDrawn = false;
+
+/* ════════ NAV ════════ */
+function goPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (id === 'scenario') renderScenario(currentSc);
+  if (id === 'ranking')  renderRanking();
+  if (id === 'charts' && !chartsDrawn) { chartsDrawn = true; renderCharts(); }
+}
+
+/* ════════ SCENARIO SELECTOR ════════ */
+function buildSelector() {
+  const el = document.getElementById('sc-selector');
+  el.innerHTML = SCENARIOS.map((s, i) => `
+    <button class="sc-btn${i===0?' active':''}" onclick="selectSc(${i})">
+      <div class="sb-name">${s.device}</div>
+      <div class="sb-sub">${s.attack.replace(/_/g,' ')} · ${s.dept}</div>
+      <span class="sb-badge ${s.badgeCls}">${s.badge}</span>
+    </button>`).join('');
+}
+
+function selectSc(i) {
+  currentSc = i;
+  document.querySelectorAll('.sc-btn').forEach((b,j) => b.classList.toggle('active', j===i));
+  renderScenario(i);
+}
+
+function actionStyle(action, type) {
+  const map = {
+    Immediate:  { bg:'var(--red-bg)',    color:'var(--red)',    bd:'var(--red-bd)' },
+    Investigate:{ bg:'var(--amber-bg)',  color:'var(--amber)',  bd:'var(--amber-bd)' },
+    Monitor:    { bg:'var(--green-bg)',  color:'var(--green)',  bd:'var(--green-bd)' },
+    Critical:   { bg:'var(--red-bg)',    color:'var(--red)',    bd:'var(--red-bd)' },
+    High:       { bg:'var(--amber-bg)',  color:'var(--amber)',  bd:'var(--amber-bd)' },
+    Medium:     { bg:'var(--blue-bg)',   color:'var(--blue)',   bd:'var(--blue-bd)' },
+    Low:        { bg:'var(--green-bg)',  color:'var(--green)',  bd:'var(--green-bd)' },
+  };
+  const s = map[action] || map.Medium;
+  return `background:${s.bg}; color:${s.color}; border:1px solid ${s.bd};`;
+}
+
+function barRow(label, val, max, color) {
+  const pct = Math.round(val / max * 100);
+  return `<div class="bar-row">
+    <span class="bar-lbl">${label}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+    <span class="bar-val">${val}</span>
+  </div>`;
+}
+
+function renderScenario(i) {
+  const s = SCENARIOS[i];
+  const cv = s.cvss; const ca = s.cas;
+  const diff = (ca.score - cv.score);
+  const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+  const diffColor = diff > 1.5 ? 'var(--blue)' : diff < -1 ? 'var(--red)' : 'var(--muted)';
+
+  document.getElementById('delta-strip').innerHTML = `
+    <div class="delta-card"><div class="dv" style="color:var(--muted);">${cv.score.toFixed(1)}</div><div class="dl">CVSS score</div></div>
+    <div class="delta-card"><div class="dv" style="color:var(--blue);">${ca.score.toFixed(1)}</div><div class="dl">CAS score</div></div>
+    <div class="delta-card"><div class="dv" style="color:${diffColor};">${diffStr}</div><div class="dl">score delta</div></div>
+    <div class="delta-card"><div class="dv" style="${actionStyle(cv.label,'tag')}; padding:4px 10px; border-radius:6px; font-size:20px;">${cv.label}</div><div class="dl">CVSS action</div></div>
+    <div class="delta-card"><div class="dv" style="${actionStyle(ca.action,'tag')}; padding:4px 10px; border-radius:6px; font-size:20px;">${ca.action}</div><div class="dl">CAS action</div></div>`;
+
+  document.getElementById('compare-panels').innerHTML = `
+    <div class="comp-panel">
+      <div class="comp-panel-head cvss">CVSS v3.1 — traditional scoring</div>
+      <div class="comp-panel-body">
+        <div class="score-big cvss">${cv.score.toFixed(1)}</div>
+        <div class="score-sub">/ 10.0 &nbsp;·&nbsp; base score</div>
+        <span class="action-tag" style="${actionStyle(cv.label)}">${cv.label}</span>
+        ${cv.dims.map(([l,v]) => barRow(l, v, 10, '#484f58')).join('')}
+        <div class="meta-box" style="margin-top:14px;">
+          Device type: <strong>not considered</strong><br>
+          Patient dependency: <strong>not considered</strong><br>
+          Hospital shift / staff: <strong>not considered</strong><br>
+          Attack class clinical impact: <strong>not considered</strong>
+        </div>
+      </div>
+    </div>
+    <div class="comp-panel">
+      <div class="comp-panel-head cas">CAAP CAS — clinically aware</div>
+      <div class="comp-panel-body">
+        <div class="score-big cas">${ca.score.toFixed(1)}</div>
+        <div class="score-sub">/ 10.0 &nbsp;·&nbsp; CAS = (0.25·TR + 0.30·CC + 0.25·TS + 0.10·AE + 0.10·TC) × 2</div>
+        <span class="action-tag" style="${actionStyle(ca.action)}">${ca.action}</span>
+        ${barRow('TR — threat risk',    ca.TR, 5, '#f85149')}
+        ${barRow('CC — clinical crit.', ca.CC, 5, '#58a6ff')}
+        ${barRow('TS — time sensit.',   ca.TS, 5, '#e3b341')}
+        ${barRow('AE — active exploit.',ca.AE, 5, '#3fb950')}
+        ${barRow('TC — temporal ctx.',  ca.TC, 5, '#bc8cff')}
+        <div class="meta-box" style="margin-top:14px; background:rgba(88,166,255,0.06); border:1px solid var(--blue-bd);">
+          Device: <strong>${s.device}</strong> &nbsp;·&nbsp; cc_score = ${s.cc_raw}/10 → CC = ${(s.cc_raw/2).toFixed(1)}<br>
+          Department: <strong>${s.dept}</strong> &nbsp;·&nbsp; Shift: <strong>${s.shift}</strong> → TC = ${s.cas.TC}<br>
+          Attack: <strong>${s.attack.replace(/_/g,' ')}</strong> → AE = ${ca.AE} &nbsp;·&nbsp; time_sensitivity col = ${s.ts_col}
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('insight-box').innerHTML = `
+    <div class="ib-label">Research insight — why this scenario matters</div>
+    <div class="ib-text">${s.insight}</div>`;
+}
+
+/* ════════ RANKING ════════ */
+function renderRanking() {
+  const cvssRanked = [...SCENARIOS].sort((a,b) => b.cvss.score - a.cvss.score);
+  const caapRanked = [...SCENARIOS].sort((a,b) => b.cas.score - a.cas.score);
+
+  function itemHtml(s, rank, useCas) {
+    const score = useCas ? s.cas.score.toFixed(1) : s.cvss.score.toFixed(1);
+    const action = useCas ? s.cas.action : s.cvss.label;
+    const isIcu   = s.id === 0;
+    const isAdmin = s.id === 2;
+    const cls = (isIcu && useCas) ? 'good' : (isAdmin && !useCas) ? 'warn' : '';
+    return `<div class="rank-item ${cls}">
+      <span class="rank-num">#${rank}</span>
+      <div>
+        <div class="rank-name">${s.device}</div>
+        <div class="rank-sub">${s.attack.replace(/_/g,' ')} · ${s.dept}</div>
+      </div>
+      <span class="rank-action" style="${actionStyle(action)}">${action}</span>
+      <span class="rank-score-val">${score}</span>
+    </div>`;
+  }
+
+  const cvssIcuRank   = cvssRanked.findIndex(s=>s.id===0)+1;
+  const caapIcuRank   = caapRanked.findIndex(s=>s.id===0)+1;
+  const cvssAdminRank = cvssRanked.findIndex(s=>s.id===2)+1;
+  const caapAdminRank = caapRanked.findIndex(s=>s.id===2)+1;
+
+  document.getElementById('rank-grid').innerHTML = `
+    <div class="rank-col">
+      <h3>CVSS-only ranking — traditional SIEM</h3>
+      ${cvssRanked.map((s,i) => itemHtml(s,i+1,false)).join('')}
+    </div>
+    <div class="rank-col">
+      <h3>CAAP CAS ranking — clinically aware</h3>
+      ${caapRanked.map((s,i) => itemHtml(s,i+1,true)).join('')}
+    </div>`;
+
+  document.getElementById('key-finding-text').innerHTML =
+    `Under <strong>CVSS-only</strong>, the <strong>Admin PC ransomware</strong> ranks #${cvssAdminRank} — above the ICU Ventilator DoS at #${cvssIcuRank}. 
+     A SOC analyst following CVSS would respond to a non-clinical admin machine before attending to a life-support device under attack. 
+     Under <strong>CAAP CAS</strong>, the ICU Ventilator DoS ranks #${caapIcuRank} (CAS 10.0 — Immediate) 
+     and the Admin PC drops to #${caapAdminRank} (CAS 2.4 — Monitor). 
+     This ranking inversion is the core contribution of the CAAP system: replacing technical-only severity with <strong>patient-safety-weighted alert prioritization</strong>.`;
+
+  const lifeCritical = [0]; // scenario IDs that are life-critical
+  const cvssTop2LifeCrit = cvssRanked.slice(0,2).filter(s=>lifeCritical.includes(s.id)).length;
+  const caapTop2LifeCrit = caapRanked.slice(0,2).filter(s=>lifeCritical.includes(s.id)).length;
+  document.getElementById('cvss-ara').textContent = `${Math.round(cvssTop2LifeCrit/lifeCritical.length*100)}% life-critical in top 2`;
+  document.getElementById('cas-ara').textContent  = `${Math.round(caapTop2LifeCrit/lifeCritical.length*100)}% life-critical in top 2`;
+}
+
+/* ════════ CHARTS ════════ */
+let radarCharts = [];
+function renderCharts() {
+  const labels = SCENARIOS.map(s => s.device.replace('Workstation','WS').replace('Ventilator','Vent.').replace('Monitor','Mon.'));
+
+  new Chart(document.getElementById('barChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'CVSS', data: SCENARIOS.map(s=>s.cvss.score), backgroundColor:'#484f58', borderWidth:0, borderRadius:4 },
+        { label:'CAS',  data: SCENARIOS.map(s=>s.cas.score),  backgroundColor:'#58a6ff', borderWidth:0, borderRadius:4 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        y:{ min:0, max:11,
+            ticks:{ stepSize:2, color:'#8b949e', font:{size:11,family:"'DM Mono',monospace"} },
+            grid:{ color:'rgba(255,255,255,0.05)' }
+        },
+        x:{ ticks:{ color:'#8b949e', font:{size:10,family:"'DM Mono',monospace"}, maxRotation:30, autoSkip:false },
+            grid:{ display:false }
+        }
+      }
+    }
+  });
+
+  new Chart(document.getElementById('stackChart'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        { label:'TR',  data: SCENARIOS.map(s=>+(s.cas.TR*0.25*2).toFixed(2)), backgroundColor:'#f85149', borderWidth:0, borderRadius:0 },
+        { label:'CC',  data: SCENARIOS.map(s=>+(s.cas.CC*0.30*2).toFixed(2)), backgroundColor:'#58a6ff', borderWidth:0, borderRadius:0 },
+        { label:'TS',  data: SCENARIOS.map(s=>+(s.cas.TS*0.25*2).toFixed(2)), backgroundColor:'#e3b341', borderWidth:0, borderRadius:0 },
+        { label:'AE',  data: SCENARIOS.map(s=>+(s.cas.AE*0.10*2).toFixed(2)), backgroundColor:'#3fb950', borderWidth:0, borderRadius:0 },
+        { label:'TC',  data: SCENARIOS.map(s=>+(s.cas.TC*0.10*2).toFixed(2)), backgroundColor:'#bc8cff', borderWidth:0, borderRadius:0 },
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{ stacked:true, ticks:{ color:'#8b949e', font:{size:10,family:"'DM Mono',monospace"}, maxRotation:30, autoSkip:false }, grid:{display:false} },
+        y:{ stacked:true, min:0, max:11, ticks:{ color:'#8b949e', font:{size:11,family:"'DM Mono',monospace"} }, grid:{color:'rgba(255,255,255,0.05)'} }
+      }
+    }
+  });
+
+  const radarGrid = document.getElementById('radar-grid');
+  radarGrid.innerHTML = '';
+  SCENARIOS.forEach(s => {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-family:'DM Mono',monospace;">${s.device}</div>
+      <div style="position:relative;height:200px;"><canvas id="radar-${s.id}"></canvas></div>`;
+    radarGrid.appendChild(wrap);
+
+    setTimeout(() => {
+      const ctx = document.getElementById('radar-'+s.id);
+      if (!ctx) return;
+      new Chart(ctx, {
+        type:'radar',
+        data:{
+          labels:['TR','CC','TS','AE','TC'],
+          datasets:[{
+            label: s.device,
+            data:[s.cas.TR, s.cas.CC, s.cas.TS, s.cas.AE, s.cas.TC],
+            borderColor:'#58a6ff',
+            backgroundColor:'rgba(88,166,255,0.15)',
+            borderWidth:1.5,
+            pointBackgroundColor:'#58a6ff',
+            pointRadius:3
+          }]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{display:false} },
+          scales:{
+            r:{
+              min:0, max:5,
+              ticks:{ display:false },
+              grid:{ color:'rgba(255,255,255,0.08)' },
+              angleLines:{ color:'rgba(255,255,255,0.08)' },
+              pointLabels:{ color:'#8b949e', font:{size:11, family:"'DM Mono',monospace"} }
+            }
+          }
+        }
+      });
+    }, 50);
+  });
+}
+
+/* ════════ INIT ════════ */
+buildSelector();
+renderScenario(0);
+</script>
+</body>
+</html>

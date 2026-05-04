@@ -3,7 +3,7 @@ import WazuhDashboard from './WazuhDashboard';
 import {
   Shield, Activity, AlertTriangle, Users, Server, Bell,
   LogOut, Settings, ChevronDown, Menu, X, BarChart3,
-  TrendingUp, Network, Lock, Eye, Zap, CheckCircle,
+  TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
