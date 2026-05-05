@@ -27,3 +27,4 @@ Thumbs.db
 #Model Dataset
 ai_server/data/
 ai_server/models/
+ai_server/venv/

@@ -1,0 +1,25 @@
+CAAP IoMT IDS — Random Forest Classification Report
+Author : R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
+Overall Test Accuracy : 99.58%
+AUC-ROC (macro OvR)   : 0.9997
+
+                precision    recall  f1-score   support
+
+  ARP_Spoofing       0.87      0.80      0.83      1744
+        Benign       0.97      0.98      0.97     37607
+     DDoS_ICMP       1.00      1.00      1.00    349699
+      DDoS_SYN       1.00      1.00      1.00    172397
+      DDoS_TCP       1.00      1.00      1.00    182598
+      DDoS_UDP       1.00      1.00      1.00    362070
+      DoS_ICMP       1.00      1.00      1.00     98432
+       DoS_SYN       1.00      1.00      1.00     98595
+       DoS_TCP       1.00      1.00      1.00     82096
+       DoS_UDP       1.00      1.00      1.00    137553
+     MQTT_DDoS       1.00      0.94      0.97     50332
+      MQTT_DoS       0.79      1.00      0.88     11636
+MQTT_Malformed       1.00      0.85      0.92      1747
+         Recon       0.97      0.97      0.97     27676
+
+      accuracy                           1.00   1614182
+     macro avg       0.97      0.97      0.97   1614182
+  weighted avg       1.00      1.00      1.00   1614182
