@@ -25,6 +25,7 @@ Thumbs.db
 .idea/
 
 #Model Dataset
+ai_server/
 ai_server/data/
 ai_server/models/
 ai_server/reports/
