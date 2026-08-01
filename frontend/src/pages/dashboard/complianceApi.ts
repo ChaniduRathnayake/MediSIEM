@@ -1,9 +1,9 @@
 // frontend/src/pages/dashboard/complianceApi.ts
 // Client for the Wazuh Indexer proxy (backend/routes/compliance.js) — a
 // separate service from the Wazuh manager API that wazuhApi.ts talks to.
-// Backs both the full paginated Alerts browser and the HIPAA/GDPR compliance
-// views. Same request shape as wazuhApi.ts's proxyGet, but against
-// /api/compliance with x-indexer-* headers instead of x-wazuh-*.
+// Backs the full paginated Alerts browser, the HIPAA/GDPR compliance views,
+// and FIM change history. Same request shape as wazuhApi.ts's proxyGet, but
+// against /api/compliance with x-indexer-* headers instead of x-wazuh-*.
 
 import type { WazuhConfig } from './wazuhApi';
 
@@ -131,4 +131,41 @@ export async function searchAlerts(cfg: WazuhConfig, opts: AlertSearchOptions): 
   if (opts.severity !== undefined) qs.set('severity', String(opts.severity));
   if (opts.q) qs.set('q', opts.q);
   return proxyGet<AlertSearchResult>(`/alerts?${qs.toString()}`, cfg);
+}
+
+// ── FIM change history (real before/after diffs, not just current state) ────
+export interface FimEvent {
+  id: string;
+  timestamp: string | null;
+  path: string | null;
+  event: string | null; // 'added' | 'modified' | 'deleted'
+  changedAttributes: string[];
+  ruleDescription: string | null;
+  ruleLevel: number | null;
+  // Raw syscheck fields straight from the Wazuh alert — includes whichever
+  // *_before/*_after pairs (size, md5sum, sha1sum, sha256sum, perm, uid, gid,
+  // mtime, ...) and optional `diff` (line-level content diff) this event has.
+  syscheck: Record<string, unknown>;
+}
+
+export interface FimHistoryResult {
+  ok: boolean;
+  total: number;
+  page: number;
+  pageSize: number;
+  events: FimEvent[];
+}
+
+export interface FimHistoryOptions {
+  page: number;
+  pageSize?: number;
+  days?: number;
+  path?: string;
+}
+
+export async function getFimHistory(cfg: WazuhConfig, agentId: string, opts: FimHistoryOptions): Promise<FimHistoryResult> {
+  const qs = new URLSearchParams({ page: String(opts.page), pageSize: String(opts.pageSize ?? 50) });
+  if (opts.days !== undefined) qs.set('days', String(opts.days));
+  if (opts.path) qs.set('path', opts.path);
+  return proxyGet<FimHistoryResult>(`/fim/${agentId}?${qs.toString()}`, cfg);
 }

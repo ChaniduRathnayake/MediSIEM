@@ -277,6 +277,69 @@ router.get('/alerts', async (req, res) => {
   }
 });
 
+// GET /api/compliance/fim/:agentId?page=1&pageSize=50&days=&path=
+// Real FIM *change history* for one agent — every detected add/modify/delete
+// event with its full before/after diff (size, hash, permissions, owner,
+// mtime, and — if the content-diff module is enabled — the actual line
+// diff), sourced from the FIM alerts in the Indexer. This is deliberately
+// separate from the manager API's /syscheck/{agent_id} (proxied in
+// wazuh.js's agent-details route), which only reports each file's CURRENT
+// state — it has no before/after values and collapses repeated changes down
+// to the latest one, which is why the old FIM tab couldn't show what
+// actually changed.
+router.get('/fim/:agentId', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Indexer credentials' });
+
+  const { agentId } = req.params;
+  const page     = Math.max(parseInt(req.query.page) || 1, 1);
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize) || 50, 1), 200);
+  const days     = req.query.days ? Math.min(Math.max(parseInt(req.query.days) || 0, 1), 365) : null;
+  const path     = String(req.query.path || '').trim();
+
+  const filter = [
+    { term: { 'agent.id': agentId } },
+    { exists: { field: 'syscheck.path' } },
+  ];
+  if (days) filter.push({ range: { '@timestamp': { gte: `now-${days}d` } } });
+  if (path) filter.push({ wildcard: { 'syscheck.path': `*${path}*` } });
+
+  const body = {
+    from: (page - 1) * pageSize,
+    size: pageSize,
+    track_total_hits: true,
+    sort: [{ '@timestamp': { order: 'desc' } }],
+    query: { bool: { filter } },
+    _source: ['@timestamp', 'syscheck', 'rule'],
+  };
+
+  try {
+    const data = await searchWithKeywordFallback(cfg, body, ['agent.id', 'syscheck.path']);
+    const hits = data?.hits?.hits ?? [];
+    const total = data?.hits?.total?.value ?? data?.hits?.total ?? 0;
+
+    const events = hits.map((h) => {
+      const src = h._source || {};
+      const sc  = src.syscheck || {};
+      return {
+        id:                h._id,
+        timestamp:         src['@timestamp'] ?? null,
+        path:              sc.path ?? null,
+        event:             sc.event ?? null,
+        changedAttributes: sc.changed_attributes ?? [],
+        ruleDescription:   src.rule?.description ?? null,
+        ruleLevel:         src.rule?.level ?? null,
+        syscheck:          sc, // raw before/after fields — frontend pairs up any *_before/*_after keys generically
+      };
+    });
+
+    return res.json({ ok: true, total, page, pageSize, events });
+  } catch (err) {
+    console.error('[compliance/fim]', err.message);
+    return res.status(502).json({ message: err.message });
+  }
+});
+
 // GET /api/compliance/ping  — connectivity check for the Settings panel
 router.get('/ping', async (req, res) => {
   const cfg = getConfig(req);

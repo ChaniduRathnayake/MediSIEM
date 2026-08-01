@@ -9,8 +9,8 @@ import {
 
 const router = express.Router();
 
-// ─── GET /api/device-groups  (admin only) ──────────────────────────────────────
-router.get('/', protect, adminOnly, getAllDeviceGroups);
+// ─── GET /api/device-groups  (any authenticated user — read-only insight for SOC analysts) ──
+router.get('/', protect, getAllDeviceGroups);
 
 // ─── POST /api/device-groups  (admin only) ─────────────────────────────────────
 router.post('/', protect, adminOnly, createDeviceGroup);

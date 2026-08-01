@@ -4,8 +4,8 @@ import { getAllDeviceMeta, setAgentGroups, setAgentOsCategory } from '../control
 
 const router = express.Router();
 
-// ─── GET /api/devices/meta  (admin only) ───────────────────────────────────────
-router.get('/meta', protect, adminOnly, getAllDeviceMeta);
+// ─── GET /api/devices/meta  (any authenticated user — read-only insight for SOC analysts) ──
+router.get('/meta', protect, getAllDeviceMeta);
 
 // ─── PUT /api/devices/:agentId/groups  (admin only) ────────────────────────────
 router.put('/:agentId/groups', protect, adminOnly, setAgentGroups);

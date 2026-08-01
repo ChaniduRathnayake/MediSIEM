@@ -8,6 +8,7 @@ import type { DeviceGroup } from './deviceApi';
 import AgentDetailsModal from './AgentDetailsModal';
 import CompliancePanel from './CompliancePanel';
 import type { FrameworkTab } from './CompliancePanel';
+import VulnerabilitiesPanel from './VulnerabilitiesPanel';
 import { hasIndexerConfig, searchAlerts } from './complianceApi';
 import type { WazuhAlertRow } from './complianceApi';
 import {
@@ -15,7 +16,7 @@ import {
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
-  Tag, Filter, ChevronUp, ChevronsUpDown, ShieldCheck, Globe, ClipboardCheck,
+  Tag, Filter, ChevronUp, ChevronsUpDown, ShieldCheck, Globe, ClipboardCheck, Bug,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -1242,6 +1243,7 @@ const AdminDashboard: React.FC = () => {
     { label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
     { label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
+    { label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
     { label: 'IP Reputation', icon: <Network className="w-4 h-4" /> },
     { label: 'Playbooks', icon: <Zap className="w-4 h-4" /> },
   ];
@@ -1455,10 +1457,12 @@ const AdminDashboard: React.FC = () => {
             {activeNav === 'Users' && <UsersPanel token={token} currentUserId={user?.id} />}
             {activeNav === 'Audit Log' && <AuditLogPanel token={token} />}
             {activeNav === 'Devices' && <DevicesPanel />}
+            {activeNav === 'Vulnerabilities' && <VulnerabilitiesPanel />}
             {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
             {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
             {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
             {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
+             activeNav !== 'Vulnerabilities' &&
              activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && <div className="p-5 space-y-6">
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

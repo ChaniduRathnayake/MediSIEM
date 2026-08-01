@@ -326,9 +326,9 @@ export async function getRecentAlerts(cfg: WazuhConfig, limit = 50): Promise<Waz
   return data.data?.affected_items ?? [];
 }
 
-export async function getVulnerabilities(cfg: WazuhConfig, agentId = '000'): Promise<WazuhVulnerability[]> {
+export async function getVulnerabilities(cfg: WazuhConfig, agentId = '000', limit = 100): Promise<WazuhVulnerability[]> {
   const data = await proxyGet<{ data: { affected_items: WazuhVulnerability[] } }>(
-    `/vulnerability/${agentId}?limit=100`,
+    `/vulnerability/${agentId}?limit=${limit}`,
     cfg
   );
   return data.data?.affected_items ?? [];

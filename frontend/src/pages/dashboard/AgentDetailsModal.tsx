@@ -10,6 +10,9 @@ import {
   WazuhAgent, WazuhAgentDetails, WazuhConfig, AgentDetailsSection,
   normalizeAgentStatus, formatOs, getAgentDetails, getAgentDetailsSection,
 } from './wazuhApi';
+import type { WazuhVulnerability, WazuhListSection } from './wazuhApi';
+import { hasIndexerConfig, getFimHistory } from './complianceApi';
+import type { FimEvent } from './complianceApi';
 
 type SectionKey = 'overview' | 'hardware' | 'network' | 'software' | 'processes' | 'vulnerabilities' | 'sca' | 'fim';
 
@@ -148,16 +151,368 @@ const severityBadgeClass = (severity?: string): string => {
   return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
 };
 
+const vulnFilterBtnClass = (active: boolean) =>
+  `px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+  }`;
+
+type VulnSeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low';
+
+// Vulnerabilities section with a severity filter + CVE/package search — the
+// data itself is whatever's already been fetched (up to 500 items, more via
+// Load More), filtered client-side.
+const VulnerabilitiesSection: React.FC<{
+  section: WazuhListSection<WazuhVulnerability>;
+  onLoadMore: () => void;
+  loadingMore: boolean;
+}> = ({ section, onLoadMore, loadingMore }) => {
+  const [severity, setSeverity] = useState<VulnSeverityFilter>('all');
+  const [search, setSearch] = useState('');
+
+  if (!section.ok) return <SectionUnavailable message={section.error} />;
+
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const v of section.items) {
+    const s = String(v.severity ?? '').toLowerCase();
+    if (s === 'critical') counts.critical++;
+    else if (s === 'high') counts.high++;
+    else if (s === 'medium') counts.medium++;
+    else counts.low++;
+  }
+
+  const searchLower = search.trim().toLowerCase();
+  const filtered = section.items.filter((v) => {
+    if (severity !== 'all' && String(v.severity ?? '').toLowerCase() !== severity) return false;
+    if (searchLower) {
+      const hay = `${v.cve ?? ''} ${v.package?.name ?? ''}`.toLowerCase();
+      if (!hay.includes(searchLower)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => setSeverity('all')} className={vulnFilterBtnClass(severity === 'all')}>All ({section.items.length})</button>
+        <button onClick={() => setSeverity('critical')} className={vulnFilterBtnClass(severity === 'critical')}>Critical ({counts.critical})</button>
+        <button onClick={() => setSeverity('high')} className={vulnFilterBtnClass(severity === 'high')}>High ({counts.high})</button>
+        <button onClick={() => setSeverity('medium')} className={vulnFilterBtnClass(severity === 'medium')}>Medium ({counts.medium})</button>
+        <button onClick={() => setSeverity('low')} className={vulnFilterBtnClass(severity === 'low')}>Low ({counts.low})</button>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search CVE or package…"
+          className="ml-auto px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
+        />
+      </div>
+
+      <SimpleTable
+        columns={['CVE', 'Severity', 'Package', 'Version']}
+        rows={filtered.map((v) => [
+          safe(v.cve),
+          <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded border ${severityBadgeClass(v.severity)}`}>
+            {String(v.severity ?? '—').toUpperCase()}
+          </span>,
+          safe(v.package?.name), safe(v.package?.version),
+        ])}
+        empty={section.items.length === 0 ? 'No vulnerabilities found for this agent' : 'No CVEs match this filter'}
+        shownCount={section.items.length}
+        totalCount={section.total}
+        onLoadMore={onLoadMore}
+        loadingMore={loadingMore}
+      />
+    </div>
+  );
+};
+
+// ─── FIM change-history helpers ─────────────────────────────────────────────
+const FIM_FIELD_LABELS: Record<string, string> = {
+  size: 'Size',
+  md5sum: 'MD5', md5: 'MD5',
+  sha1sum: 'SHA1', sha1: 'SHA1',
+  sha256sum: 'SHA256', sha256: 'SHA256',
+  perm: 'Permissions',
+  uid: 'UID', gid: 'GID',
+  uname: 'Owner', gname: 'Group',
+  mtime: 'Modified', inode: 'Inode',
+};
+
+const humanizeFimKey = (key: string): string =>
+  FIM_FIELD_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+const formatFimValue = (key: string, v: unknown): string => {
+  if (v === null || v === undefined || v === '') return '—';
+  if (key === 'mtime' && (typeof v === 'string' || typeof v === 'number')) {
+    const d = new Date(typeof v === 'number' ? v * 1000 : v);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+  }
+  if (typeof v === 'object') { try { return JSON.stringify(v); } catch { return String(v); } }
+  const s = String(v);
+  return s.length > 24 && /^[a-f0-9]+$/i.test(s) ? `${s.slice(0, 16)}…` : s;
+};
+
+interface FimDiffPair { key: string; label: string; before: string; after: string }
+
+// Wazuh's FIM alerts carry paired `<attr>_before` / `<attr>_after` fields for
+// whatever actually changed (size, hashes, permissions, owner, mtime, ...).
+// Pairing them up generically (rather than hardcoding each field name) means
+// this stays correct across Wazuh versions/OSes without guessing wrong.
+function extractFimDiffPairs(syscheck: Record<string, unknown>): FimDiffPair[] {
+  const pairs: FimDiffPair[] = [];
+  for (const key of Object.keys(syscheck)) {
+    if (!key.endsWith('_before')) continue;
+    const base = key.slice(0, -'_before'.length);
+    const afterKey = `${base}_after`;
+    if (!(afterKey in syscheck)) continue;
+    const beforeRaw = syscheck[key];
+    const afterRaw = syscheck[afterKey];
+    if (String(beforeRaw ?? '') === String(afterRaw ?? '')) continue;
+    pairs.push({ key: base, label: humanizeFimKey(base), before: formatFimValue(base, beforeRaw), after: formatFimValue(base, afterRaw) });
+  }
+  return pairs;
+}
+
+const fimEventClass = (event: string | null): string => {
+  const e = (event || '').toLowerCase();
+  if (e === 'added') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+  if (e === 'deleted') return 'text-red-400 bg-red-500/10 border-red-500/30';
+  if (e === 'modified') return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+  return 'text-slate-400 bg-slate-800 border-slate-700';
+};
+
+const fimTabBtnClass = (active: boolean) =>
+  `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+  }`;
+
+const FIM_PAGE_SIZE = 25;
+
+// Real change history, sourced from the Wazuh Indexer's FIM alerts (see
+// backend/routes/compliance.js's /fim/:agentId) — every detected add/modify/
+// delete event with its full before/after diff. This is what actually shows
+// "what changed", unlike the manager API's /syscheck (Current State tab
+// below), which only reports each file's latest snapshot.
+const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({ agent, config }) => {
+  const [page, setPage] = useState(1);
+  const [path, setPath] = useState('');
+  const [days, setDays] = useState<number | null>(30);
+  const [events, setEvents] = useState<FimEvent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { setPage(1); }, [path, days]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    getFimHistory(config, agent.id, { page, pageSize: FIM_PAGE_SIZE, days: days ?? undefined, path: path.trim() || undefined })
+      .then((r) => { if (!cancelled) { setEvents(r.events); setTotal(r.total); } })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load FIM change history.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [agent.id, config, page, path, days]);
+
+  const totalPages = Math.max(1, Math.ceil(total / FIM_PAGE_SIZE));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder="Filter by file path…"
+          className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
+        />
+        <div className="flex items-center gap-1.5">
+          {[7, 30, 90].map((d) => (
+            <button key={d} onClick={() => setDays(d)} className={fimTabBtnClass(days === d)}>{d}d</button>
+          ))}
+          <button onClick={() => setDays(null)} className={fimTabBtnClass(days === null)}>All time</button>
+        </div>
+      </div>
+
+      {loading && events.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading change history…
+        </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 px-4 py-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+      ) : events.length === 0 ? (
+        <p className="text-sm text-slate-500 text-center py-14">
+          No file changes detected{path ? ' for this path' : ''}{days ? ` in the last ${days} days` : ''}.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {events.map((ev) => {
+            const pairs = extractFimDiffPairs(ev.syscheck);
+            const diffText = typeof ev.syscheck.diff === 'string' ? ev.syscheck.diff : null;
+            return (
+              <div key={ev.id} className="rounded-lg border border-slate-800 bg-slate-800/30 p-3">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white font-mono break-all">{ev.path ?? 'Unknown path'}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '—'}
+                      {ev.ruleDescription ? ` · ${ev.ruleDescription}` : ''}
+                      {ev.ruleLevel !== null ? ` · level ${ev.ruleLevel}` : ''}
+                    </p>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded border capitalize whitespace-nowrap ${fimEventClass(ev.event)}`}>
+                    {ev.event ?? 'unknown'}
+                  </span>
+                </div>
+
+                {ev.changedAttributes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {ev.changedAttributes.map((a) => (
+                      <span key={a} className="text-xs px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400">{a}</span>
+                    ))}
+                  </div>
+                )}
+
+                {pairs.length > 0 && (
+                  <div className="mt-2.5 overflow-x-auto rounded-lg border border-slate-800">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-800/40">
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">Attribute</th>
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">Before</th>
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">After</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pairs.map((p) => (
+                          <tr key={p.key} className="border-b border-slate-800/60 last:border-0">
+                            <td className="py-1.5 px-2.5 text-slate-400 whitespace-nowrap">{p.label}</td>
+                            <td className="py-1.5 px-2.5 text-red-400/80 font-mono break-all">{p.before}</td>
+                            <td className="py-1.5 px-2.5 text-emerald-400/80 font-mono break-all">{p.after}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {diffText && (
+                  <pre className="mt-2.5 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap">
+                    {diffText}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {total > 0 && (
+        <div className="flex items-center justify-between px-1 pt-1">
+          <p className="text-xs text-slate-500">Page {page} of {totalPages} · {total.toLocaleString()} total changes</p>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || loading}
+              className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// FIM tab shell: "Change History" (Indexer-backed, real diffs — see above)
+// plus the original "Current State" snapshot table (manager API, no Indexer
+// needed) so the tab still works even without an Indexer configured.
+const FimSection: React.FC<{
+  agent: WazuhAgent;
+  config: WazuhConfig;
+  details: WazuhAgentDetails | null;
+  loading: boolean;
+  error: string;
+  onLoadMoreCurrent: () => void;
+  loadingMoreCurrent: boolean;
+}> = ({ agent, config, details, loading, error, onLoadMoreCurrent, loadingMoreCurrent }) => {
+  const [view, setView] = useState<'history' | 'current'>(hasIndexerConfig(config) ? 'history' : 'current');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5">
+        <button onClick={() => setView('history')} className={fimTabBtnClass(view === 'history')}>Change History</button>
+        <button onClick={() => setView('current')} className={fimTabBtnClass(view === 'current')}>
+          Current State{details?.fim.ok ? ` (${details.fim.total})` : ''}
+        </button>
+      </div>
+
+      {view === 'history' ? (
+        hasIndexerConfig(config) ? (
+          <FimHistoryPanel agent={agent} config={config} />
+        ) : (
+          <div className="flex items-start gap-2 p-4 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500 text-xs">
+            <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Real change history (before/after diffs) needs the Wazuh Indexer — add its connection details
+              under Settings → Wazuh SIEM → "Wazuh Indexer settings". The Current State tab works without it.
+            </span>
+          </div>
+        )
+      ) : loading ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading current state…
+        </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 px-4 py-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+      ) : !details ? (
+        <SectionUnavailable />
+      ) : details.fim.ok ? (
+        <SimpleTable
+          columns={['File', 'Event', 'Owner', 'Permissions', 'Modified', 'SHA256']}
+          rows={details.fim.items.map((f) => [
+            <span key="f" className="font-mono">{safe(f.file)}</span>,
+            safe(f.event), safe(f.uname), safe(f.perm), formatDate(f.mtime),
+            typeof f.sha256 === 'string' && f.sha256 ? `${f.sha256.slice(0, 12)}…` : '—',
+          ])}
+          empty="No file integrity monitoring events for this agent"
+          shownCount={details.fim.items.length}
+          totalCount={details.fim.total}
+          onLoadMore={onLoadMoreCurrent}
+          loadingMore={loadingMoreCurrent}
+        />
+      ) : (
+        <SectionUnavailable message={details.fim.error} />
+      )}
+    </div>
+  );
+};
+
 // ─── Main modal ───────────────────────────────────────────────────────────────
 const AgentDetailsModal: React.FC<{
   agent: WazuhAgent;
   config: WazuhConfig;
   onClose: () => void;
-}> = ({ agent, config, onClose }) => {
+  // When set, the modal shows only this section — no tab bar, no way to
+  // navigate to the others. Used when the modal is opened from a page that's
+  // already scoped to one kind of data (e.g. the Vulnerabilities tab).
+  onlySection?: SectionKey;
+}> = ({ agent, config, onClose, onlySection }) => {
   const [details, setDetails] = useState<WazuhAgentDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [section, setSection] = useState<SectionKey>('overview');
+  const [section, setSection] = useState<SectionKey>(onlySection ?? 'overview');
   const [loadingMore, setLoadingMore] = useState<AgentDetailsSection | null>(null);
 
   useEffect(() => {
@@ -231,22 +586,24 @@ const AgentDetailsModal: React.FC<{
           </button>
         </div>
 
-        {/* Section tabs */}
-        <div className="flex gap-1 px-6 py-2.5 border-b border-slate-800 overflow-x-auto flex-shrink-0">
-          {sections.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                section === s.id
-                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent'
-              }`}
-            >
-              {s.icon} {s.label}
-            </button>
-          ))}
-        </div>
+        {/* Section tabs — omitted entirely when the modal is scoped to one section */}
+        {!onlySection && (
+          <div className="flex gap-1 px-6 py-2.5 border-b border-slate-800 overflow-x-auto flex-shrink-0">
+            {sections.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setSection(s.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  section === s.id
+                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent'
+                }`}
+              >
+                {s.icon} {s.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Body */}
         <div className="px-6 py-5 overflow-y-auto">
@@ -274,6 +631,16 @@ const AgentDetailsModal: React.FC<{
               ['Registered', formatDate(agent.dateAdd)],
               ['Last Keep-Alive', formatDate(agent.lastKeepAlive)],
             ]} />
+          ) : section === 'fim' ? (
+            <FimSection
+              agent={agent}
+              config={config}
+              details={details}
+              loading={loading}
+              error={error}
+              onLoadMoreCurrent={() => loadMoreSection('fim')}
+              loadingMoreCurrent={loadingMore === 'fim'}
+            />
           ) : loading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading {sections.find((s) => s.id === section)?.label.toLowerCase()}…
@@ -422,23 +789,11 @@ const AgentDetailsModal: React.FC<{
               />
             ) : <SectionUnavailable message={details.processes.error} />
           ) : section === 'vulnerabilities' ? (
-            details.vulnerabilities.ok ? (
-              <SimpleTable
-                columns={['CVE', 'Severity', 'Package', 'Version']}
-                rows={details.vulnerabilities.items.map((v) => [
-                  safe(v.cve),
-                  <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded border ${severityBadgeClass(v.severity)}`}>
-                    {String(v.severity ?? '—').toUpperCase()}
-                  </span>,
-                  safe(v.package?.name), safe(v.package?.version),
-                ])}
-                empty="No vulnerabilities found for this agent"
-                shownCount={details.vulnerabilities.items.length}
-                totalCount={details.vulnerabilities.total}
-                onLoadMore={() => loadMoreSection('vulnerabilities')}
-                loadingMore={loadingMore === 'vulnerabilities'}
-              />
-            ) : <SectionUnavailable message={details.vulnerabilities.error} />
+            <VulnerabilitiesSection
+              section={details.vulnerabilities}
+              onLoadMore={() => loadMoreSection('vulnerabilities')}
+              loadingMore={loadingMore === 'vulnerabilities'}
+            />
           ) : section === 'sca' ? (
             details.sca.ok ? (
               <SimpleTable
@@ -458,22 +813,6 @@ const AgentDetailsModal: React.FC<{
                 loadingMore={loadingMore === 'sca'}
               />
             ) : <SectionUnavailable message={details.sca.error} />
-          ) : section === 'fim' ? (
-            details.fim.ok ? (
-              <SimpleTable
-                columns={['File', 'Event', 'Owner', 'Permissions', 'Modified', 'SHA256']}
-                rows={details.fim.items.map((f) => [
-                  <span key="f" className="font-mono">{safe(f.file)}</span>,
-                  safe(f.event), safe(f.uname), safe(f.perm), formatDate(f.mtime),
-                  typeof f.sha256 === 'string' && f.sha256 ? `${f.sha256.slice(0, 12)}…` : '—',
-                ])}
-                empty="No file integrity monitoring events for this agent"
-                shownCount={details.fim.items.length}
-                totalCount={details.fim.total}
-                onLoadMore={() => loadMoreSection('fim')}
-                loadingMore={loadingMore === 'fim'}
-              />
-            ) : <SectionUnavailable message={details.fim.error} />
           ) : null}
         </SectionErrorBoundary>
         </div>

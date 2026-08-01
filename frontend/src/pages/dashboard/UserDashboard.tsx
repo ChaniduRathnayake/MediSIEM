@@ -17,12 +17,24 @@ import {
   Eye,
   Activity,
   Globe,
+  Menu,
+  Server,
+  Bug,
+  Radio,
+  ShieldCheck,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import AccountMenu from '../../components/AccountMenu';
+import { WazuhProvider } from './WazuhContext';
+import DevicesReadOnlyPanel from './DevicesReadOnlyPanel';
+import VulnerabilitiesPanel from './VulnerabilitiesPanel';
+import AlertsBrowser from './AlertsBrowser';
+import CompliancePanel from './CompliancePanel';
+import type { FrameworkTab } from './CompliancePanel';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'overview' | 'alerts' | 'reports';
+type Tab = 'overview' | 'alerts' | 'reports' | 'devices' | 'vulnerabilities' | 'live-alerts' | 'hipaa' | 'gdpr' | 'cis';
 type Severity = 'all' | 'critical' | 'high' | 'medium' | 'low';
 
 interface SocAlert {
@@ -322,6 +334,8 @@ const UserDashboard: React.FC = () => {
   const [notifications, setNotifications] = useState(NOTIFICATIONS);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [complianceOpen, setComplianceOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -343,29 +357,151 @@ const UserDashboard: React.FC = () => {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <Shield className="w-4 h-4" /> },
     { id: 'alerts', label: 'SOC Alerts', icon: <Activity className="w-4 h-4" /> },
+    { id: 'live-alerts', label: 'Live Alerts', icon: <Radio className="w-4 h-4" /> },
+    { id: 'devices', label: 'Devices', icon: <Server className="w-4 h-4" /> },
+    { id: 'vulnerabilities', label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
     { id: 'reports', label: 'Reports', icon: <FileText className="w-4 h-4" /> },
   ];
 
+  // Read-only insight views mirroring what's built for Admin — same live
+  // Wazuh data, no edit/manage actions anywhere in these.
+  const complianceSubItems: { id: Tab; label: string; icon: React.ReactNode; framework: FrameworkTab }[] = [
+    { id: 'hipaa', label: 'HIPAA', icon: <ShieldCheck className="w-3.5 h-3.5" />, framework: 'hipaa' },
+    { id: 'gdpr', label: 'GDPR', icon: <Globe className="w-3.5 h-3.5" />, framework: 'gdpr' },
+    { id: 'cis', label: 'CIS', icon: <ClipboardCheck className="w-3.5 h-3.5" />, framework: 'cis' },
+  ];
+  const isComplianceActive = complianceSubItems.some((s) => s.id === activeTab);
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <WazuhProvider>
+    <div className="h-screen overflow-hidden bg-slate-950 text-white flex flex-col">
       {/* Background */}
       <div className="fixed inset-0 bg-[linear-gradient(rgba(6,182,212,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.02)_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
-      {/* ── Header ── */}
-      <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
+      <div className="flex flex-1 min-h-0">
+        {/* ── Sidebar ── */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ${
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } lg:translate-x-0 lg:static lg:z-auto`}
+        >
+          {/* Logo */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/25">
+              <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/30">
                 <Shield className="w-4 h-4 text-white" strokeWidth={2.5} />
               </div>
-              <span className="font-bold text-lg text-white">
+              <span className="font-bold text-sm text-white">
                 Medi<span className="text-cyan-400">SIEM</span>
               </span>
             </div>
+            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-            {/* Right */}
+          {/* Role Badge */}
+          <div className="px-5 py-3 border-b border-slate-800">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+              <Shield className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">SOC Analyst</span>
+            </div>
+          </div>
+
+          {/* Nav */}
+          <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => { setActiveTab(t.id); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                  activeTab === t.id
+                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {t.icon}
+                {t.label}
+                {t.id === 'alerts' && openCount > 0 && (
+                  <span className="ml-auto flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">
+                    {openCount}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            {/* Compliances — expandable, holds HIPAA / GDPR / CIS (read-only) */}
+            <button
+              onClick={() => {
+                const next = !complianceOpen;
+                setComplianceOpen(next);
+                if (next && !isComplianceActive) setActiveTab('hipaa');
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                isComplianceActive
+                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Compliances
+              <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${complianceOpen || isComplianceActive ? 'rotate-180' : ''}`} />
+            </button>
+
+            {(complianceOpen || isComplianceActive) && (
+              <div className="ml-3 pl-3 border-l border-slate-800 space-y-0.5">
+                {complianceSubItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+                      activeTab === item.id
+                        ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </nav>
+
+          {/* User */}
+          <div className="px-4 py-4 border-t border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                {user?.name?.[0]?.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-white truncate">{user?.name}</div>
+                <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        )}
+
+        {/* ── Content column ── */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top bar */}
+          <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 bg-slate-950/90 backdrop-blur border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
+                <Menu className="w-5 h-5" />
+              </button>
+              <div>
+                <h1 className="text-sm font-bold text-white">Security Dashboard — SOC</h1>
+                <p className="text-xs text-slate-500 hidden sm:block">
+                  Real-time threat monitoring · Last updated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
+              </div>
+            </div>
+
             <div className="flex items-center gap-3">
               {/* Notifications */}
               <div className="relative">
@@ -436,45 +572,10 @@ const UserDashboard: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      </header>
+          </header>
 
-      {/* ── Main ── */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page title */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white">
-            Security Dashboard <span className="text-cyan-400">— SOC</span>
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Real-time threat monitoring · Last updated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-slate-900 border border-slate-800 rounded-2xl mb-8 w-fit">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                activeTab === tab.id
-                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              {tab.icon}
-              <span className="hidden sm:block">{tab.label}</span>
-              {tab.id === 'alerts' && openCount > 0 && (
-                <span className="flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">
-                  {openCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
+          {/* ── Main ── */}
+          <main className="flex-1 overflow-y-auto p-5 space-y-6">
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
@@ -639,8 +740,25 @@ const UserDashboard: React.FC = () => {
             </div>
           </div>
         )}
-      </main>
+
+        {/* ── LIVE ALERTS (real Wazuh, read-only) ── */}
+        {activeTab === 'live-alerts' && <AlertsBrowser />}
+
+        {/* ── DEVICES (read-only) ── */}
+        {activeTab === 'devices' && <DevicesReadOnlyPanel token={token} />}
+
+        {/* ── VULNERABILITIES (read-only) ── */}
+        {activeTab === 'vulnerabilities' && <VulnerabilitiesPanel />}
+
+        {/* ── COMPLIANCES (read-only) ── */}
+        {activeTab === 'hipaa' && <CompliancePanel framework="hipaa" />}
+        {activeTab === 'gdpr' && <CompliancePanel framework="gdpr" />}
+        {activeTab === 'cis' && <CompliancePanel framework="cis" />}
+          </main>
+        </div>
+      </div>
     </div>
+    </WazuhProvider>
   );
 };
 
