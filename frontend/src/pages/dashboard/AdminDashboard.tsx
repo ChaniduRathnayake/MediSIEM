@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiGetAllUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetAuditLog } from '../../services/api';
 import type { User as MediUser, AuditLogEntry } from '../../types';
 import AccountMenu from '../../components/AccountMenu';
+import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard: React.FC<{
@@ -1233,6 +1234,7 @@ const AdminDashboard: React.FC = () => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
+  const { summary: presenceSummary, loading: presenceLoading, error: presenceError } = usePresenceSummary(token);
 
   const handleLogout = () => {
     logout();
@@ -1468,9 +1470,18 @@ const AdminDashboard: React.FC = () => {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Critical Alerts" value="3" sub="Requires immediate action" color="red" trend="+2" />
               <StatCard icon={<Activity className="w-5 h-5 text-cyan-400" />} label="Monitored Devices" value="47" sub="IoMT assets online" color="cyan" trend="+3" />
-              <StatCard icon={<Users className="w-5 h-5 text-violet-400" />} label="Active Users" value="12" sub="SOC analysts online" color="violet" />
+              <StatCard
+                icon={<Users className="w-5 h-5 text-violet-400" />}
+                label="Logged In Now"
+                value={presenceSummary ? String(presenceSummary.admins.online + presenceSummary.analysts.online) : '—'}
+                sub={presenceSummary ? `${presenceSummary.admins.online} admin · ${presenceSummary.analysts.online} analyst` : 'Loading…'}
+                color="violet"
+              />
               <StatCard icon={<TrendingUp className="w-5 h-5 text-emerald-400" />} label="Alert Reduction" value="76%" sub="vs. last 30 days" color="emerald" trend="+12%" />
             </div>
+
+            {/* Team Presence */}
+            <PresenceWidget summary={presenceSummary} loading={presenceLoading} error={presenceError} />
 
             {/* CAS Overview + IP Reputation */}
             <div className="grid lg:grid-cols-3 gap-5">

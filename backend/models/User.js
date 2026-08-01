@@ -30,6 +30,12 @@ const UserSchema = new Schema(
       enum: ['admin', 'user'],
       default: 'user',
     },
+    // Updated (throttled) on every authenticated request — powers the
+    // "logged in now" presence counts on the dashboards' Overview pages.
+    lastActiveAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true, // adds createdAt + updatedAt automatically

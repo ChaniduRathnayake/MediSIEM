@@ -240,6 +240,62 @@ export async function apiDeleteUser(token: string, id: string): Promise<{ messag
   }
 }
 
+// ─── Presence API ───────────────────────────────────────────────────────────
+export interface PresenceBucket {
+  online: number;
+  total: number;
+}
+
+export interface PresenceRosterEntry {
+  id: string;
+  name: string;
+  email: string;
+  online: boolean;
+  lastActiveAt: string | null;
+}
+
+export interface PresenceSummary {
+  admins: PresenceBucket;
+  analysts: PresenceBucket;
+  thresholdMs: number;
+  // Only populated for admin callers — SOC analysts get counts only.
+  roster?: {
+    admins: PresenceRosterEntry[];
+    analysts: PresenceRosterEntry[];
+  };
+}
+
+export async function apiGetPresenceSummary(token: string): Promise<PresenceSummary> {
+  try {
+    return await request('/users/presence', {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === '__USE_MOCK__') {
+      // Demo fallback: no real session tracking in mock mode, so just report
+      // the signed-in mock user as the only "online" member of their role.
+      const admins = mockUsers.filter((u) => u.role === 'admin');
+      const analysts = mockUsers.filter((u) => u.role === 'user');
+      const actor = decodeMockToken(token);
+      const toRoster = (list: typeof mockUsers): PresenceRosterEntry[] =>
+        list.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          online: actor?.id === u.id,
+          lastActiveAt: actor?.id === u.id ? new Date().toISOString() : null,
+        }));
+      return {
+        admins: { online: admins.some((u) => u.id === actor?.id) ? 1 : 0, total: admins.length },
+        analysts: { online: analysts.some((u) => u.id === actor?.id) ? 1 : 0, total: analysts.length },
+        thresholdMs: 2 * 60 * 1000,
+        roster: actor?.role === 'admin' ? { admins: toRoster(admins), analysts: toRoster(analysts) } : undefined,
+      };
+    }
+    throw err;
+  }
+}
+
 export async function apiGetAuditLog(token: string): Promise<{ logs: AuditLogEntry[] }> {
   try {
     return await request('/audit-log', {

@@ -150,6 +150,64 @@ export const createUser = async (req, res) => {
   }
 };
 
+// A user counts as "online" if the auth middleware has stamped lastActiveAt
+// within this window — wide enough to tolerate the frontend's 30s poll
+// interval plus a missed beat, tight enough to read as "right now".
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
+// ─── GET /api/users/presence  (any authenticated user — read-only insight) ────
+// Everyone gets the counts (that's what the Overview stat cards need). Only
+// admins get the actual roster of who's online — SOC analysts see numbers,
+// not their colleagues' identities.
+export const getPresenceSummary = async (req, res) => {
+  try {
+    const cutoff = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    const users = await User.find().select('name email role lastActiveAt');
+
+    const summary = {
+      admins: { online: 0, total: 0 },
+      analysts: { online: 0, total: 0 },
+    };
+    const roster = { admins: [], analysts: [] };
+
+    for (const u of users) {
+      const isAdmin = u.role === 'admin';
+      const bucket = isAdmin ? summary.admins : summary.analysts;
+      bucket.total += 1;
+      const online = !!(u.lastActiveAt && u.lastActiveAt >= cutoff);
+      if (online) bucket.online += 1;
+
+      if (req.user.role === 'admin') {
+        (isAdmin ? roster.admins : roster.analysts).push({
+          id: u._id.toString(),
+          name: u.name,
+          email: u.email,
+          online,
+          lastActiveAt: u.lastActiveAt,
+        });
+      }
+    }
+
+    const response = { ...summary, thresholdMs: ONLINE_THRESHOLD_MS };
+    if (req.user.role === 'admin') {
+      // Online users first, then most-recently-active among the rest.
+      const byRecency = (a, b) => {
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        return new Date(b.lastActiveAt ?? 0).getTime() - new Date(a.lastActiveAt ?? 0).getTime();
+      };
+      response.roster = {
+        admins: roster.admins.sort(byRecency),
+        analysts: roster.analysts.sort(byRecency),
+      };
+    }
+
+    return res.status(200).json(response);
+  } catch (err) {
+    console.error('[getPresenceSummary]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+};
+
 // ─── DELETE /api/users/:id  (admin only) ──────────────────────────────────────
 export const deleteUser = async (req, res) => {
   try {

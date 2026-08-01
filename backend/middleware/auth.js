@@ -1,6 +1,11 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+// Presence is derived from lastActiveAt, so it only needs to be written this
+// often — not on every single request — to keep the "online" signal fresh
+// without hammering the DB on every API call.
+const ACTIVITY_THROTTLE_MS = 30 * 1000;
+
 // ─── protect: verify JWT and attach user to req ────────────────────────────────
 export const protect = async (req, res, next) => {
   try {
@@ -19,6 +24,14 @@ export const protect = async (req, res, next) => {
     }
 
     req.user = { id: user._id.toString(), role: user.role, email: user.email, name: user.name };
+
+    // Fire-and-forget so this never adds latency to the actual request.
+    if (!user.lastActiveAt || Date.now() - user.lastActiveAt.getTime() > ACTIVITY_THROTTLE_MS) {
+      User.updateOne({ _id: user._id }, { $set: { lastActiveAt: new Date() } }).catch((err) =>
+        console.error('[presence update]', err)
+      );
+    }
+
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

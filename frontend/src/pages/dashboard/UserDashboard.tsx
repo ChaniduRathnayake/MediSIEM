@@ -32,6 +32,7 @@ import VulnerabilitiesPanel from './VulnerabilitiesPanel';
 import AlertsBrowser from './AlertsBrowser';
 import CompliancePanel from './CompliancePanel';
 import type { FrameworkTab } from './CompliancePanel';
+import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Tab = 'overview' | 'alerts' | 'reports' | 'devices' | 'vulnerabilities' | 'live-alerts' | 'hipaa' | 'gdpr' | 'cis';
@@ -336,6 +337,7 @@ const UserDashboard: React.FC = () => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
+  const { summary: presenceSummary, loading: presenceLoading, error: presenceError } = usePresenceSummary(token);
 
   const handleLogout = () => {
     logout();
@@ -605,6 +607,9 @@ const UserDashboard: React.FC = () => {
                 </div>
               ))}
             </div>
+
+            {/* Team Presence */}
+            <PresenceWidget summary={presenceSummary} loading={presenceLoading} error={presenceError} />
 
             {/* Recent Alerts */}
             <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">

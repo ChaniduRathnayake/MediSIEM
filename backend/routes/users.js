@@ -1,7 +1,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import { protect, adminOnly } from '../middleware/auth.js';
-import { createUser, updateUser, deleteUser } from '../controllers/userController.js';
+import { createUser, updateUser, deleteUser, getPresenceSummary } from '../controllers/userController.js';
 
 const router = express.Router();
 
@@ -24,6 +24,11 @@ router.get('/', protect, adminOnly, async (req, res) => {
     res.status(500).json({ error: 'Server error.' });
   }
 });
+
+// ─── GET /api/users/presence  (any authenticated user — read-only insight) ───
+// Must be registered before GET /:id, otherwise Express would match
+// "presence" as an :id param.
+router.get('/presence', protect, getPresenceSummary);
 
 // ─── GET /api/users/:id ───────────────────────────────────────────────────────
 router.get('/:id', protect, async (req, res) => {
