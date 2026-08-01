@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import WazuhDashboard from './WazuhDashboard';
-import { useWazuh } from './useWazuh';
+import { WazuhProvider, useWazuhContext } from './WazuhContext';
+import { normalizeAgentStatus, formatOs } from './wazuhApi';
+import type { WazuhAgent } from './wazuhApi';
+import AgentDetailsModal from './AgentDetailsModal';
 import {
   Shield, Activity, AlertTriangle, Users, Server, Bell,
   Settings, ChevronDown, Menu, X, BarChart3,
@@ -559,13 +562,15 @@ const deviceStatusDot: Record<string, string> = {
 };
 
 const DevicesPanel: React.FC = () => {
-  const { config, connected, connecting, agents, loadingAgents, connectionError, refresh, lastRefresh } = useWazuh();
+  const { config, connected, connecting, agents, loadingAgents, connectionError, refresh, lastRefresh } = useWazuhContext();
+  const [selectedAgent, setSelectedAgent] = useState<WazuhAgent | null>(null);
 
+  const normalizedStatuses = agents.map((a) => normalizeAgentStatus(a.status));
   const counts = {
     total: agents.length,
-    active: agents.filter((a) => a.status === 'active').length,
-    disconnected: agents.filter((a) => a.status === 'disconnected').length,
-    other: agents.filter((a) => a.status !== 'active' && a.status !== 'disconnected').length,
+    active: normalizedStatuses.filter((s) => s === 'active').length,
+    disconnected: normalizedStatuses.filter((s) => s === 'disconnected').length,
+    other: normalizedStatuses.filter((s) => s !== 'active' && s !== 'disconnected').length,
   };
 
   if (!config) {
@@ -636,27 +641,41 @@ const DevicesPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {agents.map((ag) => (
+              {agents.map((ag) => {
+                const normalized = normalizeAgentStatus(ag.status);
+                return (
                 <tr key={ag.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors">
                   <td className="py-3 px-5">
                     <span className="flex items-center gap-1.5">
-                      <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[ag.status] ?? 'bg-slate-600'}`} />
-                      <span className="text-xs text-slate-400 capitalize">{ag.status.replace('_', ' ')}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[normalized] ?? 'bg-slate-600'}`} />
+                      <span className="text-xs text-slate-400 capitalize">{normalized.replace('_', ' ')}</span>
                     </span>
                   </td>
-                  <td className="py-3 px-5 text-sm text-white font-medium">{ag.name}</td>
+                  <td className="py-3 px-5 text-sm">
+                    <button
+                      onClick={() => setSelectedAgent(ag)}
+                      className="text-white font-medium hover:text-cyan-400 transition-colors text-left"
+                    >
+                      {ag.name}
+                    </button>
+                  </td>
                   <td className="py-3 px-5 text-xs text-slate-400 font-mono">{ag.ip ?? '—'}</td>
-                  <td className="py-3 px-5 text-xs text-slate-400">{ag.os ? `${ag.os.platform} ${ag.os.version}` : '—'}</td>
+                  <td className="py-3 px-5 text-xs text-slate-400">{formatOs(ag.os)}</td>
                   <td className="py-3 px-5 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
                   <td className="py-3 px-5 text-xs text-slate-500 whitespace-nowrap">
                     {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
+
+      {selectedAgent && config && (
+        <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />
+      )}
     </div>
   );
 };
@@ -690,6 +709,7 @@ const AdminDashboard: React.FC = () => {
   const isSettingsActive = settingsSubItems.some((s) => s.label === activeNav);
 
   return (
+    <WazuhProvider>
     <div className="h-screen overflow-hidden bg-slate-950 text-white flex flex-col">
 
       {/* ── Below-banner layout: sidebar + main ── */}
@@ -969,6 +989,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
     </div>
+    </WazuhProvider>
   );
 };
 

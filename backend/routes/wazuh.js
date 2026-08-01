@@ -191,10 +191,14 @@ router.get('/agents', async (req, res) => {
   if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
 
   try {
+    // NOTE: Wazuh's `select` param rejects the bare `os` field — it only accepts
+    // explicit sub-paths (os.platform, os.name, ...). Selecting the parent field
+    // fails the whole request (this previously 500'd /agents while the Overview
+    // tab kept working, since it reads a different endpoint).
     const limit = parseInt(req.query.limit) || 500;
     const data  = await wazuhCall(
       cfg,
-      `/agents?limit=${limit}&sort=-lastKeepAlive&select=id,name,ip,status,os,version,lastKeepAlive,group`
+      `/agents?limit=${limit}&sort=-lastKeepAlive&select=id,name,ip,status,os.platform,os.name,os.version,os.arch,os.codename,version,lastKeepAlive,group,dateAdd,manager,node_name,group_config_status`
     );
     return res.json(data);
   } catch (err) {
@@ -232,6 +236,61 @@ router.get('/vulnerability/:agentId', async (req, res) => {
     return res.json(data);
   } catch (err) {
     console.error('[wazuh/vulnerability]', err.message);
+    return res.status(502).json({ message: err.message });
+  }
+});
+
+// GET /api/wazuh/agent-details/:agentId  — everything the API exposes about one agent
+// Fetches syscollector (hardware/os/network/software/processes/ports), security
+// (vulnerabilities/SCA/FIM) and cluster placement in parallel. Any section whose
+// module isn't enabled on the manager (or has no data yet) fails independently and
+// is reported as `ok: false` rather than failing the whole request.
+router.get('/agent-details/:agentId', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
+
+  const { agentId } = req.params;
+
+  const fetchList = async (path) => {
+    try {
+      const data = await wazuhCall(cfg, path);
+      return {
+        ok: true,
+        items: data?.data?.affected_items ?? [],
+        total: data?.data?.total_affected_items ?? 0,
+      };
+    } catch (err) {
+      return { ok: false, error: err.message, items: [], total: 0 };
+    }
+  };
+
+  const fetchSingle = async (path) => {
+    const r = await fetchList(path);
+    return { ok: r.ok, error: r.error, item: r.items[0] ?? null };
+  };
+
+  try {
+    const [
+      hardware, os, netiface, netaddr, netproto,
+      packages, processes, ports,
+      vulnerabilities, sca, fim,
+    ] = await Promise.all([
+      fetchSingle(`/syscollector/${agentId}/hardware`),
+      fetchSingle(`/syscollector/${agentId}/os`),
+      fetchList(`/syscollector/${agentId}/netiface?limit=100`),
+      fetchList(`/syscollector/${agentId}/netaddr?limit=100`),
+      fetchList(`/syscollector/${agentId}/netproto?limit=100`),
+      fetchList(`/syscollector/${agentId}/packages?limit=300&sort=name`),
+      fetchList(`/syscollector/${agentId}/processes?limit=300&sort=-vm_size`),
+      fetchList(`/syscollector/${agentId}/ports?limit=200`),
+      fetchList(`/vulnerability/${agentId}?limit=300&sort=-severity`),
+      fetchList(`/sca/${agentId}?limit=100`),
+      fetchList(`/syscheck/${agentId}?limit=300&sort=-mtime`),
+    ]);
+
+    return res.json({ hardware, os, netiface, netaddr, netproto, packages, processes, ports, vulnerabilities, sca, fim });
+  } catch (err) {
+    console.error('[wazuh/agent-details]', err.message);
     return res.status(502).json({ message: err.message });
   }
 });

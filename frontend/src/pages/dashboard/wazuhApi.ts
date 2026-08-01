@@ -25,11 +25,42 @@ export interface WazuhAgent {
   id:           string;
   name:         string;
   ip?:          string;
-  status:       'active' | 'disconnected' | 'never_connected' | 'pending';
-  os?:          { platform: string; name: string; version: string };
+  // Wazuh's own enum is active | disconnected | never_connected | pending, but kept
+  // as `string` here — real responses have been seen with different casing/spacing,
+  // so callers should normalize (see normalizeAgentStatus) rather than compare directly.
+  status:       string;
+  os?:          { platform?: string; name?: string; version?: string; arch?: string; codename?: string };
   version?:     string;
   lastKeepAlive?: string;
   group?:       string[];
+  dateAdd?:     string;
+  manager?:     string;
+  node_name?:   string;
+  group_config_status?: string;
+}
+
+// ── Status normalization ────────────────────────────────────────────────────────
+// Real Wazuh responses have been observed with inconsistent casing/whitespace for
+// `status`. Normalize before matching against the known enum so the UI never
+// silently falls back to an "unknown" look for what is actually a known state.
+export type NormalizedAgentStatus = 'active' | 'disconnected' | 'never_connected' | 'pending';
+
+export function normalizeAgentStatus(raw: string | undefined | null): NormalizedAgentStatus {
+  const s = (raw ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (s === 'active' || s === 'online' || s === 'connected') return 'active';
+  if (s === 'disconnected' || s === 'offline') return 'disconnected';
+  if (s === 'never_connected') return 'never_connected';
+  if (s === 'pending') return 'pending';
+  return 'disconnected'; // unknown/unexpected value — safer to flag as offline than to hide it as "active"
+}
+
+// Builds a readable OS string from whatever sub-fields the agent actually reported —
+// real agents don't always populate every os.* field, so fall back gracefully instead
+// of collapsing to "—" the moment one field is missing.
+export function formatOs(os?: WazuhAgent['os']): string {
+  if (!os) return '—';
+  const parts = [os.name || os.platform, os.version].filter(Boolean);
+  return parts.length > 0 ? parts.join(' ') : '—';
 }
 
 export interface WazuhAlert {
@@ -50,6 +81,134 @@ export interface WazuhVulnerability {
   severity: string;
   package:  { name: string; version: string };
   agent:    { id: string; name: string };
+}
+
+// ── Per-agent deep details (syscollector + security modules) ───────────────────
+// Every section is independently best-effort: a module that isn't enabled on the
+// manager (or has no data yet for this agent) reports `ok: false` rather than
+// failing the whole request.
+export interface WazuhListSection<T> {
+  ok: boolean;
+  error?: string;
+  items: T[];
+  total: number;
+}
+
+export interface WazuhSingleSection<T> {
+  ok: boolean;
+  error?: string;
+  item: T | null;
+}
+
+export interface WazuhHardware {
+  board_serial?: string;
+  cpu?: { cores?: number; mhz?: number; name?: string };
+  ram?: { free?: number; total?: number; usage?: number };
+}
+
+export interface WazuhOsInfo {
+  architecture?: string;
+  hostname?: string;
+  os?: { codename?: string; major?: string; minor?: string; name?: string; platform?: string; version?: string };
+  release?: string;
+  sysname?: string;
+  version?: string;
+}
+
+export interface WazuhNetIface {
+  name?: string;
+  adapter?: string;
+  state?: string;
+  mtu?: number;
+  type?: string;
+  tx?: { bytes?: number; packets?: number };
+  rx?: { bytes?: number; packets?: number };
+}
+
+export interface WazuhNetAddr {
+  iface?: string;
+  proto?: string;
+  address?: string;
+  netmask?: string;
+  broadcast?: string;
+}
+
+export interface WazuhNetProto {
+  iface?: string;
+  gateway?: string;
+  dhcp?: string;
+  type?: string;
+}
+
+export interface WazuhPackage {
+  name?: string;
+  version?: string;
+  vendor?: string;
+  architecture?: string;
+  format?: string;
+  size?: number;
+  install_time?: string;
+}
+
+export interface WazuhProcess {
+  pid?: string | number;
+  name?: string;
+  cmd?: string;
+  state?: string;
+  ppid?: number;
+  priority?: number;
+  nice?: number;
+  vm_size?: number;
+  start_time?: string;
+}
+
+export interface WazuhPort {
+  local?: { ip?: string; port?: number };
+  remote?: { ip?: string; port?: number };
+  state?: string;
+  protocol?: string;
+  pid?: number;
+  process?: string;
+}
+
+export interface WazuhScaPolicy {
+  policy_id?: string;
+  name?: string;
+  description?: string;
+  pass?: number;
+  fail?: number;
+  invalid?: number;
+  score?: number;
+  end_scan?: string;
+}
+
+export interface WazuhFimEvent {
+  file?: string;
+  mtime?: string;
+  size?: number;
+  uname?: string;
+  gname?: string;
+  // Unix agents report a permission string (e.g. "644"); Windows agents report a
+  // nested ACL object instead — callers must not render this directly.
+  perm?: string | Record<string, unknown>;
+  sha256?: string;
+  md5?: string;
+  changes?: number;
+  event?: string;
+}
+
+export interface WazuhAgentDetails {
+  hardware:        WazuhSingleSection<WazuhHardware>;
+  os:              WazuhSingleSection<WazuhOsInfo>;
+  netiface:        WazuhListSection<WazuhNetIface>;
+  netaddr:         WazuhListSection<WazuhNetAddr>;
+  netproto:        WazuhListSection<WazuhNetProto>;
+  packages:        WazuhListSection<WazuhPackage>;
+  processes:       WazuhListSection<WazuhProcess>;
+  ports:           WazuhListSection<WazuhPort>;
+  vulnerabilities: WazuhListSection<WazuhVulnerability>;
+  sca:             WazuhListSection<WazuhScaPolicy>;
+  fim:             WazuhListSection<WazuhFimEvent>;
 }
 
 export interface WazuhStats {
@@ -130,4 +289,8 @@ export async function getVulnerabilities(cfg: WazuhConfig, agentId = '000'): Pro
     cfg
   );
   return data.data?.affected_items ?? [];
+}
+
+export async function getAgentDetails(cfg: WazuhConfig, agentId: string): Promise<WazuhAgentDetails> {
+  return proxyGet<WazuhAgentDetails>(`/agent-details/${agentId}`, cfg);
 }

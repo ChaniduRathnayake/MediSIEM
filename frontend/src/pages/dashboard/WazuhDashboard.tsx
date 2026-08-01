@@ -5,8 +5,10 @@ import {
   WifiOff, RefreshCw, Settings, Activity, Server, AlertTriangle,
   Clock, Bug, Info,
 } from 'lucide-react';
-import { useWazuh } from './useWazuh';
-import { WazuhConfig, WAZUH_DEFAULTS } from './wazuhApi';
+import { useWazuhContext } from './WazuhContext';
+import type { UseWazuhReturn } from './useWazuh';
+import { WazuhConfig, WAZUH_DEFAULTS, WazuhAgent, normalizeAgentStatus, formatOs } from './wazuhApi';
+import AgentDetailsModal from './AgentDetailsModal';
 
 // ─── Config Panel ─────────────────────────────────────────────────────────────
 const ConfigPanel: React.FC<{
@@ -235,16 +237,17 @@ const StatCard: React.FC<{
 );
 
 // ─── Agent row ────────────────────────────────────────────────────────────────
-const statusDot: Record<string, string> = {
-  active:           'bg-emerald-400',
-  disconnected:     'bg-red-400',
-  never_connected:  'bg-slate-600',
-  pending:          'bg-amber-400',
+const statusMeta: Record<ReturnType<typeof normalizeAgentStatus>, { dot: string; label: string; online: boolean }> = {
+  active:          { dot: 'bg-emerald-400', label: 'Active',          online: true },
+  disconnected:    { dot: 'bg-red-400',     label: 'Disconnected',    online: false },
+  never_connected: { dot: 'bg-slate-600',   label: 'Never Connected', online: false },
+  pending:         { dot: 'bg-amber-400',   label: 'Pending',         online: false },
 };
 
-const AgentsTable: React.FC<{ agents: ReturnType<typeof useWazuh>['agents']; loading: boolean }> = ({
+const AgentsTable: React.FC<{ agents: UseWazuhReturn['agents']; loading: boolean; onSelect: (agent: WazuhAgent) => void }> = ({
   agents,
   loading,
+  onSelect,
 }) => (
   <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
     <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
@@ -258,7 +261,7 @@ const AgentsTable: React.FC<{ agents: ReturnType<typeof useWazuh>['agents']; loa
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-800">
-            {['Status', 'ID', 'Name', 'IP', 'OS', 'Version', 'Last Seen'].map((h) => (
+            {['Status', 'ID', 'Name', 'IP', 'OS', 'Version', 'Last Seen', ''].map((h) => (
               <th key={h} className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 whitespace-nowrap">
                 {h}
               </th>
@@ -266,29 +269,44 @@ const AgentsTable: React.FC<{ agents: ReturnType<typeof useWazuh>['agents']; loa
           </tr>
         </thead>
         <tbody>
-          {agents.map((ag) => (
-            <tr key={ag.id} className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors">
-              <td className="py-3 px-4">
-                <span className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${statusDot[ag.status] ?? 'bg-slate-600'}`} />
-                  <span className="text-xs text-slate-400 capitalize">{ag.status.replace('_', ' ')}</span>
-                </span>
-              </td>
-              <td className="py-3 px-4 font-mono text-xs text-slate-500">{ag.id}</td>
-              <td className="py-3 px-4 text-xs text-white font-medium">{ag.name}</td>
-              <td className="py-3 px-4 font-mono text-xs text-slate-400">{ag.ip ?? '—'}</td>
-              <td className="py-3 px-4 text-xs text-slate-400 whitespace-nowrap">
-                {ag.os ? `${ag.os.platform} ${ag.os.version}` : '—'}
-              </td>
-              <td className="py-3 px-4 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
-              <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">
-                {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
-              </td>
-            </tr>
-          ))}
+          {agents.map((ag) => {
+            const meta = statusMeta[normalizeAgentStatus(ag.status)];
+            return (
+              <tr
+                key={ag.id}
+                onClick={() => onSelect(ag)}
+                className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors cursor-pointer"
+              >
+                <td className="py-3 px-4">
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                    <span className={`text-xs font-medium ${meta.online ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      {meta.label}
+                    </span>
+                  </span>
+                </td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-500">{ag.id}</td>
+                <td className="py-3 px-4 text-xs text-white font-medium">{ag.name}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-400">{ag.ip ?? '—'}</td>
+                <td className="py-3 px-4 text-xs text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
+                <td className="py-3 px-4 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
+                <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">
+                  {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
+                </td>
+                <td className="py-3 px-4 text-right">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSelect(ag); }}
+                    className="text-xs text-cyan-400 hover:text-cyan-300 font-medium whitespace-nowrap"
+                  >
+                    Details
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
           {!loading && agents.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
+              <td colSpan={8} className="py-10 text-center text-sm text-slate-500">
                 No agents found
               </td>
             </tr>
@@ -307,7 +325,7 @@ const severityClass = (level: number) => {
   return                  { label: 'LOW',      cls: 'text-blue-400 border-blue-500/30 bg-blue-500/10' };
 };
 
-const AlertsTable: React.FC<{ alerts: ReturnType<typeof useWazuh>['alerts']; loading: boolean }> = ({
+const AlertsTable: React.FC<{ alerts: UseWazuhReturn['alerts']; loading: boolean }> = ({
   alerts,
   loading,
 }) => (
@@ -398,10 +416,11 @@ const WazuhDashboard: React.FC = () => {
     stats, agents, alerts,
     loadingStats, loadingAgents, loadingAlerts,
     refresh, lastRefresh,
-  } = useWazuh();
+  } = useWazuhContext();
 
   const [tab,        setTab]        = useState<'overview' | 'agents' | 'alerts'>('overview');
   const [showConfig, setShowConfig] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<WazuhAgent | null>(null);
 
   const totalVulns = stats
     ? (stats.vulnerabilities?.critical ?? 0) +
@@ -609,12 +628,16 @@ const WazuhDashboard: React.FC = () => {
 
       {/* ── Agents ── */}
       {tab === 'agents' && (
-        <AgentsTable agents={agents} loading={loadingAgents} />
+        <AgentsTable agents={agents} loading={loadingAgents} onSelect={setSelectedAgent} />
       )}
 
       {/* ── Alerts ── */}
       {tab === 'alerts' && (
         <AlertsTable alerts={alerts} loading={loadingAlerts} />
+      )}
+
+      {selectedAgent && config && (
+        <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />
       )}
     </div>
   );
