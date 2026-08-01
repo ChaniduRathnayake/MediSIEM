@@ -1,14 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import WazuhDashboard from './WazuhDashboard';
 import { WazuhProvider, useWazuhContext } from './WazuhContext';
-import { normalizeAgentStatus, formatOs } from './wazuhApi';
-import type { WazuhAgent } from './wazuhApi';
+import { normalizeAgentStatus, formatOs, inferOsCategory, OS_CATEGORY_LABELS } from './wazuhApi';
+import type { WazuhAgent, OsCategory } from './wazuhApi';
+import { useDeviceMeta } from './useDeviceMeta';
+import type { DeviceGroup } from './deviceApi';
 import AgentDetailsModal from './AgentDetailsModal';
+import CompliancePanel from './CompliancePanel';
+import type { FrameworkTab } from './CompliancePanel';
+import { hasIndexerConfig, searchAlerts } from './complianceApi';
+import type { WazuhAlertRow } from './complianceApi';
 import {
   Shield, Activity, AlertTriangle, Users, Server, Bell,
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
+  Tag, Filter, ChevronUp, ChevronsUpDown, ShieldCheck, Globe, ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -470,21 +477,44 @@ const UsersPanel: React.FC<{ token: string | null; currentUserId?: string }> = (
 
 // ─── Audit Log Panel ────────────────────────────────────────────────────────────
 const auditActionLabel = (action: AuditLogEntry['action']) => {
-  if (action === 'create_user') return 'Created user';
-  if (action === 'delete_user') return 'Deleted user';
-  return 'Updated user';
+  switch (action) {
+    case 'create_user': return 'Created user';
+    case 'update_user': return 'Updated user';
+    case 'delete_user': return 'Deleted user';
+    case 'create_device_group': return 'Created group';
+    case 'update_device_group': return 'Updated group';
+    case 'delete_device_group': return 'Deleted group';
+    case 'update_device_groups': return 'Changed device groups';
+    case 'update_device_os_category': return 'Changed OS category';
+    default: return 'Updated';
+  }
 };
 
 const auditActionBadge = (action: AuditLogEntry['action']) => {
-  if (action === 'create_user') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
-  if (action === 'delete_user') return 'text-red-400 bg-red-500/10 border-red-500/30';
-  return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
+  switch (action) {
+    case 'create_user':
+    case 'create_device_group':
+      return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+    case 'delete_user':
+    case 'delete_device_group':
+      return 'text-red-400 bg-red-500/10 border-red-500/30';
+    case 'update_device_groups':
+    case 'update_device_os_category':
+    case 'update_device_group':
+      return 'text-violet-400 bg-violet-500/10 border-violet-500/30';
+    default:
+      return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
+  }
 };
+
+type AuditSortKey = 'action' | 'actor' | 'target' | 'when';
 
 const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sortKey, setSortKey] = useState<AuditSortKey>('when');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (!token) {
@@ -500,11 +530,59 @@ const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const toggleSort = (key: AuditSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'when' ? 'desc' : 'asc'); // newest-first by default; A→Z for text columns
+    }
+  };
+
+  const sortedLogs = useMemo(() => {
+    const list = [...logs];
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'action':
+          cmp = auditActionLabel(a.action).localeCompare(auditActionLabel(b.action));
+          break;
+        case 'actor':
+          cmp = (a.actor.name || a.actor.email || '').localeCompare(b.actor.name || b.actor.email || '');
+          break;
+        case 'target':
+          cmp = (a.target.name || a.target.email || '').localeCompare(b.target.name || b.target.email || '');
+          break;
+        case 'when':
+          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [logs, sortKey, sortDir]);
+
+  const SortHeader: React.FC<{ label: string; sortk: AuditSortKey }> = ({ label, sortk }) => (
+    <th className="py-2.5 px-5 text-left">
+      <button
+        onClick={() => toggleSort(sortk)}
+        className="flex items-center gap-1 text-xs text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors"
+      >
+        {label}
+        {sortKey === sortk ? (
+          sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronsUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </button>
+    </th>
+  );
+
   return (
     <div className="p-5 space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white">Audit Log</h2>
-        <p className="text-xs text-slate-500 mt-0.5">What admins have done — user accounts created or changed</p>
+        <p className="text-xs text-slate-500 mt-0.5">What admins have done — user accounts, device groups, and OS categorization</p>
       </div>
 
       <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
@@ -522,15 +600,15 @@ const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
           <table className="w-full">
             <thead>
               <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
-                <th className="py-2.5 px-5 text-left">Action</th>
-                <th className="py-2.5 px-5 text-left">Admin</th>
-                <th className="py-2.5 px-5 text-left">Target User</th>
+                <SortHeader label="Action" sortk="action" />
+                <SortHeader label="Admin" sortk="actor" />
+                <SortHeader label="Target" sortk="target" />
                 <th className="py-2.5 px-5 text-left">Details</th>
-                <th className="py-2.5 px-5 text-left">When</th>
+                <SortHeader label="When" sortk="when" />
               </tr>
             </thead>
             <tbody>
-              {logs.map((log) => (
+              {sortedLogs.map((log) => (
                 <tr key={log.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors">
                   <td className="py-3 px-5">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${auditActionBadge(log.action)}`}>
@@ -561,9 +639,264 @@ const deviceStatusDot: Record<string, string> = {
   pending: 'bg-amber-400',
 };
 
+// ─── OS category badge ──────────────────────────────────────────────────────
+const osCategoryDot: Record<OsCategory, string> = {
+  windows: 'bg-cyan-400',
+  linux:   'bg-amber-400',
+  macos:   'bg-slate-300',
+  network: 'bg-violet-400',
+  iot:     'bg-pink-400',
+  unknown: 'bg-slate-600',
+};
+
+const OsCategoryBadge: React.FC<{ category: OsCategory }> = ({ category }) => (
+  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 whitespace-nowrap">
+    <span className={`w-1.5 h-1.5 rounded-full ${osCategoryDot[category]}`} />
+    <span className="text-xs text-slate-300">{OS_CATEGORY_LABELS[category]}</span>
+  </span>
+);
+
+// ─── Per-device group assignment dropdown ───────────────────────────────────
+const GroupAssignDropdown: React.FC<{
+  agentGroups: string[];
+  allGroups: DeviceGroup[];
+  onToggle: (groupName: string) => void;
+  onCreateAndAssign: (name: string) => Promise<void>;
+}> = ({ agentGroups, allGroups, onToggle, onCreateAndAssign }) => {
+  const [open, setOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      await onCreateAndAssign(name);
+      setNewName('');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <div className="flex items-center gap-1 flex-wrap">
+        {agentGroups.map((g) => (
+          <span
+            key={g}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs whitespace-nowrap"
+          >
+            <Tag className="w-2.5 h-2.5" /> {g}
+          </span>
+        ))}
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="w-5 h-5 flex items-center justify-center rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+          title="Assign groups"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute z-40 top-full left-0 mt-1.5 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl p-2">
+          {allGroups.length === 0 ? (
+            <p className="text-xs text-slate-500 px-2 py-1.5">No groups yet — create one below.</p>
+          ) : (
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {allGroups.map((g) => {
+                const checked = agentGroups.includes(g.name);
+                return (
+                  <label key={g.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" checked={checked} onChange={() => onToggle(g.name)} className="accent-cyan-500" />
+                    <span className="text-xs text-slate-200 truncate">{g.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-800">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } }}
+              placeholder="New group…"
+              className="flex-1 min-w-0 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60"
+            />
+            <button
+              onClick={handleCreate}
+              disabled={creating || !newName.trim()}
+              className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-40 transition-colors flex-shrink-0"
+            >
+              {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Manage Device Groups modal ─────────────────────────────────────────────
+const DeviceGroupsModal: React.FC<{
+  groups: DeviceGroup[];
+  onClose: () => void;
+  onCreate: (name: string) => Promise<unknown>;
+  onRename: (id: string, name: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}> = ({ groups, onClose, onCreate, onRename, onDelete }) => {
+  const [newName, setNewName] = useState('');
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    setError('');
+    try {
+      await onCreate(name);
+      setNewName('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create group.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRename = async (id: string) => {
+    if (!editing || !editing.name.trim()) return;
+    setBusyId(id);
+    setError('');
+    try {
+      await onRename(id, editing.name.trim());
+      setEditing(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to rename group.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setBusyId(id);
+    setError('');
+    try {
+      await onDelete(id);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete group.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+          <h2 className="text-sm font-bold text-white">Manage Device Groups</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } }}
+              placeholder="New group name…"
+              className="flex-1 px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20 transition-all"
+            />
+            <button
+              onClick={handleCreate}
+              disabled={creating || !newName.trim()}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-all"
+            >
+              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            </button>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {groups.length === 0 && (
+              <p className="text-xs text-slate-500 text-center py-6">No groups yet. Create one above.</p>
+            )}
+            {groups.map((g) => (
+              <div key={g.id} className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-800/60 border border-slate-800">
+                {editing?.id === g.id ? (
+                  <input
+                    autoFocus
+                    value={editing.name}
+                    onChange={(e) => setEditing({ id: g.id, name: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleRename(g.id); if (e.key === 'Escape') setEditing(null); }}
+                    className="flex-1 px-2 py-1 bg-slate-900 border border-cyan-500/40 rounded-md text-sm text-white focus:outline-none"
+                  />
+                ) : (
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium truncate">{g.name}</p>
+                    <p className="text-xs text-slate-500">{g.deviceCount} device{g.deviceCount === 1 ? '' : 's'}</p>
+                  </div>
+                )}
+
+                {busyId === g.id ? (
+                  <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin flex-shrink-0" />
+                ) : editing?.id === g.id ? (
+                  <>
+                    <button onClick={() => handleRename(g.id)} className="text-emerald-400 hover:text-emerald-300 text-xs font-medium px-1.5 flex-shrink-0">Save</button>
+                    <button onClick={() => setEditing(null)} className="text-slate-500 hover:text-slate-300 text-xs px-1.5 flex-shrink-0">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setEditing({ id: g.id, name: g.name })} className="text-slate-400 hover:text-white transition-colors p-1 flex-shrink-0">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => handleDelete(g.id)} className="text-slate-400 hover:text-red-400 transition-colors p-1 flex-shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DevicesPanel: React.FC = () => {
+  const { token } = useAuth();
   const { config, connected, connecting, agents, loadingAgents, connectionError, refresh, lastRefresh } = useWazuhContext();
+  const {
+    groups, deviceMeta, createGroup, renameGroup, deleteGroup, assignGroups,
+  } = useDeviceMeta(token);
   const [selectedAgent, setSelectedAgent] = useState<WazuhAgent | null>(null);
+  const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [osFilter, setOsFilter] = useState<OsCategory | 'all'>('all');
+  const [groupFilter, setGroupFilter] = useState<string>('all');
+
+  const metaByAgent = useMemo(() => new Map(deviceMeta.map((m) => [m.agentId, m])), [deviceMeta]);
 
   const normalizedStatuses = agents.map((a) => normalizeAgentStatus(a.status));
   const counts = {
@@ -571,6 +904,27 @@ const DevicesPanel: React.FC = () => {
     active: normalizedStatuses.filter((s) => s === 'active').length,
     disconnected: normalizedStatuses.filter((s) => s === 'disconnected').length,
     other: normalizedStatuses.filter((s) => s !== 'active' && s !== 'disconnected').length,
+  };
+
+  const categoryFor = (ag: WazuhAgent): OsCategory => metaByAgent.get(ag.id)?.osCategoryOverride ?? inferOsCategory(ag.os);
+  const groupsFor = (ag: WazuhAgent): string[] => metaByAgent.get(ag.id)?.groups ?? [];
+
+  const filteredAgents = agents.filter((ag) => {
+    if (osFilter !== 'all' && categoryFor(ag) !== osFilter) return false;
+    if (groupFilter === 'ungrouped' && groupsFor(ag).length > 0) return false;
+    if (groupFilter !== 'all' && groupFilter !== 'ungrouped' && !groupsFor(ag).includes(groupFilter)) return false;
+    return true;
+  });
+
+  const toggleAgentGroup = (ag: WazuhAgent, groupName: string) => {
+    const current = groupsFor(ag);
+    const next = current.includes(groupName) ? current.filter((g) => g !== groupName) : [...current, groupName];
+    assignGroups(ag.id, next, ag.name);
+  };
+
+  const createAndAssign = async (ag: WazuhAgent, name: string) => {
+    const group = await createGroup(name);
+    await assignGroups(ag.id, [...groupsFor(ag), group.name], ag.name);
   };
 
   if (!config) {
@@ -599,13 +953,21 @@ const DevicesPanel: React.FC = () => {
             {lastRefresh ? ` · Updated ${lastRefresh.toLocaleTimeString()}` : ''}
           </p>
         </div>
-        <button
-          onClick={refresh}
-          disabled={!connected || loadingAgents}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loadingAgents ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGroupsModal(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-sm transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" /> Manage Groups
+          </button>
+          <button
+            onClick={refresh}
+            disabled={!connected || loadingAgents}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingAgents ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {connectionError && !connected && (
@@ -621,60 +983,242 @@ const DevicesPanel: React.FC = () => {
         <StatCard icon={<Clock className="w-5 h-5 text-amber-400" />} label="Other" value={String(counts.other)} sub="Pending / never connected" color="amber" />
       </div>
 
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="flex items-center gap-1.5 text-xs text-slate-500">
+          <Filter className="w-3.5 h-3.5" /> Filter
+        </span>
+        <select
+          value={osFilter}
+          onChange={(e) => setOsFilter(e.target.value as OsCategory | 'all')}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="all">All OS types</option>
+          {(Object.keys(OS_CATEGORY_LABELS) as OsCategory[]).map((c) => (
+            <option key={c} value={c}>{OS_CATEGORY_LABELS[c]}</option>
+          ))}
+        </select>
+        <select
+          value={groupFilter}
+          onChange={(e) => setGroupFilter(e.target.value)}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="all">All groups</option>
+          <option value="ungrouped">Ungrouped</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.name}>{g.name}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
         {(connecting || loadingAgents) && agents.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading devices…
           </div>
-        ) : agents.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center py-14">No devices found.</p>
+        ) : filteredAgents.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-14">
+            {agents.length === 0 ? 'No devices found.' : 'No devices match the current filters.'}
+          </p>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
-                <th className="py-2.5 px-5 text-left">Status</th>
-                <th className="py-2.5 px-5 text-left">Name</th>
-                <th className="py-2.5 px-5 text-left">IP</th>
-                <th className="py-2.5 px-5 text-left">OS</th>
-                <th className="py-2.5 px-5 text-left">Version</th>
-                <th className="py-2.5 px-5 text-left">Last Seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((ag) => {
-                const normalized = normalizeAgentStatus(ag.status);
-                return (
-                <tr key={ag.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-5">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[normalized] ?? 'bg-slate-600'}`} />
-                      <span className="text-xs text-slate-400 capitalize">{normalized.replace('_', ' ')}</span>
-                    </span>
-                  </td>
-                  <td className="py-3 px-5 text-sm">
-                    <button
-                      onClick={() => setSelectedAgent(ag)}
-                      className="text-white font-medium hover:text-cyan-400 transition-colors text-left"
-                    >
-                      {ag.name}
-                    </button>
-                  </td>
-                  <td className="py-3 px-5 text-xs text-slate-400 font-mono">{ag.ip ?? '—'}</td>
-                  <td className="py-3 px-5 text-xs text-slate-400">{formatOs(ag.os)}</td>
-                  <td className="py-3 px-5 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
-                  <td className="py-3 px-5 text-xs text-slate-500 whitespace-nowrap">
-                    {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
+                  <th className="py-2.5 px-5 text-left">Status</th>
+                  <th className="py-2.5 px-5 text-left">ID</th>
+                  <th className="py-2.5 px-5 text-left">Name</th>
+                  <th className="py-2.5 px-5 text-left">IP</th>
+                  <th className="py-2.5 px-5 text-left">OS</th>
+                  <th className="py-2.5 px-5 text-left">Category</th>
+                  <th className="py-2.5 px-5 text-left">Version</th>
+                  <th className="py-2.5 px-5 text-left">Groups</th>
+                  <th className="py-2.5 px-5 text-left">Last Seen</th>
+                  <th className="py-2.5 px-5 text-right"></th>
                 </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredAgents.map((ag) => {
+                  const normalized = normalizeAgentStatus(ag.status);
+                  return (
+                  <tr key={ag.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors">
+                    <td className="py-3 px-5">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[normalized] ?? 'bg-slate-600'}`} />
+                        <span className="text-xs text-slate-400 capitalize">{normalized.replace('_', ' ')}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 px-5 font-mono text-xs text-slate-500">{ag.id}</td>
+                    <td className="py-3 px-5 text-sm">
+                      <button
+                        onClick={() => setSelectedAgent(ag)}
+                        className="text-white font-medium hover:text-cyan-400 transition-colors text-left"
+                      >
+                        {ag.name}
+                      </button>
+                    </td>
+                    <td className="py-3 px-5 text-xs text-slate-400 font-mono">{ag.ip ?? '—'}</td>
+                    <td className="py-3 px-5 text-xs text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
+                    <td className="py-3 px-5"><OsCategoryBadge category={categoryFor(ag)} /></td>
+                    <td className="py-3 px-5 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
+                    <td className="py-3 px-5">
+                      <GroupAssignDropdown
+                        agentGroups={groupsFor(ag)}
+                        allGroups={groups}
+                        onToggle={(name) => toggleAgentGroup(ag, name)}
+                        onCreateAndAssign={(name) => createAndAssign(ag, name)}
+                      />
+                    </td>
+                    <td className="py-3 px-5 text-xs text-slate-500 whitespace-nowrap">
+                      {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
+                    </td>
+                    <td className="py-3 px-5 text-right">
+                      <button
+                        onClick={() => setSelectedAgent(ag)}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 font-medium whitespace-nowrap"
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {selectedAgent && config && (
         <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />
+      )}
+
+      {showGroupsModal && (
+        <DeviceGroupsModal
+          groups={groups}
+          onClose={() => setShowGroupsModal(false)}
+          onCreate={createGroup}
+          onRename={renameGroup}
+          onDelete={deleteGroup}
+        />
+      )}
+    </div>
+  );
+};
+
+// ─── Notification Bell (recent high-severity Wazuh alerts) ─────────────────
+const severityDot = (level: number) => {
+  if (level >= 12) return 'bg-red-500';
+  if (level >= 8) return 'bg-orange-400';
+  return 'bg-amber-400';
+};
+
+const NotificationBell: React.FC<{ onViewAll: () => void }> = ({ onViewAll }) => {
+  const { config } = useWazuhContext();
+  const [open, setOpen] = useState(false);
+  const [alerts, setAlerts] = useState<WazuhAlertRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  const indexerReady = hasIndexerConfig(config);
+
+  const load = () => {
+    if (!config || !indexerReady) return;
+    setLoading(true);
+    setError('');
+    searchAlerts(config, { page: 1, pageSize: 10, severity: 8 })
+      .then((r) => setAlerts(r.alerts))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load alerts.'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, indexerReady]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const count = alerts.length;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => { setOpen((o) => !o); if (!open) load(); }}
+        className="relative p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+      >
+        <Bell className="w-4 h-4" />
+        {count > 0 && (
+          <span className="absolute top-1 right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
+            {count > 9 ? '9+' : count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-12 w-80 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+            <p className="text-sm font-semibold text-white">Notifications</p>
+            <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-slate-300 transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto">
+            {!config ? (
+              <p className="text-xs text-slate-500 text-center py-8 px-4">
+                Connect Wazuh SIEM in Settings to see alert notifications here.
+              </p>
+            ) : !indexerReady ? (
+              <p className="text-xs text-slate-500 text-center py-8 px-4">
+                Configure the Wazuh Indexer in Settings → Wazuh SIEM to see alert notifications here.
+              </p>
+            ) : loading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+              </div>
+            ) : error ? (
+              <p className="text-xs text-red-400 text-center py-8 px-4">{error}</p>
+            ) : alerts.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-8 px-4">No high-severity alerts right now.</p>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {alerts.map((al) => (
+                  <div key={al.id} className="px-4 py-3 hover:bg-slate-800/40 transition-colors">
+                    <div className="flex items-start gap-2">
+                      <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${severityDot(al.ruleLevel ?? 0)}`} />
+                      <div className="min-w-0">
+                        <p className="text-xs text-white font-medium truncate">{al.ruleDescription ?? 'Unknown alert'}</p>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">
+                          {al.agentName ?? 'Unknown agent'}{al.agentIp ? ` · ${al.agentIp}` : ''}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          {al.timestamp ? new Date(al.timestamp).toLocaleString() : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => { setOpen(false); onViewAll(); }}
+            className="w-full px-4 py-2.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-800/60 border-t border-slate-800 transition-colors font-medium"
+          >
+            View all alerts →
+          </button>
+        </div>
       )}
     </div>
   );
@@ -687,6 +1231,7 @@ const AdminDashboard: React.FC = () => {
   const [activeNav, setActiveNav] = useState('Overview');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [complianceOpen, setComplianceOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -707,6 +1252,13 @@ const AdminDashboard: React.FC = () => {
     { label: 'Audit Log', icon: <Database className="w-3.5 h-3.5" /> },
   ];
   const isSettingsActive = settingsSubItems.some((s) => s.label === activeNav);
+
+  const complianceSubItems: { label: string; icon: React.ReactNode; framework: FrameworkTab }[] = [
+    { label: 'HIPAA', icon: <ShieldCheck className="w-3.5 h-3.5" />, framework: 'hipaa' },
+    { label: 'GDPR', icon: <Globe className="w-3.5 h-3.5" />, framework: 'gdpr' },
+    { label: 'CIS', icon: <ClipboardCheck className="w-3.5 h-3.5" />, framework: 'cis' },
+  ];
+  const isComplianceActive = complianceSubItems.some((s) => s.label === activeNav);
 
   return (
     <WazuhProvider>
@@ -760,6 +1312,43 @@ const AdminDashboard: React.FC = () => {
                 {item.label}
               </button>
             ))}
+
+            {/* Compliances — expandable, holds HIPAA / GDPR / CIS */}
+            <button
+              onClick={() => {
+                const next = !complianceOpen;
+                setComplianceOpen(next);
+                if (next && !isComplianceActive) setActiveNav('HIPAA');
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                isComplianceActive
+                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Compliances
+              <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${complianceOpen || isComplianceActive ? 'rotate-180' : ''}`} />
+            </button>
+
+            {(complianceOpen || isComplianceActive) && (
+              <div className="ml-3 pl-3 border-l border-slate-800 space-y-0.5">
+                {complianceSubItems.map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => setActiveNav(item.label)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+                      activeNav === item.label
+                        ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Settings — expandable, holds Users / Wazuh SIEM / Audit Log */}
             <button
@@ -836,10 +1425,7 @@ const AdminDashboard: React.FC = () => {
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                 <span className="text-xs text-emerald-400 font-medium hidden sm:block">System Active</span>
               </div>
-              <button className="relative p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
-                <Bell className="w-4 h-4" />
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-red-500 rounded-full" />
-              </button>
+              <NotificationBell onViewAll={() => setActiveNav('Wazuh SIEM')} />
               <div className="relative pl-3 border-l border-slate-800">
                 <button
                   onClick={() => setShowAccountMenu(!showAccountMenu)}
@@ -869,7 +1455,11 @@ const AdminDashboard: React.FC = () => {
             {activeNav === 'Users' && <UsersPanel token={token} currentUserId={user?.id} />}
             {activeNav === 'Audit Log' && <AuditLogPanel token={token} />}
             {activeNav === 'Devices' && <DevicesPanel />}
-            {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Audit Log' && activeNav !== 'Devices' && <div className="p-5 space-y-6">
+            {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
+            {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
+            {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
+            {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
+             activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && <div className="p-5 space-y-6">
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Critical Alerts" value="3" sub="Requires immediate action" color="red" trend="+2" />

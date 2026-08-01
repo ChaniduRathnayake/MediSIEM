@@ -7,8 +7,8 @@ import {
   Activity, ShieldAlert, ClipboardCheck, FileSearch,
 } from 'lucide-react';
 import {
-  WazuhAgent, WazuhAgentDetails, WazuhConfig,
-  normalizeAgentStatus, formatOs, getAgentDetails,
+  WazuhAgent, WazuhAgentDetails, WazuhConfig, AgentDetailsSection,
+  normalizeAgentStatus, formatOs, getAgentDetails, getAgentDetailsSection,
 } from './wazuhApi';
 
 type SectionKey = 'overview' | 'hardware' | 'network' | 'software' | 'processes' | 'vulnerabilities' | 'sca' | 'fim';
@@ -88,7 +88,9 @@ const SimpleTable: React.FC<{
   empty?: string;
   shownCount?: number;
   totalCount?: number;
-}> = ({ columns, rows, empty = 'No data', shownCount, totalCount }) => (
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
+}> = ({ columns, rows, empty = 'No data', shownCount, totalCount, onLoadMore, loadingMore }) => (
   <div>
     <div className="overflow-x-auto rounded-lg border border-slate-800">
       <table className="w-full text-xs">
@@ -111,7 +113,18 @@ const SimpleTable: React.FC<{
       </table>
     </div>
     {totalCount !== undefined && shownCount !== undefined && totalCount > shownCount && (
-      <p className="text-xs text-slate-600 mt-2">Showing {shownCount} of {totalCount}</p>
+      <div className="flex items-center gap-3 mt-2">
+        <p className="text-xs text-slate-600">Showing {shownCount} of {totalCount}</p>
+        {onLoadMore && (
+          <button
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-medium disabled:opacity-50 transition-colors"
+          >
+            {loadingMore ? <><Loader2 className="w-3 h-3 animate-spin" /> Loading…</> : `Load ${Math.min(totalCount - shownCount, 300)} more`}
+          </button>
+        )}
+      </div>
     )}
   </div>
 );
@@ -145,6 +158,7 @@ const AgentDetailsModal: React.FC<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [section, setSection] = useState<SectionKey>('overview');
+  const [loadingMore, setLoadingMore] = useState<AgentDetailsSection | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,6 +170,32 @@ const AgentDetailsModal: React.FC<{
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [agent.id, config]);
+
+  // Fetches the next page for one section and appends it in place — the initial
+  // agent-details call already brings up to 500 items per section, so this only
+  // kicks in for agents with unusually large inventories (500+ packages, etc.).
+  const loadMoreSection = async (key: AgentDetailsSection) => {
+    if (!details) return;
+    const current = details[key];
+    if (!current.ok || current.items.length >= current.total) return;
+
+    setLoadingMore(key);
+    try {
+      const next = await getAgentDetailsSection<unknown>(config, agent.id, key, current.items.length, 300);
+      setDetails((prev) => {
+        if (!prev) return prev;
+        const prevSection = prev[key];
+        return {
+          ...prev,
+          [key]: { ...prevSection, items: [...prevSection.items, ...next.items], total: next.total },
+        };
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Failed to load more ${key}.`);
+    } finally {
+      setLoadingMore(null);
+    }
+  };
 
   const meta = statusMeta[normalizeAgentStatus(agent.status)];
 
@@ -294,6 +334,10 @@ const AgentDetailsModal: React.FC<{
                       safe(n.mtu), n.rx?.bytes !== undefined ? `${(n.rx.bytes / 1024).toFixed(0)} KB` : '—',
                       n.tx?.bytes !== undefined ? `${(n.tx.bytes / 1024).toFixed(0)} KB` : '—',
                     ])}
+                    shownCount={details.netiface.items.length}
+                    totalCount={details.netiface.total}
+                    onLoadMore={() => loadMoreSection('netiface')}
+                    loadingMore={loadingMore === 'netiface'}
                   />
                 ) : <SectionUnavailable message={details.netiface.error} />}
               </div>
@@ -307,6 +351,10 @@ const AgentDetailsModal: React.FC<{
                     rows={details.netaddr.items.map((n) => [
                       safe(n.iface), safe(n.proto), safe(n.address), safe(n.netmask), safe(n.broadcast),
                     ])}
+                    shownCount={details.netaddr.items.length}
+                    totalCount={details.netaddr.total}
+                    onLoadMore={() => loadMoreSection('netaddr')}
+                    loadingMore={loadingMore === 'netaddr'}
                   />
                 ) : <SectionUnavailable message={details.netaddr.error} />}
               </div>
@@ -318,6 +366,10 @@ const AgentDetailsModal: React.FC<{
                   <SimpleTable
                     columns={['Interface', 'Type', 'Gateway', 'DHCP']}
                     rows={details.netproto.items.map((n) => [safe(n.iface), safe(n.type), safe(n.gateway), safe(n.dhcp)])}
+                    shownCount={details.netproto.items.length}
+                    totalCount={details.netproto.total}
+                    onLoadMore={() => loadMoreSection('netproto')}
+                    loadingMore={loadingMore === 'netproto'}
                   />
                 ) : <SectionUnavailable message={details.netproto.error} />}
               </div>
@@ -328,13 +380,15 @@ const AgentDetailsModal: React.FC<{
                 {details.ports.ok ? (
                   <SimpleTable
                     columns={['Local', 'Remote', 'Protocol', 'State', 'PID', 'Process']}
-                    rows={details.ports.items.slice(0, 100).map((p) => [
+                    rows={details.ports.items.map((p) => [
                       p.local ? `${p.local.ip ?? '*'}:${p.local.port ?? '—'}` : '—',
                       p.remote ? `${p.remote.ip ?? '*'}:${p.remote.port ?? '—'}` : '—',
                       safe(p.protocol), safe(p.state), safe(p.pid), safe(p.process),
                     ])}
-                    shownCount={Math.min(100, details.ports.items.length)}
+                    shownCount={details.ports.items.length}
                     totalCount={details.ports.total}
+                    onLoadMore={() => loadMoreSection('ports')}
+                    loadingMore={loadingMore === 'ports'}
                   />
                 ) : <SectionUnavailable message={details.ports.error} />}
               </div>
@@ -343,24 +397,28 @@ const AgentDetailsModal: React.FC<{
             details.packages.ok ? (
               <SimpleTable
                 columns={['Name', 'Version', 'Vendor', 'Architecture', 'Installed']}
-                rows={details.packages.items.slice(0, 150).map((p) => [
+                rows={details.packages.items.map((p) => [
                   safe(p.name), safe(p.version), safe(p.vendor), safe(p.architecture), formatDate(p.install_time),
                 ])}
                 empty="No installed packages reported"
-                shownCount={Math.min(150, details.packages.items.length)}
+                shownCount={details.packages.items.length}
                 totalCount={details.packages.total}
+                onLoadMore={() => loadMoreSection('packages')}
+                loadingMore={loadingMore === 'packages'}
               />
             ) : <SectionUnavailable message={details.packages.error} />
           ) : section === 'processes' ? (
             details.processes.ok ? (
               <SimpleTable
                 columns={['PID', 'Name', 'State', 'Priority', 'Memory (KB)', 'Started']}
-                rows={details.processes.items.slice(0, 150).map((p) => [
+                rows={details.processes.items.map((p) => [
                   safe(p.pid), safe(p.name), safe(p.state), safe(p.priority), safe(p.vm_size), formatDate(p.start_time),
                 ])}
                 empty="No running processes reported"
-                shownCount={Math.min(150, details.processes.items.length)}
+                shownCount={details.processes.items.length}
                 totalCount={details.processes.total}
+                onLoadMore={() => loadMoreSection('processes')}
+                loadingMore={loadingMore === 'processes'}
               />
             ) : <SectionUnavailable message={details.processes.error} />
           ) : section === 'vulnerabilities' ? (
@@ -377,6 +435,8 @@ const AgentDetailsModal: React.FC<{
                 empty="No vulnerabilities found for this agent"
                 shownCount={details.vulnerabilities.items.length}
                 totalCount={details.vulnerabilities.total}
+                onLoadMore={() => loadMoreSection('vulnerabilities')}
+                loadingMore={loadingMore === 'vulnerabilities'}
               />
             ) : <SectionUnavailable message={details.vulnerabilities.error} />
           ) : section === 'sca' ? (
@@ -392,20 +452,26 @@ const AgentDetailsModal: React.FC<{
                   formatDate(p.end_scan),
                 ])}
                 empty="No SCA policy results for this agent"
+                shownCount={details.sca.items.length}
+                totalCount={details.sca.total}
+                onLoadMore={() => loadMoreSection('sca')}
+                loadingMore={loadingMore === 'sca'}
               />
             ) : <SectionUnavailable message={details.sca.error} />
           ) : section === 'fim' ? (
             details.fim.ok ? (
               <SimpleTable
                 columns={['File', 'Event', 'Owner', 'Permissions', 'Modified', 'SHA256']}
-                rows={details.fim.items.slice(0, 150).map((f) => [
+                rows={details.fim.items.map((f) => [
                   <span key="f" className="font-mono">{safe(f.file)}</span>,
                   safe(f.event), safe(f.uname), safe(f.perm), formatDate(f.mtime),
                   typeof f.sha256 === 'string' && f.sha256 ? `${f.sha256.slice(0, 12)}…` : '—',
                 ])}
                 empty="No file integrity monitoring events for this agent"
-                shownCount={Math.min(150, details.fim.items.length)}
+                shownCount={details.fim.items.length}
                 totalCount={details.fim.total}
+                onLoadMore={() => loadMoreSection('fim')}
+                loadingMore={loadingMore === 'fim'}
               />
             ) : <SectionUnavailable message={details.fim.error} />
           ) : null}

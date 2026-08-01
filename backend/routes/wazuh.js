@@ -109,6 +109,22 @@ async function wazuhCall(config, path, method = 'GET', bodyData = null) {
   return parsed;
 }
 
+// ── Fetch one Wazuh list endpoint, normalized to { ok, items, total } — a
+// module of a module (SCA, syscollector, ...) that isn't enabled or has no
+// data yet fails independently rather than taking down the whole request.
+async function fetchWazuhList(cfg, path) {
+  try {
+    const data = await wazuhCall(cfg, path);
+    return {
+      ok: true,
+      items: data?.data?.affected_items ?? [],
+      total: data?.data?.total_affected_items ?? 0,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message, items: [], total: 0 };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,18 +267,7 @@ router.get('/agent-details/:agentId', async (req, res) => {
 
   const { agentId } = req.params;
 
-  const fetchList = async (path) => {
-    try {
-      const data = await wazuhCall(cfg, path);
-      return {
-        ok: true,
-        items: data?.data?.affected_items ?? [],
-        total: data?.data?.total_affected_items ?? 0,
-      };
-    } catch (err) {
-      return { ok: false, error: err.message, items: [], total: 0 };
-    }
-  };
+  const fetchList = (path) => fetchWazuhList(cfg, path);
 
   const fetchSingle = async (path) => {
     const r = await fetchList(path);
@@ -270,6 +275,10 @@ router.get('/agent-details/:agentId', async (req, res) => {
   };
 
   try {
+    // Initial load fetches up to 500 of each — Wazuh's practical per-request max
+    // and enough to cover the vast majority of agents in one shot. Anything
+    // beyond that is fetched on demand via the paginated section endpoint below
+    // (see the "Load more" button in AgentDetailsModal).
     const [
       hardware, os, netiface, netaddr, netproto,
       packages, processes, ports,
@@ -277,15 +286,15 @@ router.get('/agent-details/:agentId', async (req, res) => {
     ] = await Promise.all([
       fetchSingle(`/syscollector/${agentId}/hardware`),
       fetchSingle(`/syscollector/${agentId}/os`),
-      fetchList(`/syscollector/${agentId}/netiface?limit=100`),
-      fetchList(`/syscollector/${agentId}/netaddr?limit=100`),
-      fetchList(`/syscollector/${agentId}/netproto?limit=100`),
-      fetchList(`/syscollector/${agentId}/packages?limit=300&sort=name`),
-      fetchList(`/syscollector/${agentId}/processes?limit=300&sort=-vm_size`),
-      fetchList(`/syscollector/${agentId}/ports?limit=200`),
-      fetchList(`/vulnerability/${agentId}?limit=300&sort=-severity`),
-      fetchList(`/sca/${agentId}?limit=100`),
-      fetchList(`/syscheck/${agentId}?limit=300&sort=-mtime`),
+      fetchList(`/syscollector/${agentId}/netiface?limit=500`),
+      fetchList(`/syscollector/${agentId}/netaddr?limit=500`),
+      fetchList(`/syscollector/${agentId}/netproto?limit=500`),
+      fetchList(`/syscollector/${agentId}/packages?limit=500&sort=name`),
+      fetchList(`/syscollector/${agentId}/processes?limit=500&sort=-vm_size`),
+      fetchList(`/syscollector/${agentId}/ports?limit=500`),
+      fetchList(`/vulnerability/${agentId}?limit=500&sort=-severity`),
+      fetchList(`/sca/${agentId}?limit=500`),
+      fetchList(`/syscheck/${agentId}?limit=500&sort=-mtime`),
     ]);
 
     return res.json({ hardware, os, netiface, netaddr, netproto, packages, processes, ports, vulnerabilities, sca, fim });
@@ -293,6 +302,110 @@ router.get('/agent-details/:agentId', async (req, res) => {
     console.error('[wazuh/agent-details]', err.message);
     return res.status(502).json({ message: err.message });
   }
+});
+
+// ── Paths + default sort for the paginated single-section endpoint below ──────
+const SECTION_PATH = {
+  netiface:        (id) => `/syscollector/${id}/netiface`,
+  netaddr:         (id) => `/syscollector/${id}/netaddr`,
+  netproto:        (id) => `/syscollector/${id}/netproto`,
+  packages:        (id) => `/syscollector/${id}/packages`,
+  processes:       (id) => `/syscollector/${id}/processes`,
+  ports:           (id) => `/syscollector/${id}/ports`,
+  vulnerabilities: (id) => `/vulnerability/${id}`,
+  sca:             (id) => `/sca/${id}`,
+  fim:             (id) => `/syscheck/${id}`,
+};
+const SECTION_SORT = {
+  packages:        'name',
+  processes:       '-vm_size',
+  vulnerabilities: '-severity',
+  fim:             '-mtime',
+};
+
+// GET /api/wazuh/agent-details/:agentId/section/:section  — one section, paginated.
+// Backs the "Load more" button for any list that's longer than the initial
+// agent-details fetch above (fetched item count < the section's real total).
+router.get('/agent-details/:agentId/section/:section', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
+
+  const { agentId, section } = req.params;
+  const pathFn = SECTION_PATH[section];
+  if (!pathFn) return res.status(400).json({ message: `Unknown section "${section}".` });
+
+  const limit  = Math.min(parseInt(req.query.limit) || 300, 500);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const sort   = SECTION_SORT[section];
+
+  try {
+    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (sort) qs.set('sort', sort);
+    const data = await wazuhCall(cfg, `${pathFn(agentId)}?${qs.toString()}`);
+    return res.json({
+      ok:    true,
+      items: data?.data?.affected_items ?? [],
+      total: data?.data?.total_affected_items ?? 0,
+    });
+  } catch (err) {
+    console.error(`[wazuh/agent-details/section/${section}]`, err.message);
+    return res.status(502).json({ message: err.message });
+  }
+});
+
+// GET /api/wazuh/sca-summary?agentIds=001,002,...  — CIS-benchmark rollup per agent.
+// Fans out one /sca/{agent_id} call per requested agent, keeps only policies
+// whose name/policy_id look like a CIS benchmark, and aggregates pass/fail/
+// invalid across them. Backs the CIS sub-tab's per-device summary table.
+router.get('/sca-summary', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
+
+  const agentIds = String(req.query.agentIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (agentIds.length === 0) return res.json({ agents: [] });
+
+  try {
+    const results = await Promise.all(agentIds.map(async (agentId) => {
+      const r = await fetchWazuhList(cfg, `/sca/${agentId}?limit=500`);
+      if (!r.ok) return { agentId, ok: false, error: r.error };
+
+      const cisPolicies = r.items.filter((p) =>
+        /cis/i.test(p.name || '') || /cis/i.test(p.policy_id || '')
+      );
+
+      const totals = cisPolicies.reduce((acc, p) => ({
+        pass:    acc.pass    + (p.pass    ?? 0),
+        fail:    acc.fail    + (p.fail    ?? 0),
+        invalid: acc.invalid + (p.invalid ?? 0),
+      }), { pass: 0, fail: 0, invalid: 0 });
+
+      const total = totals.pass + totals.fail + totals.invalid;
+      return {
+        agentId,
+        ok: true,
+        policies: cisPolicies.map((p) => ({ policyId: p.policy_id, name: p.name, pass: p.pass, fail: p.fail, invalid: p.invalid, score: p.score })),
+        ...totals,
+        total,
+        score: total > 0 ? Math.round((totals.pass / total) * 100) : null,
+      };
+    }));
+
+    return res.json({ agents: results });
+  } catch (err) {
+    console.error('[wazuh/sca-summary]', err.message);
+    return res.status(502).json({ message: err.message });
+  }
+});
+
+// GET /api/wazuh/sca/:agentId/checks/:policyId  — per-check detail for one CIS policy.
+router.get('/sca/:agentId/checks/:policyId', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
+
+  const { agentId, policyId } = req.params;
+  const r = await fetchWazuhList(cfg, `/sca/${agentId}/checks/${policyId}?limit=500`);
+  if (!r.ok) return res.status(502).json({ message: r.error });
+  return res.json({ ok: true, items: r.items, total: r.total });
 });
 
 export default router;

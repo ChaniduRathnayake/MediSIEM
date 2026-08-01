@@ -8,17 +8,34 @@ export interface WazuhConfig {
   port:     string;   // e.g. 55000
   username: string;   // e.g. wazuh-wui
   password: string;
+
+  // Wazuh Indexer (OpenSearch/Elasticsearch) — separate service, separate
+  // credentials. Only needed for the HIPAA/GDPR Compliances views, which
+  // query wazuh-alerts-* directly (the manager API above has no structured
+  // alert search). Optional: left blank, those views just show a
+  // not-connected empty state instead of failing the whole app.
+  indexerHost?:     string; // e.g. https://localhost
+  indexerPort?:     string; // e.g. 9200
+  indexerUsername?: string; // e.g. admin
+  indexerPassword?: string;
 }
 
 // ── Well-known defaults for Docker-on-Windows / Docker Desktop ────────────────
 // When Wazuh runs in Docker Desktop on Windows, the manager is reachable from
-// the host (where the Node backend runs) at localhost:55000.
-// The user can override this in the config panel if their setup differs.
+// the host (where the Node backend runs) at localhost:55000. The indexer
+// defaults mirror ai_server/src/wazuh_consumer.py's ES_HOST/ES_USER/ES_PASS —
+// same physical Wazuh stack, same default admin/admin credentials.
+// The user can override any of this in the config panel if their setup differs.
 export const WAZUH_DEFAULTS: WazuhConfig = {
   host:     'https://localhost',
   port:     '55000',
   username: 'wazuh-wui',
   password: 'MyS3cr37P450r.*-',
+
+  indexerHost:     'https://localhost',
+  indexerPort:     '9200',
+  indexerUsername: 'admin',
+  indexerPassword: 'admin',
 };
 
 export interface WazuhAgent {
@@ -62,6 +79,32 @@ export function formatOs(os?: WazuhAgent['os']): string {
   const parts = [os.name || os.platform, os.version].filter(Boolean);
   return parts.length > 0 ? parts.join(' ') : '—';
 }
+
+// ── OS categorization ───────────────────────────────────────────────────────────
+// Coarse device labeling derived from whatever OS fields Wazuh reported. This is
+// a best-effort classification for display/filtering — a MediSIEM-side manual
+// override (see Device.osCategoryOverride) always takes precedence over it.
+export type OsCategory = 'windows' | 'linux' | 'macos' | 'network' | 'iot' | 'unknown';
+
+const LINUX_MARKERS = ['ubuntu', 'debian', 'centos', 'rhel', 'redhat', 'red hat', 'fedora', 'suse', 'alpine', 'amzn', 'amazon', 'rocky', 'almalinux', 'linux'];
+
+export function inferOsCategory(os?: WazuhAgent['os']): OsCategory {
+  const platform = (os?.platform || os?.name || '').toLowerCase();
+  if (!platform) return 'unknown';
+  if (platform.includes('windows')) return 'windows';
+  if (platform.includes('darwin') || platform.includes('mac')) return 'macos';
+  if (LINUX_MARKERS.some((marker) => platform.includes(marker))) return 'linux';
+  return 'unknown';
+}
+
+export const OS_CATEGORY_LABELS: Record<OsCategory, string> = {
+  windows: 'Windows',
+  linux:   'Linux',
+  macos:   'macOS',
+  network: 'Network',
+  iot:     'IoT',
+  unknown: 'Unknown',
+};
 
 export interface WazuhAlert {
   id?:        string;
@@ -293,4 +336,51 @@ export async function getVulnerabilities(cfg: WazuhConfig, agentId = '000'): Pro
 
 export async function getAgentDetails(cfg: WazuhConfig, agentId: string): Promise<WazuhAgentDetails> {
   return proxyGet<WazuhAgentDetails>(`/agent-details/${agentId}`, cfg);
+}
+
+// Section keys that support pagination beyond the initial agent-details fetch
+// (must match SECTION_PATH in backend/routes/wazuh.js).
+export type AgentDetailsSection = 'netiface' | 'netaddr' | 'netproto' | 'packages' | 'processes' | 'ports' | 'vulnerabilities' | 'sca' | 'fim';
+
+export async function getAgentDetailsSection<T>(
+  cfg: WazuhConfig,
+  agentId: string,
+  section: AgentDetailsSection,
+  offset: number,
+  limit = 300
+): Promise<WazuhListSection<T>> {
+  return proxyGet<WazuhListSection<T>>(`/agent-details/${agentId}/section/${section}?offset=${offset}&limit=${limit}`, cfg);
+}
+
+// ── CIS compliance (SCA benchmark rollup) ───────────────────────────────────────
+export interface ScaAgentSummary {
+  agentId: string;
+  ok: boolean;
+  error?: string;
+  policies?: { policyId?: string; name?: string; pass?: number; fail?: number; invalid?: number; score?: number }[];
+  pass?: number;
+  fail?: number;
+  invalid?: number;
+  total?: number;
+  score?: number | null; // percentage 0-100, or null if no CIS policy data at all
+}
+
+export async function getScaSummary(cfg: WazuhConfig, agentIds: string[]): Promise<ScaAgentSummary[]> {
+  if (agentIds.length === 0) return [];
+  const data = await proxyGet<{ agents: ScaAgentSummary[] }>(`/sca-summary?agentIds=${agentIds.join(',')}`, cfg);
+  return data.agents ?? [];
+}
+
+export interface WazuhScaCheck {
+  id?: number;
+  title?: string;
+  description?: string;
+  rationale?: string;
+  remediation?: string;
+  result?: string; // "passed" | "failed" | "not applicable" | ...
+  compliance?: unknown;
+}
+
+export async function getScaChecks(cfg: WazuhConfig, agentId: string, policyId: string): Promise<WazuhListSection<WazuhScaCheck>> {
+  return proxyGet<WazuhListSection<WazuhScaCheck>>(`/sca/${agentId}/checks/${policyId}`, cfg);
 }

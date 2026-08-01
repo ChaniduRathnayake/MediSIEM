@@ -1,8 +1,8 @@
 // frontend/src/pages/dashboard/useWazuh.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  WazuhConfig, WazuhAgent, WazuhAlert, WazuhStats,
-  getStats, getAgents, getRecentAlerts, testConnection,
+  WazuhConfig, WazuhAgent, WazuhStats,
+  getStats, getAgents, testConnection,
 } from './wazuhApi';
 
 const STORAGE_KEY = 'medisiem_wazuh_cfg';
@@ -21,11 +21,9 @@ export interface UseWazuhReturn {
 
   stats:           WazuhStats | null;
   agents:          WazuhAgent[];
-  alerts:          WazuhAlert[];
 
   loadingStats:    boolean;
   loadingAgents:   boolean;
-  loadingAlerts:   boolean;
 
   refresh:         () => void;
   lastRefresh:     Date | null;
@@ -49,11 +47,9 @@ export function useWazuh(): UseWazuhReturn {
 
   const [stats,  setStats]  = useState<WazuhStats | null>(null);
   const [agents, setAgents] = useState<WazuhAgent[]>([]);
-  const [alerts, setAlerts] = useState<WazuhAlert[]>([]);
 
   const [loadingStats,  setLoadingStats]  = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
-  const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [lastRefresh,   setLastRefresh]   = useState<Date | null>(null);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -72,24 +68,18 @@ export function useWazuh(): UseWazuhReturn {
     setConnectionError(null);
     setStats(null);
     setAgents([]);
-    setAlerts([]);
   }, []);
 
   const fetchAll = useCallback(async (cfg: WazuhConfig) => {
     setLoadingStats(true);
     setLoadingAgents(true);
-    setLoadingAlerts(true);
 
     // getStats is the auth gate — throws on bad credentials (401 → 502)
     const statsData = await getStats(cfg);
     setStats(statsData);
     setLoadingStats(false);
 
-    // Remaining calls in parallel; partial failures don't block render
-    await Promise.allSettled([
-      getAgents(cfg).then(setAgents).finally(() => setLoadingAgents(false)),
-      getRecentAlerts(cfg, 50).then(setAlerts).finally(() => setLoadingAlerts(false)),
-    ]);
+    await getAgents(cfg).then(setAgents).finally(() => setLoadingAgents(false));
 
     setLastRefresh(new Date());
   }, []);
@@ -122,7 +112,6 @@ export function useWazuh(): UseWazuhReturn {
       setConnectStep(null);
       setLoadingStats(false);
       setLoadingAgents(false);
-      setLoadingAlerts(false);
       return false;
     } finally {
       setConnecting(false);
@@ -150,8 +139,8 @@ export function useWazuh(): UseWazuhReturn {
   return {
     config, saveConfig, clearConfig,
     connected, connecting, connectStep, connectionError, apiVersion, connect,
-    stats, agents, alerts,
-    loadingStats, loadingAgents, loadingAlerts,
+    stats, agents,
+    loadingStats, loadingAgents,
     refresh, lastRefresh,
   };
 }

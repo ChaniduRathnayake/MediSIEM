@@ -20,7 +20,10 @@ export interface LoginPayload {
 
 export interface AuditLogEntry {
   id: string;
-  action: 'create_user' | 'update_user' | 'delete_user';
+  action:
+    | 'create_user' | 'update_user' | 'delete_user'
+    | 'create_device_group' | 'update_device_group' | 'delete_device_group'
+    | 'update_device_groups' | 'update_device_os_category';
   actor: { id: string; name?: string; email?: string };
   target: { id?: string; name?: string; email?: string };
   details: string;

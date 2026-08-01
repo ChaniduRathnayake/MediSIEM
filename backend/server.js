@@ -6,6 +6,9 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import wazuhRoutes from './routes/wazuh.js';
 import auditLogRoutes from './routes/auditLog.js';
+import deviceRoutes from './routes/devices.js';
+import deviceGroupRoutes from './routes/deviceGroups.js';
+import complianceRoutes from './routes/compliance.js';
 
 dotenv.config();
 
@@ -33,6 +36,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/wazuh', wazuhRoutes);
 app.use('/api/audit-log', auditLogRoutes);
+app.use('/api/devices', deviceRoutes);
+app.use('/api/device-groups', deviceGroupRoutes);
+app.use('/api/compliance', complianceRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

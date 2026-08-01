@@ -1,0 +1,134 @@
+// frontend/src/pages/dashboard/complianceApi.ts
+// Client for the Wazuh Indexer proxy (backend/routes/compliance.js) — a
+// separate service from the Wazuh manager API that wazuhApi.ts talks to.
+// Backs both the full paginated Alerts browser and the HIPAA/GDPR compliance
+// views. Same request shape as wazuhApi.ts's proxyGet, but against
+// /api/compliance with x-indexer-* headers instead of x-wazuh-*.
+
+import type { WazuhConfig } from './wazuhApi';
+
+export type ComplianceFramework = 'hipaa' | 'gdpr';
+
+export interface ComplianceAgentSummary {
+  agentId: string;
+  alertCount: number;
+  maxLevel: number | null;
+  violatedControls: string[];
+}
+
+export interface ComplianceSummary {
+  ok: boolean;
+  days: number;
+  observedControls: string[];
+  agents: ComplianceAgentSummary[];
+}
+
+export interface ComplianceControlDetail {
+  control: string;
+  alertCount: number;
+  maxLevel: number | null;
+  samples: { description: string | null; ruleId: string | null; timestamp: string | null }[];
+}
+
+export interface ComplianceAgentDetail {
+  ok: boolean;
+  days: number;
+  agentId: string;
+  violatedControls: ComplianceControlDetail[];
+}
+
+const PROXY = '/api/compliance';
+
+function configHeaders(cfg: WazuhConfig): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'x-indexer-host': cfg.indexerHost ?? '',
+    'x-indexer-port': cfg.indexerPort ?? '',
+    'x-indexer-user': cfg.indexerUsername ?? '',
+    'x-indexer-pass': cfg.indexerPassword ?? '',
+  };
+}
+
+async function proxyGet<T>(path: string, cfg: WazuhConfig): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${PROXY}${path}`, { headers: configHeaders(cfg) });
+  } catch (networkErr) {
+    throw new Error(`Cannot reach MediSIEM backend at ${PROXY}. (${(networkErr as Error).message})`);
+  }
+
+  const data = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error((data as { message?: string }).message || `HTTP ${res.status}`);
+  return data as T;
+}
+
+// True only when indexer fields have actually been filled in — HIPAA/GDPR
+// views should show a "not connected" state rather than firing requests
+// with empty credentials.
+export function hasIndexerConfig(cfg: WazuhConfig | null): boolean {
+  return !!(cfg?.indexerHost && cfg.indexerPort && cfg.indexerUsername && cfg.indexerPassword);
+}
+
+export async function testIndexerConnection(cfg: WazuhConfig): Promise<{ ok: boolean; version: string | null }> {
+  return proxyGet<{ ok: boolean; version: string | null }>('/ping', cfg);
+}
+
+export async function getComplianceSummary(
+  cfg: WazuhConfig,
+  framework: ComplianceFramework,
+  days: number,
+  agentIds?: string[]
+): Promise<ComplianceSummary> {
+  const qs = new URLSearchParams({ days: String(days) });
+  if (agentIds && agentIds.length > 0) qs.set('agentIds', agentIds.join(','));
+  return proxyGet<ComplianceSummary>(`/${framework}/summary?${qs.toString()}`, cfg);
+}
+
+export async function getComplianceAgentDetail(
+  cfg: WazuhConfig,
+  framework: ComplianceFramework,
+  agentId: string,
+  days: number
+): Promise<ComplianceAgentDetail> {
+  return proxyGet<ComplianceAgentDetail>(`/${framework}/agent/${agentId}?days=${days}`, cfg);
+}
+
+// ── Full alert browser (paginated, filterable) ──────────────────────────────
+export interface WazuhAlertRow {
+  id: string;
+  timestamp: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  agentIp: string | null;
+  ruleId: string | null;
+  ruleLevel: number | null;
+  ruleDescription: string | null;
+  ruleGroups: string[];
+  location: string | null;
+}
+
+export interface AlertSearchResult {
+  ok: boolean;
+  total: number;
+  page: number;
+  pageSize: number;
+  alerts: WazuhAlertRow[];
+}
+
+export interface AlertSearchOptions {
+  page: number;
+  pageSize?: number;
+  agentId?: string;
+  agentIp?: string;
+  severity?: number;
+  q?: string;
+}
+
+export async function searchAlerts(cfg: WazuhConfig, opts: AlertSearchOptions): Promise<AlertSearchResult> {
+  const qs = new URLSearchParams({ page: String(opts.page), pageSize: String(opts.pageSize ?? 50) });
+  if (opts.agentId) qs.set('agentId', opts.agentId);
+  if (opts.agentIp) qs.set('agentIp', opts.agentIp);
+  if (opts.severity !== undefined) qs.set('severity', String(opts.severity));
+  if (opts.q) qs.set('q', opts.q);
+  return proxyGet<AlertSearchResult>(`/alerts?${qs.toString()}`, cfg);
+}

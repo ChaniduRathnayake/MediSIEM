@@ -6,7 +6,11 @@ const AuditLogSchema = new Schema(
     action: {
       type: String,
       required: true,
-      enum: ['create_user', 'update_user', 'delete_user'],
+      enum: [
+        'create_user', 'update_user', 'delete_user',
+        'create_device_group', 'update_device_group', 'delete_device_group',
+        'update_device_groups', 'update_device_os_category',
+      ],
     },
     actor: {
       id: { type: String, required: true },

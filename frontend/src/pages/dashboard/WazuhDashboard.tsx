@@ -1,13 +1,15 @@
 // frontend/src/pages/dashboard/WazuhDashboard.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Shield, Terminal, Eye, EyeOff, Loader2, CheckCircle, XCircle,
   WifiOff, RefreshCw, Settings, Activity, Server, AlertTriangle,
-  Clock, Bug, Info,
+  Clock, Bug, Info, Network, AlertCircle,
 } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
 import type { UseWazuhReturn } from './useWazuh';
 import { WazuhConfig, WAZUH_DEFAULTS, WazuhAgent, normalizeAgentStatus, formatOs } from './wazuhApi';
+import { testIndexerConnection, hasIndexerConfig, searchAlerts } from './complianceApi';
+import type { AlertSearchResult } from './complianceApi';
 import AgentDetailsModal from './AgentDetailsModal';
 
 // ─── Config Panel ─────────────────────────────────────────────────────────────
@@ -18,7 +20,11 @@ const ConfigPanel: React.FC<{
   error:         string | null;
   existingConfig: WazuhConfig | null;
   onBack?:       () => void;
-}> = ({ onSave, connecting, connectStep, error, existingConfig, onBack }) => {
+  // Persists the indexer fields on their own, independent of the Wazuh API
+  // connect/reconnect flow above — so testing/saving the Indexer never
+  // disturbs (or depends on) the manager connection.
+  onSaveIndexer?: (cfg: WazuhConfig) => void;
+}> = ({ onSave, connecting, connectStep, error, existingConfig, onBack, onSaveIndexer }) => {
   const def = existingConfig ?? WAZUH_DEFAULTS;
   const [host,     setHost]     = useState(def.host);
   const [port,     setPort]     = useState(def.port);
@@ -26,6 +32,35 @@ const ConfigPanel: React.FC<{
   const [password, setPassword] = useState(def.password);
   const [showPw,   setShowPw]   = useState(false);
   const [showHints, setShowHints] = useState(false);
+
+  const [indexerHost,     setIndexerHost]     = useState(def.indexerHost ?? WAZUH_DEFAULTS.indexerHost ?? '');
+  const [indexerPort,     setIndexerPort]     = useState(def.indexerPort ?? WAZUH_DEFAULTS.indexerPort ?? '');
+  const [indexerUsername, setIndexerUsername] = useState(def.indexerUsername ?? WAZUH_DEFAULTS.indexerUsername ?? '');
+  const [indexerPassword, setIndexerPassword] = useState(def.indexerPassword ?? WAZUH_DEFAULTS.indexerPassword ?? '');
+  const [showIndexerPw, setShowIndexerPw]     = useState(false);
+  const [showIndexer,   setShowIndexer]       = useState(false);
+
+  const [indexerTesting, setIndexerTesting] = useState(false);
+  const [indexerResult,  setIndexerResult]  = useState<{ ok: true; version: string | null } | { ok: false; error: string } | null>(null);
+
+  const buildConfig = (): WazuhConfig => ({
+    host, port, username, password,
+    indexerHost, indexerPort, indexerUsername, indexerPassword,
+  });
+
+  const handleTestIndexer = async () => {
+    setIndexerTesting(true);
+    setIndexerResult(null);
+    try {
+      const result = await testIndexerConnection(buildConfig());
+      setIndexerResult({ ok: true, version: result.version });
+      onSaveIndexer?.(buildConfig()); // persist on success — no need to also hit "Connect to Wazuh API"
+    } catch (err: unknown) {
+      setIndexerResult({ ok: false, error: err instanceof Error ? err.message : 'Indexer connection failed' });
+    } finally {
+      setIndexerTesting(false);
+    }
+  };
 
   const input =
     'w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white ' +
@@ -126,9 +161,7 @@ const ConfigPanel: React.FC<{
                 className={`${input} pr-10`}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === 'Enter' && onSave({ host, port, username, password })
-                }
+                onKeyDown={(e) => e.key === 'Enter' && onSave(buildConfig())}
               />
               <button
                 onClick={() => setShowPw(!showPw)}
@@ -137,6 +170,105 @@ const ConfigPanel: React.FC<{
                 {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </div>
+
+          {/* Wazuh Indexer (optional — powers the HIPAA/GDPR Compliances views) */}
+          <div className="pt-1 border-t border-slate-800">
+            <button
+              onClick={() => setShowIndexer(!showIndexer)}
+              className="w-full flex items-center gap-2 text-xs text-cyan-400 hover:text-cyan-300 transition-colors pt-3"
+            >
+              <Info className="w-3.5 h-3.5" />
+              {showIndexer ? 'Hide' : 'Show'} Wazuh Indexer settings (optional — for Compliances)
+            </button>
+
+            {showIndexer && (
+              <div className="space-y-4 mt-3">
+                <p className="text-xs text-slate-500">
+                  Separate service from the manager above — holds the alert history the
+                  HIPAA/GDPR compliance views query. Leave blank to skip those views.
+                </p>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Host</label>
+                    <input
+                      className={input}
+                      value={indexerHost}
+                      onChange={(e) => setIndexerHost(e.target.value)}
+                      placeholder="https://localhost"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-400 mb-1.5 block">Port</label>
+                    <input
+                      className={input}
+                      value={indexerPort}
+                      onChange={(e) => setIndexerPort(e.target.value)}
+                      placeholder="9200"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Username</label>
+                  <input
+                    className={input}
+                    value={indexerUsername}
+                    onChange={(e) => setIndexerUsername(e.target.value)}
+                    placeholder="admin"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Password</label>
+                  <div className="relative">
+                    <input
+                      type={showIndexerPw ? 'text' : 'password'}
+                      className={`${input} pr-10`}
+                      value={indexerPassword}
+                      onChange={(e) => setIndexerPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleTestIndexer()}
+                    />
+                    <button
+                      onClick={() => setShowIndexerPw(!showIndexerPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      {showIndexerPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {indexerResult && (
+                  indexerResult.ok ? (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <p className="text-xs text-emerald-300">
+                        Indexer connected{indexerResult.version ? ` — v${indexerResult.version}` : ''}. Saved.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-300 break-all">{indexerResult.error}</p>
+                    </div>
+                  )
+                )}
+
+                <button
+                  onClick={handleTestIndexer}
+                  disabled={indexerTesting || !indexerHost || !indexerPort || !indexerUsername || !indexerPassword}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700
+                    hover:border-cyan-500/40 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-slate-300 text-sm font-semibold transition-all"
+                >
+                  {indexerTesting ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Testing Indexer…</>
+                  ) : (
+                    <><Server className="w-4 h-4" /> Test Indexer Connection</>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Auth info */}
@@ -191,7 +323,7 @@ const ConfigPanel: React.FC<{
 
           {/* Connect button */}
           <button
-            onClick={() => onSave({ host, port, username, password })}
+            onClick={() => onSave(buildConfig())}
             disabled={connecting || !host || !port || !username || !password}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500
               hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 text-sm font-bold transition-all"
@@ -204,7 +336,7 @@ const ConfigPanel: React.FC<{
             ) : (
               <>
                 <Shield className="w-4 h-4" />
-                Connect to Wazuh
+                Connect to Wazuh API
               </>
             )}
           </button>
@@ -317,7 +449,11 @@ const AgentsTable: React.FC<{ agents: UseWazuhReturn['agents']; loading: boolean
   </div>
 );
 
-// ─── Alerts table ─────────────────────────────────────────────────────────────
+// ─── Alerts browser (full history, paginated, filterable by agent id/ip/severity) ─
+// Sourced from the Wazuh Indexer (backend/routes/compliance.js's /alerts route),
+// not the manager's /manager/logs — that's just a raw ossec.log tail with no
+// structured agent/rule fields, which is why the old version of this tab could
+// never actually show which agent an alert came from.
 const severityClass = (level: number) => {
   if (level >= 12) return { label: 'CRITICAL', cls: 'text-red-400 border-red-500/30 bg-red-500/10' };
   if (level >= 8)  return { label: 'HIGH',     cls: 'text-orange-400 border-orange-500/30 bg-orange-500/10' };
@@ -325,66 +461,192 @@ const severityClass = (level: number) => {
   return                  { label: 'LOW',      cls: 'text-blue-400 border-blue-500/30 bg-blue-500/10' };
 };
 
-const AlertsTable: React.FC<{ alerts: UseWazuhReturn['alerts']; loading: boolean }> = ({
-  alerts,
-  loading,
-}) => (
-  <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
-    <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
-      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-        <AlertTriangle className="w-4 h-4 text-amber-400" />
-        Recent Alerts ({alerts.length})
-      </h3>
-      {loading && <Loader2 className="w-3.5 h-3.5 text-slate-600 animate-spin" />}
-    </div>
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-800">
-            {['Severity', 'Rule ID', 'Description', 'Agent', 'Timestamp'].map((h) => (
-              <th key={h} className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 whitespace-nowrap">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {alerts.map((al, i) => {
-            const sev = severityClass(al.rule?.level ?? 0);
-            const desc = al.rule?.description ?? al.description ?? '—';
-            return (
-              <tr
-                key={al.id ?? i}
-                className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors"
+const severityOptions = [
+  { label: 'All severities', value: '' },
+  { label: 'Critical (12+)', value: '12' },
+  { label: 'High (8+)',      value: '8' },
+  { label: 'Medium (5+)',    value: '5' },
+  { label: 'Low (1+)',       value: '1' },
+];
+
+const PAGE_SIZE = 50;
+
+const AlertsBrowser: React.FC = () => {
+  const { config } = useWazuhContext();
+  const indexerReady = hasIndexerConfig(config);
+
+  const [page, setPage] = useState(1);
+  const [agentIdFilter, setAgentIdFilter] = useState('');
+  const [agentIpFilter, setAgentIpFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<AlertSearchResult | null>(null);
+
+  // Any filter change resets to page 1
+  useEffect(() => { setPage(1); }, [agentIdFilter, agentIpFilter, severityFilter]);
+
+  useEffect(() => {
+    if (!config || !indexerReady) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    searchAlerts(config, {
+      page,
+      pageSize: PAGE_SIZE,
+      agentId: agentIdFilter.trim() || undefined,
+      agentIp: agentIpFilter.trim() || undefined,
+      severity: severityFilter ? Number(severityFilter) : undefined,
+    })
+      .then((r) => { if (!cancelled) setResult(r); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load alerts.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [config, indexerReady, page, agentIdFilter, agentIpFilter, severityFilter]);
+
+  if (!indexerReady) {
+    return (
+      <div className="rounded-xl bg-slate-900 border border-slate-800 p-10 text-center">
+        <Info className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+        <p className="text-sm text-slate-300 font-medium">Wazuh Indexer is not configured</p>
+        <p className="text-xs text-slate-500 mt-1">
+          The full alert history — and which agent each one came from — lives in the Wazuh Indexer.
+          Add its connection details above under "Wazuh Indexer settings" to browse alerts here.
+        </p>
+      </div>
+    );
+  }
+
+  const alerts = result?.alerts ?? [];
+  const total = result?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasFilters = !!(agentIdFilter || agentIpFilter || severityFilter);
+
+  return (
+    <div className="space-y-3">
+      {/* Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative">
+          <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+          <input
+            value={agentIdFilter}
+            onChange={(e) => setAgentIdFilter(e.target.value)}
+            placeholder="Filter by Agent ID…"
+            className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-44"
+          />
+        </div>
+        <div className="relative">
+          <Network className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+          <input
+            value={agentIpFilter}
+            onChange={(e) => setAgentIpFilter(e.target.value)}
+            placeholder="Filter by Agent IP…"
+            className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-44"
+          />
+        </div>
+        <select
+          value={severityFilter}
+          onChange={(e) => setSeverityFilter(e.target.value)}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          {severityOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {hasFilters && (
+          <button
+            onClick={() => { setAgentIdFilter(''); setAgentIpFilter(''); setSeverityFilter(''); }}
+            className="text-xs text-slate-500 hover:text-white transition-colors"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            Alerts ({total.toLocaleString()})
+          </h3>
+          {loading && <Loader2 className="w-3.5 h-3.5 text-slate-600 animate-spin" />}
+        </div>
+
+        {error ? (
+          <div className="flex items-center gap-2 px-5 py-6 text-red-400 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800">
+                  {['Severity', 'Rule ID', 'Description', 'Agent', 'Agent ID', 'IP', 'Timestamp'].map((h) => (
+                    <th key={h} className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {alerts.map((al) => {
+                  const sev = severityClass(al.ruleLevel ?? 0);
+                  return (
+                    <tr key={al.id} className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3 px-4">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sev.cls}`}>{sev.label}</span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-400">{al.ruleId ?? '—'}</td>
+                      <td className="py-3 px-4 text-xs text-slate-300 max-w-xs truncate" title={al.ruleDescription ?? undefined}>
+                        {al.ruleDescription ?? '—'}
+                      </td>
+                      <td className="py-3 px-4 text-xs text-white font-medium whitespace-nowrap">{al.agentName ?? '—'}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-500">{al.agentId ?? '—'}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-400">{al.agentIp ?? '—'}</td>
+                      <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">
+                        {al.timestamp ? new Date(al.timestamp).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && alerts.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
+                      {hasFilters ? 'No alerts match these filters' : 'No alerts found'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-800">
+            <p className="text-xs text-slate-500">
+              Page {page} of {totalPages} · {total.toLocaleString()} total
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || loading}
+                className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <td className="py-3 px-4">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sev.cls}`}>
-                    {sev.label}
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-400">{al.rule?.id ?? al.tag ?? '—'}</td>
-                <td className="py-3 px-4 text-xs text-slate-300 max-w-xs truncate" title={desc}>
-                  {desc}
-                </td>
-                <td className="py-3 px-4 text-xs text-slate-400 font-mono">{al.agent?.name ?? '—'}</td>
-                <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">
-                  {al.timestamp ? new Date(al.timestamp).toLocaleString() : '—'}
-                </td>
-              </tr>
-            );
-          })}
-          {!loading && alerts.length === 0 && (
-            <tr>
-              <td colSpan={5} className="py-10 text-center text-sm text-slate-500">
-                No alerts found
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || loading}
+                className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Vuln bar ─────────────────────────────────────────────────────────────────
 const VulnBar: React.FC<{ label: string; count: number; total: number; color: string }> = ({
@@ -413,8 +675,8 @@ const WazuhDashboard: React.FC = () => {
     config, saveConfig, clearConfig,
     connected, connecting, connectStep, connectionError, apiVersion,
     connect,
-    stats, agents, alerts,
-    loadingStats, loadingAgents, loadingAlerts,
+    stats, agents,
+    loadingStats, loadingAgents,
     refresh, lastRefresh,
   } = useWazuhContext();
 
@@ -445,6 +707,13 @@ const WazuhDashboard: React.FC = () => {
           onSave={async (cfg) => {
             const ok = await connect(cfg);
             if (ok) { saveConfig(cfg); setShowConfig(false); }
+          }}
+          onSaveIndexer={(cfg) => {
+            // Persists independently of the Wazuh API connect flow above —
+            // but keep this screen open (rather than letting `config` turning
+            // non-null jump us to the connected dashboard view mid-setup).
+            saveConfig(cfg);
+            setShowConfig(true);
           }}
           connecting={connecting}
           connectStep={connectStep}
@@ -541,7 +810,7 @@ const WazuhDashboard: React.FC = () => {
         {[
           { id: 'overview', label: 'Overview',              icon: <Activity     className="w-3.5 h-3.5" /> },
           { id: 'agents',   label: `Agents (${agents.length})`,   icon: <Server       className="w-3.5 h-3.5" /> },
-          { id: 'alerts',   label: `Alerts (${alerts.length})`,   icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+          { id: 'alerts',   label: 'Alerts',   icon: <AlertTriangle className="w-3.5 h-3.5" /> },
         ].map((t) => (
           <button
             key={t.id}
@@ -632,9 +901,7 @@ const WazuhDashboard: React.FC = () => {
       )}
 
       {/* ── Alerts ── */}
-      {tab === 'alerts' && (
-        <AlertsTable alerts={alerts} loading={loadingAlerts} />
-      )}
+      {tab === 'alerts' && <AlertsBrowser />}
 
       {selectedAgent && config && (
         <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />

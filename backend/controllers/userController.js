@@ -1,14 +1,5 @@
 import User from '../models/User.js';
-import AuditLog from '../models/AuditLog.js';
-
-// Best-effort audit trail — never let a logging failure break the actual request.
-const logAudit = async (entry) => {
-  try {
-    await AuditLog.create(entry);
-  } catch (err) {
-    console.error('[audit-log]', err);
-  }
-};
+import { logAudit } from '../utils/auditLog.js';
 
 // ─── GET /api/users  (admin only) ─────────────────────────────────────────────
 export const getAllUsers = async (req, res) => {
