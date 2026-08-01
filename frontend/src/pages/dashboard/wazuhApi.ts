@@ -4,15 +4,18 @@
 //   GET /security/user/authenticate?raw=true  (Basic Auth → raw JWT string)
 
 export interface WazuhConfig {
-  host:     string;   // e.g. https://192.168.52.129
+  host:     string;   // e.g. https://localhost  or  https://192.168.x.x
   port:     string;   // e.g. 55000
   username: string;   // e.g. wazuh-wui
-  password: string;   // e.g. MyS3cr37P450r.*-
+  password: string;
 }
 
-// ── Well-known defaults for this deployment ───────────────────────────────────
+// ── Well-known defaults for Docker-on-Windows / Docker Desktop ────────────────
+// When Wazuh runs in Docker Desktop on Windows, the manager is reachable from
+// the host (where the Node backend runs) at localhost:55000.
+// The user can override this in the config panel if their setup differs.
 export const WAZUH_DEFAULTS: WazuhConfig = {
-  host:     'https://192.168.52.129',
+  host:     'https://localhost',
   port:     '55000',
   username: 'wazuh-wui',
   password: 'MyS3cr37P450r.*-',
@@ -78,9 +81,17 @@ function configHeaders(cfg: WazuhConfig): Record<string, string> {
 }
 
 async function proxyGet<T>(path: string, cfg: WazuhConfig): Promise<T> {
-  const res = await fetch(`${PROXY}${path}`, {
-    headers: configHeaders(cfg),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${PROXY}${path}`, { headers: configHeaders(cfg) });
+  } catch (networkErr) {
+    // fetch() itself throws only on network-level failures (backend unreachable)
+    throw new Error(
+      `Cannot reach MediSIEM backend at ${PROXY}. ` +
+      `Make sure the Express server is running on port 5000 and the Vite proxy is configured. ` +
+      `(${(networkErr as Error).message})`
+    );
+  }
 
   const data = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
 

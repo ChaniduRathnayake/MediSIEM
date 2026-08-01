@@ -2,18 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Shield,
-  Heart,
-  Calendar,
   FileText,
   Bell,
   LogOut,
-  Activity,
-  Thermometer,
-  Droplets,
-  Wind,
-  TrendingUp,
-  TrendingDown,
-  Minus,
   ChevronRight,
   Clock,
   User,
@@ -22,38 +13,42 @@ import {
   AlertCircle,
   Info,
   X,
+  AlertTriangle,
+  Eye,
+  Activity,
+  Globe,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'overview' | 'vitals' | 'appointments' | 'reports';
+type Tab = 'overview' | 'alerts' | 'reports';
+type Severity = 'all' | 'critical' | 'high' | 'medium' | 'low';
 
-interface Vital {
-  label: string;
-  value: string;
-  unit: string;
-  status: 'normal' | 'warning' | 'critical';
-  trend: 'up' | 'down' | 'stable';
-  icon: React.ReactNode;
-  color: string;
-  history: number[];
-}
-
-interface Appointment {
+interface SocAlert {
   id: string;
-  doctor: string;
-  specialty: string;
-  date: string;
-  time: string;
-  type: 'in-person' | 'virtual';
-  status: 'upcoming' | 'completed' | 'cancelled';
+  title: string;
+  description: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  status: 'open' | 'investigating' | 'resolved';
+  source: string;
+  category: string;
+  timestamp: string;
 }
+
+type ReportCategory =
+  | 'Threat Intelligence'
+  | 'Incident'
+  | 'Access Control'
+  | 'Network'
+  | 'Compliance'
+  | 'Vulnerability';
 
 interface Report {
   id: string;
   title: string;
+  description: string;
   date: string;
-  type: string;
+  category: ReportCategory;
   status: 'ready' | 'pending';
 }
 
@@ -65,173 +60,255 @@ interface Notification {
 }
 
 // ─── Mock Data ─────────────────────────────────────────────────────────────────
-const VITALS: Vital[] = [
+const SOC_ALERTS: SocAlert[] = [
   {
-    label: 'Heart Rate',
-    value: '72',
-    unit: 'bpm',
-    status: 'normal',
-    trend: 'stable',
-    icon: <Heart className="w-5 h-5" />,
-    color: 'rose',
-    history: [68, 74, 70, 73, 71, 75, 72],
+    id: 'al1',
+    title: 'Brute Force Login Attempt',
+    description: 'Multiple failed login attempts detected from external IP targeting the EHR portal.',
+    severity: 'critical',
+    status: 'open',
+    source: '185.220.101.47',
+    category: 'Authentication',
+    timestamp: '2025-04-12 08:14',
   },
   {
-    label: 'Blood Pressure',
-    value: '118/76',
-    unit: 'mmHg',
-    status: 'normal',
-    trend: 'down',
-    icon: <Activity className="w-5 h-5" />,
-    color: 'cyan',
-    history: [125, 122, 120, 119, 121, 118, 118],
+    id: 'al2',
+    title: 'Unauthorized Patient Record Access',
+    description: 'User account accessed 340 patient records outside normal working hours.',
+    severity: 'critical',
+    status: 'investigating',
+    source: '10.0.1.42 (INT)',
+    category: 'Data Access',
+    timestamp: '2025-04-12 02:31',
   },
   {
-    label: 'Temperature',
-    value: '36.8',
-    unit: '°C',
-    status: 'normal',
-    trend: 'stable',
-    icon: <Thermometer className="w-5 h-5" />,
-    color: 'orange',
-    history: [36.5, 36.7, 36.9, 36.8, 36.6, 36.8, 36.8],
+    id: 'al3',
+    title: 'SQL Injection Attempt',
+    description: 'Malicious SQL payload detected in patient search field of the web portal.',
+    severity: 'high',
+    status: 'open',
+    source: '91.108.4.201',
+    category: 'Web Attack',
+    timestamp: '2025-04-12 09:45',
   },
   {
-    label: 'Oxygen Sat.',
-    value: '98',
-    unit: '%',
-    status: 'normal',
-    trend: 'up',
-    icon: <Droplets className="w-5 h-5" />,
-    color: 'blue',
-    history: [96, 97, 97, 98, 97, 98, 98],
+    id: 'al4',
+    title: 'Suspicious Outbound Data Transfer',
+    description: 'Abnormal 2.3 GB outbound transfer to an unrecognised external endpoint.',
+    severity: 'high',
+    status: 'open',
+    source: '10.0.3.88 (INT)',
+    category: 'Data Exfiltration',
+    timestamp: '2025-04-11 23:17',
   },
   {
-    label: 'Resp. Rate',
-    value: '16',
-    unit: '/min',
-    status: 'normal',
-    trend: 'stable',
-    icon: <Wind className="w-5 h-5" />,
-    color: 'violet',
-    history: [15, 16, 17, 16, 15, 16, 16],
+    id: 'al5',
+    title: 'Admin MFA Bypass Attempt',
+    description: 'Five consecutive MFA failures on a privileged admin account followed by a success.',
+    severity: 'high',
+    status: 'investigating',
+    source: '203.0.113.15',
+    category: 'Authentication',
+    timestamp: '2025-04-11 20:03',
   },
   {
-    label: 'Blood Glucose',
-    value: '104',
-    unit: 'mg/dL',
-    status: 'warning',
-    trend: 'up',
-    icon: <Activity className="w-5 h-5" />,
-    color: 'amber',
-    history: [95, 98, 100, 102, 103, 104, 104],
-  },
-];
-
-const APPOINTMENTS: Appointment[] = [
-  {
-    id: 'a1',
-    doctor: 'Dr. Ashan Perera',
-    specialty: 'Cardiologist',
-    date: '2025-04-15',
-    time: '10:30 AM',
-    type: 'in-person',
-    status: 'upcoming',
+    id: 'al6',
+    title: 'Port Scan from Internal Host',
+    description: 'Internal host swept 1,024 ports across the network segment.',
+    severity: 'medium',
+    status: 'open',
+    source: '10.0.2.19 (INT)',
+    category: 'Reconnaissance',
+    timestamp: '2025-04-11 15:29',
   },
   {
-    id: 'a2',
-    doctor: 'Dr. Malini Fernando',
-    specialty: 'General Physician',
-    date: '2025-04-22',
-    time: '02:00 PM',
-    type: 'virtual',
-    status: 'upcoming',
+    id: 'al7',
+    title: 'Ransomware Signature Detected',
+    description: 'YARA rule matched a known ransomware dropper on the radiology workstation.',
+    severity: 'critical',
+    status: 'investigating',
+    source: '10.0.4.55 (INT)',
+    category: 'Malware',
+    timestamp: '2025-04-11 14:08',
   },
   {
-    id: 'a3',
-    doctor: 'Dr. Ruwan Jayasuriya',
-    specialty: 'Endocrinologist',
-    date: '2025-03-28',
-    time: '11:00 AM',
-    type: 'in-person',
-    status: 'completed',
+    id: 'al8',
+    title: 'Anomalous VPN Login Location',
+    description: 'Staff VPN login from an unrecognised country (RU) for an active domestic user.',
+    severity: 'medium',
+    status: 'resolved',
+    source: '195.82.56.112',
+    category: 'Authentication',
+    timestamp: '2025-04-11 11:52',
   },
   {
-    id: 'a4',
-    doctor: 'Dr. Chamari Silva',
-    specialty: 'Neurologist',
-    date: '2025-03-10',
-    time: '09:00 AM',
-    type: 'virtual',
-    status: 'completed',
+    id: 'al9',
+    title: 'Expired SSL Certificate',
+    description: 'TLS certificate on internal lab results API expired 3 days ago.',
+    severity: 'low',
+    status: 'open',
+    source: 'lab-api.internal',
+    category: 'Configuration',
+    timestamp: '2025-04-10 09:00',
+  },
+  {
+    id: 'al10',
+    title: 'Privileged Account Created Off-Hours',
+    description: 'New domain admin account created at 03:12 AM by an unverified automated process.',
+    severity: 'high',
+    status: 'open',
+    source: 'DC-01 (INT)',
+    category: 'Identity',
+    timestamp: '2025-04-10 03:12',
   },
 ];
 
 const REPORTS: Report[] = [
-  { id: 'r1', title: 'Full Blood Count (FBC)', date: '2025-04-01', type: 'Lab Report', status: 'ready' },
-  { id: 'r2', title: 'Lipid Profile', date: '2025-04-01', type: 'Lab Report', status: 'ready' },
-  { id: 'r3', title: 'Chest X-Ray', date: '2025-03-28', type: 'Imaging', status: 'ready' },
-  { id: 'r4', title: 'HbA1c Test', date: '2025-04-10', type: 'Lab Report', status: 'pending' },
-  { id: 'r5', title: 'ECG Analysis', date: '2025-03-15', type: 'Cardiology', status: 'ready' },
+  {
+    id: 'r1',
+    title: 'Weekly Threat Intelligence Digest',
+    description: 'Summary of IOCs, threat actor TTPs, and threat landscape shifts for the week ending Apr 12.',
+    date: '2025-04-12',
+    category: 'Threat Intelligence',
+    status: 'ready',
+  },
+  {
+    id: 'r2',
+    title: 'Brute Force Incident Report — Apr 12',
+    description: 'Forensic timeline of the brute force campaign targeting the EHR portal from IP 185.220.101.47.',
+    date: '2025-04-12',
+    category: 'Incident',
+    status: 'ready',
+  },
+  {
+    id: 'r3',
+    title: 'Ransomware Exposure Analysis',
+    description: 'Full forensic analysis of the YARA-matched ransomware dropper on the radiology workstation.',
+    date: '2025-04-11',
+    category: 'Incident',
+    status: 'pending',
+  },
+  {
+    id: 'r4',
+    title: 'Privileged Access Review — Q1 2025',
+    description: 'Audit of all privileged account activity, role assignments, and policy exceptions in Q1.',
+    date: '2025-04-10',
+    category: 'Access Control',
+    status: 'ready',
+  },
+  {
+    id: 'r5',
+    title: 'Failed Authentication Summary',
+    description: 'Breakdown of 1,240 failed login events across all systems in the past 7 days.',
+    date: '2025-04-09',
+    category: 'Access Control',
+    status: 'ready',
+  },
+  {
+    id: 'r6',
+    title: 'Off-Hours Access Report',
+    description: 'Flagged access events occurring outside business hours (22:00–06:00) in the past 30 days.',
+    date: '2025-04-08',
+    category: 'Access Control',
+    status: 'ready',
+  },
+  {
+    id: 'r7',
+    title: 'Network Anomaly Report',
+    description: 'Analysis of abnormal traffic patterns including the 2.3 GB exfiltration attempt detected Apr 11.',
+    date: '2025-04-11',
+    category: 'Network',
+    status: 'ready',
+  },
+  {
+    id: 'r8',
+    title: 'Firewall Policy Audit',
+    description: 'Review of all inbound/outbound firewall rules against the current security baseline.',
+    date: '2025-04-07',
+    category: 'Network',
+    status: 'pending',
+  },
+  {
+    id: 'r9',
+    title: 'HIPAA Audit Trail — Q1 2025',
+    description: 'Full audit log of patient data access events for regulatory compliance review.',
+    date: '2025-04-05',
+    category: 'Compliance',
+    status: 'ready',
+  },
+  {
+    id: 'r10',
+    title: 'Security Policy Violations',
+    description: 'Report on policy deviations including unencrypted data transfers and disabled endpoint agents.',
+    date: '2025-04-03',
+    category: 'Compliance',
+    status: 'ready',
+  },
+  {
+    id: 'r11',
+    title: 'CVE Exposure Assessment',
+    description: 'Mapping of active CVEs against the hospital asset inventory and current patch status.',
+    date: '2025-04-06',
+    category: 'Vulnerability',
+    status: 'pending',
+  },
+  {
+    id: 'r12',
+    title: 'Endpoint Patch Status',
+    description: 'Patch compliance across 412 managed endpoints; 23 devices with critical unpatched CVEs.',
+    date: '2025-04-04',
+    category: 'Vulnerability',
+    status: 'ready',
+  },
 ];
 
 const NOTIFICATIONS: Notification[] = [
-  { id: 'n1', message: 'Your HbA1c test results will be ready in 2 days.', type: 'info', time: '2h ago' },
-  { id: 'n2', message: 'Blood glucose slightly elevated. Consider dietary review.', type: 'warning', time: '1d ago' },
-  { id: 'n3', message: 'Appointment with Dr. Perera confirmed for Apr 15.', type: 'success', time: '2d ago' },
+  { id: 'n1', message: '3 critical alerts require immediate attention.', type: 'warning', time: '5m ago' },
+  { id: 'n2', message: 'Ransomware signature investigation escalated to Tier 2.', type: 'info', time: '1h ago' },
+  { id: 'n3', message: 'VPN anomaly alert resolved by SOC analyst.', type: 'success', time: '3h ago' },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-const statusColor = {
-  normal: 'text-emerald-400',
-  warning: 'text-amber-400',
-  critical: 'text-red-400',
+const severityConfig = {
+  critical: {
+    badge: 'bg-red-500/15 text-red-400 border-red-500/30',
+    border: 'border-red-500/30',
+    dot: 'bg-red-500',
+    label: 'Critical',
+  },
+  high: {
+    badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+    border: 'border-orange-500/30',
+    dot: 'bg-orange-500',
+    label: 'High',
+  },
+  medium: {
+    badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    border: 'border-amber-500/20',
+    dot: 'bg-amber-500',
+    label: 'Medium',
+  },
+  low: {
+    badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+    border: 'border-slate-800',
+    dot: 'bg-blue-500',
+    label: 'Low',
+  },
 };
 
-const statusBg = {
-  normal: 'bg-emerald-500/10 border-emerald-500/20',
-  warning: 'bg-amber-500/10 border-amber-500/20',
-  critical: 'bg-red-500/10 border-red-500/20',
+const statusConfig = {
+  open: 'bg-red-500/10 text-red-400 border-red-500/20',
+  investigating: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  resolved: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
 };
 
-const trendIcon = {
-  up: <TrendingUp className="w-3.5 h-3.5" />,
-  down: <TrendingDown className="w-3.5 h-3.5" />,
-  stable: <Minus className="w-3.5 h-3.5" />,
-};
-
-// Mini sparkline component
-const Sparkline: React.FC<{ data: number[]; color: string }> = ({ data, color }) => {
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const w = 80;
-  const h = 28;
-  const points = data
-    .map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`)
-    .join(' ');
-
-  const colorMap: Record<string, string> = {
-    rose: '#f43f5e',
-    cyan: '#06b6d4',
-    orange: '#f97316',
-    blue: '#3b82f6',
-    violet: '#8b5cf6',
-    amber: '#f59e0b',
-  };
-
-  return (
-    <svg width={w} height={h} className="opacity-70">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={colorMap[color] || '#06b6d4'}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+const reportCategoryConfig: Record<ReportCategory, { badge: string; dot: string }> = {
+  'Threat Intelligence': { badge: 'bg-purple-500/15 text-purple-400 border-purple-500/30', dot: 'bg-purple-500' },
+  'Incident':            { badge: 'bg-red-500/15 text-red-400 border-red-500/30',           dot: 'bg-red-500'    },
+  'Access Control':      { badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',     dot: 'bg-amber-500'  },
+  'Network':             { badge: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',         dot: 'bg-cyan-500'   },
+  'Compliance':          { badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', dot: 'bg-emerald-500' },
+  'Vulnerability':       { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/30',   dot: 'bg-orange-500' },
 };
 
 // ─── UserDashboard ─────────────────────────────────────────────────────────────
@@ -239,6 +316,8 @@ const UserDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [severityFilter, setSeverityFilter] = useState<Severity>('all');
+  const [reportCategory, setReportCategory] = useState<ReportCategory | 'all'>('all');
   const [notifications, setNotifications] = useState(NOTIFICATIONS);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -251,10 +330,17 @@ const UserDashboard: React.FC = () => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
+  const criticalCount = SOC_ALERTS.filter((a) => a.severity === 'critical').length;
+  const openCount = SOC_ALERTS.filter((a) => a.status === 'open').length;
+  const investigatingCount = SOC_ALERTS.filter((a) => a.status === 'investigating').length;
+  const resolvedCount = SOC_ALERTS.filter((a) => a.status === 'resolved').length;
+
+  const filteredAlerts =
+    severityFilter === 'all' ? SOC_ALERTS : SOC_ALERTS.filter((a) => a.severity === severityFilter);
+
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', icon: <Activity className="w-4 h-4" /> },
-    { id: 'vitals', label: 'Health Vitals', icon: <Heart className="w-4 h-4" /> },
-    { id: 'appointments', label: 'Appointments', icon: <Calendar className="w-4 h-4" /> },
+    { id: 'overview', label: 'Overview', icon: <Shield className="w-4 h-4" /> },
+    { id: 'alerts', label: 'SOC Alerts', icon: <Activity className="w-4 h-4" /> },
     { id: 'reports', label: 'Reports', icon: <FileText className="w-4 h-4" /> },
   ];
 
@@ -287,7 +373,7 @@ const UserDashboard: React.FC = () => {
                 >
                   <Bell className="w-5 h-5" />
                   {notifications.length > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-cyan-500 rounded-full" />
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
                   )}
                 </button>
 
@@ -351,10 +437,10 @@ const UserDashboard: React.FC = () => {
         {/* Page title */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-white">
-            Good morning, <span className="text-cyan-400">{user?.name?.split(' ')[0]}</span> 👋
+            Security Dashboard <span className="text-cyan-400">— SOC</span>
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Here's an overview of your health status · Last updated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+            Real-time threat monitoring · Last updated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
 
@@ -372,6 +458,11 @@ const UserDashboard: React.FC = () => {
             >
               {tab.icon}
               <span className="hidden sm:block">{tab.label}</span>
+              {tab.id === 'alerts' && openCount > 0 && (
+                <span className="flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">
+                  {openCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -379,23 +470,23 @@ const UserDashboard: React.FC = () => {
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Quick stats row */}
+            {/* Stat cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Active Alerts', value: '1', icon: <AlertCircle className="w-5 h-5" />, color: 'amber', sub: 'Blood glucose' },
-                { label: 'Next Appointment', value: 'Apr 15', icon: <Calendar className="w-5 h-5" />, color: 'cyan', sub: 'Dr. Perera' },
-                { label: 'Reports Ready', value: '4', icon: <FileText className="w-5 h-5" />, color: 'violet', sub: '1 pending' },
-                { label: 'Health Score', value: '87%', icon: <Heart className="w-5 h-5" />, color: 'emerald', sub: 'Good condition' },
+                { label: 'Total Alerts', value: SOC_ALERTS.length, icon: <AlertTriangle className="w-5 h-5" />, color: 'slate', sub: 'Last 48 hours' },
+                { label: 'Critical', value: criticalCount, icon: <AlertCircle className="w-5 h-5" />, color: 'red', sub: 'Immediate action' },
+                { label: 'Investigating', value: investigatingCount, icon: <Eye className="w-5 h-5" />, color: 'amber', sub: 'In progress' },
+                { label: 'Resolved', value: resolvedCount, icon: <CheckCircle2 className="w-5 h-5" />, color: 'emerald', sub: 'Last 24 hours' },
               ].map((stat) => (
                 <div
                   key={stat.label}
                   className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-colors"
                 >
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${
+                    stat.color === 'red' ? 'bg-red-500/15 text-red-400' :
                     stat.color === 'amber' ? 'bg-amber-500/15 text-amber-400' :
-                    stat.color === 'cyan' ? 'bg-cyan-500/15 text-cyan-400' :
-                    stat.color === 'violet' ? 'bg-violet-500/15 text-violet-400' :
-                    'bg-emerald-500/15 text-emerald-400'
+                    stat.color === 'emerald' ? 'bg-emerald-500/15 text-emerald-400' :
+                    'bg-slate-700/60 text-slate-400'
                   }`}>
                     {stat.icon}
                   </div>
@@ -406,125 +497,135 @@ const UserDashboard: React.FC = () => {
               ))}
             </div>
 
-            {/* Vitals summary */}
-            <div>
+            {/* Recent Alerts */}
+            <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-white">Today's Vitals</h2>
+                <h2 className="text-base font-semibold text-white">Recent Alerts</h2>
                 <button
-                  onClick={() => setActiveTab('vitals')}
+                  onClick={() => setActiveTab('alerts')}
                   className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
                 >
                   View all <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {VITALS.map((v) => (
-                  <VitalCard key={v.label} vital={v} compact />
+              <div className="space-y-2">
+                {SOC_ALERTS.filter((a) => a.status !== 'resolved').slice(0, 5).map((a) => (
+                  <AlertRow key={a.id} alert={a} />
                 ))}
               </div>
             </div>
 
-            {/* Next appointment + recent activity in 2 cols */}
-            <div className="grid md:grid-cols-2 gap-4">
-              {/* Upcoming */}
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-white">Upcoming Appointments</h2>
-                  <button onClick={() => setActiveTab('appointments')} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
-                    All <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {APPOINTMENTS.filter((a) => a.status === 'upcoming').map((a) => (
-                    <AppointmentRow key={a.id} appointment={a} />
-                  ))}
-                </div>
+            {/* Recent Reports */}
+            <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-semibold text-white">Recent Reports</h2>
+                <button onClick={() => setActiveTab('reports')} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+                  All <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-
-              {/* Recent Reports */}
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-white">Recent Reports</h2>
-                  <button onClick={() => setActiveTab('reports')} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
-                    All <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {REPORTS.slice(0, 3).map((r) => (
-                    <ReportRow key={r.id} report={r} />
-                  ))}
-                </div>
+              <div className="space-y-3">
+                {REPORTS.slice(0, 3).map((r) => (
+                  <ReportRow key={r.id} report={r} />
+                ))}
               </div>
             </div>
           </div>
         )}
 
-        {/* ── VITALS TAB ── */}
-        {activeTab === 'vitals' && (
-          <div className="space-y-6">
+        {/* ── ALERTS TAB ── */}
+        {activeTab === 'alerts' && (
+          <div className="space-y-5">
+            {/* Header row */}
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Health Vitals</h2>
+              <h2 className="text-lg font-semibold text-white">SOC Alerts</h2>
               <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" /> Updated today
+                <Clock className="w-3.5 h-3.5" /> Updated just now
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {VITALS.map((v) => (
-                <VitalCard key={v.label} vital={v} />
-              ))}
+
+            {/* Severity filter */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['all', 'critical', 'high', 'medium', 'low'] as Severity[]).map((s) => {
+                const count = s === 'all' ? SOC_ALERTS.length : SOC_ALERTS.filter((a) => a.severity === s).length;
+                const active = severityFilter === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setSeverityFilter(s)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                      active
+                        ? s === 'all' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' :
+                          s === 'critical' ? 'bg-red-500/20 text-red-300 border-red-500/40' :
+                          s === 'high' ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' :
+                          s === 'medium' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                          'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                        : 'bg-slate-800/60 text-slate-400 border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    {s !== 'all' && (
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        s === 'critical' ? 'bg-red-500' :
+                        s === 'high' ? 'bg-orange-500' :
+                        s === 'medium' ? 'bg-amber-500' : 'bg-blue-500'
+                      }`} />
+                    )}
+                    <span className="capitalize">{s}</span>
+                    <span className="opacity-60">({count})</span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Alert card for warning vitals */}
-            {VITALS.filter((v) => v.status !== 'normal').length > 0 && (
-              <div className="p-5 rounded-2xl bg-amber-500/8 border border-amber-500/20">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-300 mb-1">Attention Required</p>
-                    <p className="text-xs text-amber-400/70 leading-relaxed">
-                      Your blood glucose is slightly above the normal range (70–100 mg/dL). Consider reviewing your dietary intake and consult your endocrinologist if it persists.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── APPOINTMENTS TAB ── */}
-        {activeTab === 'appointments' && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-white">Your Appointments</h2>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Upcoming</p>
-              <div className="space-y-3">
-                {APPOINTMENTS.filter((a) => a.status === 'upcoming').map((a) => (
-                  <AppointmentCard key={a.id} appointment={a} />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Past</p>
-              <div className="space-y-3 opacity-70">
-                {APPOINTMENTS.filter((a) => a.status === 'completed').map((a) => (
-                  <AppointmentCard key={a.id} appointment={a} />
-                ))}
-              </div>
+            {/* Alert list */}
+            <div className="space-y-3">
+              {filteredAlerts.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-10">No alerts match the selected filter.</p>
+              ) : (
+                filteredAlerts.map((a) => <AlertCard key={a.id} alert={a} />)
+              )}
             </div>
           </div>
         )}
 
         {/* ── REPORTS TAB ── */}
         {activeTab === 'reports' && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Medical Reports</h2>
-              <span className="text-xs text-slate-500">{REPORTS.filter((r) => r.status === 'ready').length} ready to download</span>
+              <h2 className="text-lg font-semibold text-white">SOC Reports</h2>
+              <span className="text-xs text-slate-500">
+                {REPORTS.filter((r) => r.status === 'ready').length} of {REPORTS.length} ready to download
+              </span>
             </div>
+
+            {/* Category filter */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {(['all', 'Threat Intelligence', 'Incident', 'Access Control', 'Network', 'Compliance', 'Vulnerability'] as const).map((cat) => {
+                const count = cat === 'all' ? REPORTS.length : REPORTS.filter((r) => r.category === cat).length;
+                const active = reportCategory === cat;
+                const cfg = cat !== 'all' ? reportCategoryConfig[cat] : null;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setReportCategory(cat)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                      active
+                        ? cat === 'all'
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                          : cfg!.badge + ' border-opacity-60'
+                        : 'bg-slate-800/60 text-slate-400 border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    {cfg && <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />}
+                    <span>{cat === 'all' ? 'All' : cat}</span>
+                    <span className="opacity-60">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Report cards */}
             <div className="space-y-3">
-              {REPORTS.map((r) => (
+              {REPORTS.filter((r) => reportCategory === 'all' || r.category === reportCategory).map((r) => (
                 <ReportCard key={r.id} report={r} />
               ))}
             </div>
@@ -537,110 +638,81 @@ const UserDashboard: React.FC = () => {
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-const VitalCard: React.FC<{ vital: Vital; compact?: boolean }> = ({ vital, compact }) => {
-  const colorMap: Record<string, string> = {
-    rose: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    cyan: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-    orange: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-    blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    violet: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  };
-
-  return (
-    <div className={`rounded-2xl bg-slate-900/80 border transition-colors hover:border-slate-700 ${
-      vital.status === 'warning' ? 'border-amber-500/30' : 'border-slate-800'
-    } ${compact ? 'p-4' : 'p-5'}`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${colorMap[vital.color]}`}>
-          {vital.icon}
-        </div>
-        <span className={`flex items-center gap-1 text-xs font-medium ${statusColor[vital.status]}`}>
-          {trendIcon[vital.trend]}
-          {vital.status}
-        </span>
-      </div>
-      <p className={`font-bold text-white ${compact ? 'text-xl' : 'text-2xl'}`}>
-        {vital.value}
-        <span className="text-sm font-normal text-slate-500 ml-1">{vital.unit}</span>
-      </p>
-      <p className="text-xs text-slate-400 mt-0.5">{vital.label}</p>
-      {!compact && (
-        <div className="mt-3 pt-3 border-t border-slate-800">
-          <Sparkline data={vital.history} color={vital.color} />
-          <p className="text-xs text-slate-600 mt-1">7-day trend</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const AppointmentRow: React.FC<{ appointment: Appointment }> = ({ appointment }) => (
-  <div className="flex items-center gap-3">
-    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center flex-shrink-0">
-      <Calendar className="w-4 h-4 text-cyan-400" />
-    </div>
+const AlertRow: React.FC<{ alert: SocAlert }> = ({ alert: a }) => (
+  <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800/50 transition-colors">
+    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${severityConfig[a.severity].dot}`} />
     <div className="flex-1 min-w-0">
-      <p className="text-sm text-white font-medium truncate">{appointment.doctor}</p>
-      <p className="text-xs text-slate-500">{appointment.date} · {appointment.time}</p>
+      <p className="text-sm text-white font-medium truncate">{a.title}</p>
+      <p className="text-xs text-slate-500">{a.category} · {a.timestamp}</p>
     </div>
-    <span className={`text-xs px-2 py-0.5 rounded-full ${
-      appointment.type === 'virtual'
-        ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
-        : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-    }`}>
-      {appointment.type}
+    <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${severityConfig[a.severity].badge}`}>
+      {severityConfig[a.severity].label}
     </span>
   </div>
 );
 
-const AppointmentCard: React.FC<{ appointment: Appointment }> = ({ appointment }) => (
-  <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-colors">
-    <div className="w-12 h-12 rounded-2xl bg-slate-800 flex flex-col items-center justify-center flex-shrink-0">
-      <span className="text-xs text-slate-500 leading-none">
-        {new Date(appointment.date).toLocaleString('default', { month: 'short' })}
-      </span>
-      <span className="text-lg font-bold text-white leading-tight">
-        {new Date(appointment.date).getDate()}
-      </span>
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-semibold text-white">{appointment.doctor}</p>
-      <p className="text-xs text-slate-400">{appointment.specialty}</p>
-      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-        <Clock className="w-3 h-3" />
-        {appointment.time}
-      </p>
-    </div>
-    <div className="flex flex-col items-end gap-2">
-      <span className={`text-xs px-2 py-0.5 rounded-full border ${
-        appointment.type === 'virtual'
-          ? 'bg-violet-500/10 text-violet-400 border-violet-500/20'
-          : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-      }`}>
-        {appointment.type}
-      </span>
-      <span className={`text-xs px-2 py-0.5 rounded-full border ${
-        appointment.status === 'upcoming'
-          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-          : 'bg-slate-700/50 text-slate-400 border-slate-700'
-      }`}>
-        {appointment.status}
-      </span>
+const AlertCard: React.FC<{ alert: SocAlert }> = ({ alert: a }) => (
+  <div className={`p-4 rounded-2xl bg-slate-900/80 border transition-colors hover:border-slate-600 ${severityConfig[a.severity].border}`}>
+    <div className="flex items-start gap-3">
+      {/* Severity dot */}
+      <div className="mt-1 flex-shrink-0">
+        <span className={`block w-2.5 h-2.5 rounded-full ${severityConfig[a.severity].dot} shadow-lg`} />
+      </div>
+
+      <div className="flex-1 min-w-0">
+        {/* Title row */}
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <p className="text-sm font-semibold text-white leading-snug">{a.title}</p>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${severityConfig[a.severity].badge}`}>
+              {severityConfig[a.severity].label}
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${statusConfig[a.status]}`}>
+              {a.status}
+            </span>
+          </div>
+        </div>
+
+        {/* Description */}
+        <p className="text-xs text-slate-400 leading-relaxed mb-3">{a.description}</p>
+
+        {/* Meta row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500">
+              <Globe className="w-3 h-3" />
+              {a.source}
+            </span>
+            <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded-md">
+              {a.category}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-600 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {a.timestamp}
+            </span>
+            {a.status !== 'resolved' && (
+              <button className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 px-2 py-1 rounded-lg hover:bg-cyan-500/10 transition-colors">
+                <Eye className="w-3.5 h-3.5" />
+                Investigate
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 );
 
 const ReportRow: React.FC<{ report: Report }> = ({ report }) => (
-  <div className="flex items-center gap-3">
-    <div className="w-8 h-8 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
-      <FileText className="w-4 h-4 text-violet-400" />
-    </div>
+  <div className="flex items-center gap-3 px-1">
+    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${reportCategoryConfig[report.category].dot}`} />
     <div className="flex-1 min-w-0">
       <p className="text-sm text-white font-medium truncate">{report.title}</p>
-      <p className="text-xs text-slate-500">{report.date}</p>
+      <p className="text-xs text-slate-500">{report.category} · {report.date}</p>
     </div>
-    <span className={`text-xs px-2 py-0.5 rounded-full border ${
+    <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${
       report.status === 'ready'
         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
         : 'bg-slate-700/50 text-slate-400 border-slate-700'
@@ -650,27 +722,40 @@ const ReportRow: React.FC<{ report: Report }> = ({ report }) => (
   </div>
 );
 
-const ReportCard: React.FC<{ report: Report }> = ({ report }) => (
-  <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-colors">
-    <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
-      <FileText className="w-5 h-5 text-violet-400" />
+const ReportCard: React.FC<{ report: Report }> = ({ report }) => {
+  const cfg = reportCategoryConfig[report.category];
+  return (
+    <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-colors">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+          <FileText className="w-5 h-5 text-slate-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <p className="text-sm font-semibold text-white leading-snug">{report.title}</p>
+            <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${cfg.badge}`}>
+              {report.category}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed mb-3">{report.description}</p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-600 flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {report.date}
+            </span>
+            {report.status === 'ready' ? (
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 transition-colors text-xs font-medium">
+                <Download className="w-3.5 h-3.5" /> Download
+              </button>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs text-slate-500 px-3 py-1.5 rounded-xl border border-slate-800">
+                <Clock className="w-3.5 h-3.5" /> Generating…
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-semibold text-white">{report.title}</p>
-      <p className="text-xs text-slate-400">{report.type} · {report.date}</p>
-    </div>
-    {report.status === 'ready' ? (
-      <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/20 transition-colors text-xs font-medium">
-        <Download className="w-3.5 h-3.5" />
-        Download
-      </button>
-    ) : (
-      <span className="flex items-center gap-1.5 text-xs text-slate-500">
-        <Clock className="w-3.5 h-3.5" />
-        Pending
-      </span>
-    )}
-  </div>
-);
+  );
+};
 
 export default UserDashboard;

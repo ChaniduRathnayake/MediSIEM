@@ -100,11 +100,11 @@ const AdminDashboard: React.FC = () => {
 
   const navItems = [
     { label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
-    { label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
+    { label: 'Alerts', icon: <Shield className="w-4 h-4 text-cyan-400" /> },
+    { label: 'CAS Alerts', icon: <Bell className="w-4 h-4" /> },
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { label: 'Users', icon: <Users className="w-4 h-4" /> },
     { label: 'IP Reputation', icon: <Network className="w-4 h-4" /> },
-    { label: 'Wazuh SIEM', icon: <Shield className="w-4 h-4 text-cyan-400" /> },
     { label: 'Playbooks', icon: <Zap className="w-4 h-4" /> },
     { label: 'Audit Log', icon: <Database className="w-4 h-4" /> },
     { label: 'Settings', icon: <Settings className="w-4 h-4" /> },
@@ -222,8 +222,8 @@ const AdminDashboard: React.FC = () => {
 
           {/* Content */}
           <main className="flex-1 overflow-y-auto">
-            {activeNav === 'Wazuh SIEM' && <WazuhDashboard />}
-            {activeNav !== 'Wazuh SIEM' && <div className="p-5 space-y-6">
+            {activeNav === 'CAS Alerts' && <WazuhDashboard />}
+            {activeNav !== 'CAS Alerts' && <div className="p-5 space-y-6">
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Critical Alerts" value="3" sub="Requires immediate action" color="red" trend="+2" />
