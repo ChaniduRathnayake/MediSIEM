@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   Shield, Activity, Brain, AlertTriangle, ChevronRight,
-  CheckCircle, ArrowRight, Zap, Lock, Eye
+  ArrowRight, Zap, Lock, Eye
 } from 'lucide-react';
 
 // ─── Animated grid background ─────────────────────────────────────────────────
@@ -66,10 +66,10 @@ const HomePage: React.FC = () => {
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              to="/register"
+              to="/login"
               className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold rounded-xl transition-all shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5"
             >
-              Get Early Access <ChevronRight className="w-4 h-4" />
+              Sign In <ChevronRight className="w-4 h-4" />
             </Link>
             <Link
               to="/about"
@@ -198,14 +198,14 @@ const HomePage: React.FC = () => {
               <Shield className="w-14 h-14 text-cyan-400 mx-auto mb-5" />
               <h2 className="text-3xl font-bold mb-4">Protect Your Hospital Today</h2>
               <p className="text-slate-400 mb-8 max-w-xl mx-auto">
-                Join the MediSIEM platform and bring clinical intelligence into your SOC.
+                Sign in to the MediSIEM platform and bring clinical intelligence into your SOC.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Link
-                  to="/register"
+                  to="/login"
                   className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl hover:from-cyan-400 hover:to-blue-500 transition-all shadow-xl shadow-cyan-500/25"
                 >
-                  Create Free Account <ChevronRight className="w-4 h-4" />
+                  Sign In <ChevronRight className="w-4 h-4" />
                 </Link>
                 <Link
                   to="/pricing"
@@ -213,10 +213,6 @@ const HomePage: React.FC = () => {
                 >
                   View Pricing
                 </Link>
-              </div>
-              <div className="mt-6 flex items-center justify-center gap-2 text-sm text-slate-500">
-                <CheckCircle className="w-4 h-4 text-emerald-500" />
-                <span>No credit card required · Free tier available</span>
               </div>
             </div>
           </div>

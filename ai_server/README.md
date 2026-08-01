@@ -1,255 +1,70 @@
-# CAAP IoMT IDS — ML Pipeline
-**Clinically Aware Alert Prioritization for Smart Hospitals**  
-R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
+# CAAP Flask AI Server — Phase 6 Files
 
----
+## Where these go in your project
 
-## ⚡ Quick Start
+Your project structure (from Phase 1) is:
+```
+caap-project/
+├── data/
+├── src/
+├── models/        <- note: your Phase 1 plan uses "models/", app.py looks in "model/" — pick one and stay consistent
+├── notebooks/
+├── docker/
+└── dashboard/
+```
+
+Copy the files from this folder as follows:
+
+| File here | Goes to | Purpose |
+|---|---|---|
+| `src/app.py` | `caap-project/src/app.py` | The Flask server itself |
+| `requirements.txt` | `caap-project/requirements.txt` | Python dependencies (project root) |
+| `sample_row.json` | `caap-project/sample_row.json` | Test payload for curl/Postman |
+
+## What you must already have in place
+
+`app.py` expects these 4 files to already exist (from Phases 2 & 4) at `../model/` relative to `src/app.py`, i.e. `caap-project/model/`:
+
+- `scaler.pkl`
+- `random_forest.pkl`
+- `isolation_forest.pkl`
+- `kmeans.pkl`
+
+If your folder is actually named `models/` (plural, per your Phase 1 plan) instead of `model/`, either rename the folder to `model/` or edit this line near the top of `app.py`:
+
+```python
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "model")
+```
+
+## Setup & run
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Drop individual pcap CSV files into:
-#    data/train/   ← e.g. ARP_Spoofing_train.pcap.csv
-#    data/test/    ← e.g. ARP_Spoofing_test.pcap.csv
-#
-#    Labels are derived automatically from filenames.
-#    No manual merging or renaming needed.
-
-# 3. Train all 3 models
-python train.py
-
-# 4. Evaluate on test set
-python test.py
-
-# 5. Start Flask AI server (for MERN dashboard)
-python app.py
+cd caap-project
+source caap-env/bin/activate          # the venv from Phase 1
+pip install -r requirements.txt --break-system-packages
+python src/app.py
 ```
 
----
+Server starts on **http://localhost:5001**.
 
-## Dataset Layout
+## Test it
 
-Drop individual pcap CSV files directly — the scripts merge them automatically:
+```bash
+# health check
+curl http://localhost:5001/health
 
-```
-data/
-├── train/
-│   ├── ARP_Spoofing_train.pcap.csv
-│   ├── Benign_train.pcap.csv
-│   ├── MQTT-DDoS-Connect_Flood_train.pcap.csv
-│   ├── TCP_IP-DDoS-SYN1_train.pcap.csv
-│   └── ...  (all *_train.pcap.csv files)
-└── test/
-    ├── ARP_Spoofing_test.pcap.csv
-    ├── Benign_test.pcap.csv
-    └── ...  (all *_test.pcap.csv files)
+# full prediction
+curl -X POST http://localhost:5001/predict \
+  -H "Content-Type: application/json" \
+  -d @sample_row.json
 ```
 
-**No single combined CSV is needed.** `train.py` and `test.py` glob all `*.csv`
-files in their respective directories and concatenate them.
+## Before this is really "done" (per your Phase 6 checklist)
 
----
-
-## Filename → Label Mapping
-
-Labels are derived automatically from the pcap CSV filename:
-
-| Filename prefix | CAS Label Group |
-|---|---|
-| `ARP_Spoofing*` | `ARP_Spoofing` |
-| `Benign*` | `Benign` |
-| `MQTT-*-*Flood*` | `MQTT_Publish_Flood` |
-| `MQTT-*-Malformed*` | `MQTT_Brute_Force` |
-| `MQTT-*` (other) | `MQTT_Publish_Flood` |
-| `Recon-*` | `Recon` |
-| `TCP_IP-Do[S\|S]-SYN*` | `DoS_TCP` |
-| `TCP_IP-Do[S\|S]-TCP*` | `DoS_TCP` |
-| `TCP_IP-Do[S\|S]-ICMP*` | `DoS_TCP` |
-| `TCP_IP-Do[S\|S]-UDP*` | `DoS_TCP` |
-
-This mapping is defined in `LABEL_MAP` at the top of both `train.py` and `test.py`.
-Extend it there if you add new attack categories.
-
----
-
-## CC Score — Injected at Inference (NOT from training)
-
-The **CC (Clinical Criticality)** dimension of CAS is **not part of ML model training**.
-It is injected at inference time from the device registry or the API payload.
-
-```
-CC score (1–10)  →  passed in per-request  →  CAS engine normalises (÷2) → 1–5 scale
-```
-
-| Device | cc_score (raw) |
-|---|---|
-| ICU Ventilator | 10 |
-| Defibrillator | 9 |
-| Infusion Pump / Cardiac Monitor | 8 |
-| MRI Scanner / Pulse Oximeter | 6 |
-| MQTT Gateway | 5 |
-| X-Ray | 4 |
-| Nurse Workstation / Lab Analyser | 3 |
-| Admin PC | 1 |
-
-During training evaluation, `cc_score` is **synthesised** from a device pool to
-demonstrate CAS scoring. At production inference, it is passed in the API request body.
-
----
-
-## Network Feature Columns (ML Input — 45 columns)
-
-```
-Header_Length, Protocol Type, Duration, Rate, Srate, Drate,
-fin_flag_number, syn_flag_number, rst_flag_number, psh_flag_number,
-ack_flag_number, ece_flag_number, cwr_flag_number,
-ack_count, syn_count, fin_count, rst_count,
-HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC,
-TCP, UDP, DHCP, ARP, ICMP, IGMP, IPv, LLC,
-Tot sum, Min, Max, AVG, Std, Tot size,
-IAT, Number, Magnitue, Radius, Covariance, Variance, Weight
-```
-
-These are the only columns fed into the ML models. Medical metadata is excluded.
-
----
-
-## Medical Metadata Columns (CAS scoring — not ML input)
-
-| Column | Type | Values | CAAP Use |
-|---|---|---|---|
-| `cc_score` | int | 1–10 | CC dimension — **injected at inference**, not training |
-| `time_sensitivity` | int | 1–5 | TS base value |
-| `shift` | string | day / evening / night | TC dimension |
-| `device_type` | string | ICU Ventilator, etc. | Context / logging |
-| `department` | string | ICU, Ward, etc. | Context / logging |
-| `patient_dependency` | string | life_critical / high / medium / low / none | Context |
-
----
-
-## Project Structure
-
-```
-caap/
-├── data/
-│   ├── train/   ← Drop *_train.pcap.csv files here
-│   └── test/    ← Drop *_test.pcap.csv files here
-├── models/      ← Auto-generated by train.py
-│   ├── random_forest.pkl
-│   ├── isolation_forest.pkl
-│   ├── kmeans.pkl
-│   ├── scaler.pkl
-│   ├── label_encoder.pkl
-│   └── feature_cols.pkl
-├── reports/     ← Auto-generated by train.py
-│   ├── confusion_matrix.png
-│   ├── per_class_accuracy.png
-│   ├── class_distribution.png
-│   ├── feature_importances.png
-│   ├── if_anomaly_dist.png
-│   ├── kmeans_clusters.png
-│   ├── cas_distribution.png
-│   ├── model_summary.png
-│   ├── classification_report.txt
-│   └── predictions.csv
-├── src/
-│   └── cas_engine.py   ← CAS 5-dimension scoring engine
-├── train.py            ← Run this first
-├── test.py             ← Run after train.py
-├── app.py              ← Flask server for MERN dashboard
-└── requirements.txt
-```
-
----
-
-## 3-Model Architecture
-
-| Model | Config | CAAP Role | Output |
-|---|---|---|---|
-| **Random Forest** | 300 trees, balanced weights, OOB | TR dimension — attack classification | label + confidence |
-| **Isolation Forest** | 200 trees, contamination=0.10 | TS dimension — anomaly detection | anomaly score + flag |
-| **K-Means** | k=3, k-means++, 20 init | Traffic behaviour context | active / routine / idle |
-
----
-
-## CAS Formula
-
-```
-CAS = 0.25·TR + 0.30·CC + 0.25·TS + 0.10·AE + 0.10·TC
-CAS is scaled ×2  →  final 0–10 score  (matches CVSS convention)
-```
-
-| Dimension | Weight | Source | Scale |
-|---|---|---|---|
-| TR — Threat Risk | 0.25 | RF `predict_proba` max | 1–5 |
-| CC — Clinical Criticality | 0.30 | `cc_score` ÷ 2 — **injected at inference** | 1–5 |
-| TS — Time Sensitivity | 0.25 | IF anomaly score + `time_sensitivity` col | 1–5 |
-| AE — Active Exploitation | 0.10 | Attack type CVE severity (AE_TABLE) | 0–5 |
-| TC — Temporal Context | 0.10 | `shift` column | 1–5 |
-
-**Action thresholds:**
-- `CAS ≥ 8.0` → **Immediate**
-- `CAS ≥ 5.0` → **Investigate**
-- `CAS < 5.0` → **Monitor**
-
----
-
-## Flask API — POST /predict
-
-**Request** (JSON — all network features + medical metadata):
-```json
-{
-  "Header_Length": -0.094,
-  "Protocol Type": 1.42,
-  "Duration": -0.088,
-  "... (all network feature columns) ...": "...",
-
-  "cc_score": 10,
-  "shift": "night",
-  "time_sensitivity": 5
-}
-```
-
-> `cc_score` is the **only** medical field required for full CAS scoring.
-> `shift` and `time_sensitivity` are optional (default: `"day"`, `3`).
-
-**Response:**
-```json
-{
-  "label": "DoS_TCP",
-  "confidence": 0.9833,
-  "TR_score": -0.42,
-  "cluster": "active",
-  "is_anomaly": true,
-  "CAS": 9.60,
-  "action": "Immediate",
-  "dimensions": {
-    "TR": 5.0,
-    "CC": 5.0,
-    "TS": 5.0,
-    "AE": 5.0,
-    "TC": 5.0
-  }
-}
-```
-
-**Other endpoints:**
-- `GET /health` — status, class list, feature list, CAS weights
-- `GET /features` — full input/output schema
-
----
-
-## PP1 Viva Quick Reference
-
-| Question | Answer |
-|---|---|
-| Why 3 models? | Each serves a different CAS dimension: RF→TR, IF→TS, KMeans→context. |
-| Why class_weight="balanced"? | Handles minority attack classes without SMOTE — RF natively rebalances. |
-| Why OOB score? | Free validation estimate from bootstrap samples — confirms no overfitting before test. |
-| Why contamination=0.10? | ~10% of hospital IoMT traffic expected anomalous — aligns with CIC IoMT 2024 distribution. |
-| Why shift → TC? | Night shift = fewer staff = slower response = higher clinical risk. |
-| Why cc_score ÷ 2? | Dataset uses 1–10 scale; CAS formula uses 1–5. Simple normalisation preserves ordering. |
-| Why is CC injected at inference? | CC score depends on which physical device is being monitored — known from the device registry, not from the network packet features used for ML training. This separates the clinical context layer from the ML classification layer. |
-| Why merge individual pcap CSVs? | CIC IoMT 2024 is distributed as per-attack capture files. Merging preserves per-class balance control and allows easy addition of new attack types without rewriting data pipelines. |
+1. **`FEATURE_COLUMNS`** in `app.py` — currently a partial stub list. Replace with the real 44 column names, in the exact order used when you fit `scaler.pkl` / trained `random_forest.pkl`.
+2. **`CLUSTER_LABELS`** — confirm which K-Means cluster index (0 or 1) is actually "idle" vs "active" by checking cluster centroids (lower `flow_bytes_s` = idle).
+3. **CORS** — currently open to all origins (`"*"`) for local testing. Once your Node.js backend (port 5000) is calling this, tighten it in `app.py`:
+   ```python
+   CORS(app, resources={r"/*": {"origins": "http://localhost:5000"}})
+   ```
+4. **`hour_of_day`** and **`cve_known_exploited`** — these feed the rule-based AE/TC dimensions. Decide whether Node.js sends them in the request, or Flask derives them itself (timestamp → hour, CVE lookup service).

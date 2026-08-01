@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import wazuhRoutes from './routes/wazuh.js';
+import auditLogRoutes from './routes/auditLog.js';
 
 dotenv.config();
 
@@ -31,6 +32,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/wazuh', wazuhRoutes);
+app.use('/api/audit-log', auditLogRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

@@ -1,8 +1,18 @@
 import express from 'express';
 import User from '../models/User.js';
 import { protect, adminOnly } from '../middleware/auth.js';
+import { createUser, updateUser, deleteUser } from '../controllers/userController.js';
 
 const router = express.Router();
+
+// ─── POST /api/users  (admin only) ────────────────────────────────────────────
+router.post('/', protect, adminOnly, createUser);
+
+// ─── PATCH /api/users/:id  (admin or own profile) ─────────────────────────────
+router.patch('/:id', protect, updateUser);
+
+// ─── DELETE /api/users/:id  (admin only) ──────────────────────────────────────
+router.delete('/:id', protect, adminOnly, deleteUser);
 
 // ─── GET /api/users  (admin only) ────────────────────────────────────────────
 router.get('/', protect, adminOnly, async (req, res) => {

@@ -186,8 +186,8 @@ const ServicesPage: React.FC = () => (
             <Link to="/pricing" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl hover:from-cyan-400 hover:to-blue-500 transition-all shadow-xl shadow-cyan-500/20">
               See Pricing Plans <ChevronRight className="w-4 h-4" />
             </Link>
-            <Link to="/register" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-slate-700 text-white font-semibold rounded-xl hover:bg-slate-600 transition-all border border-slate-600">
-              Start Free Trial
+            <Link to="/login" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-slate-700 text-white font-semibold rounded-xl hover:bg-slate-600 transition-all border border-slate-600">
+              Sign In
             </Link>
           </div>
         </div>

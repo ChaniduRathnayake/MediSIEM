@@ -22,8 +22,8 @@ const plans = [
       { text: 'MISP threat intel feeds', included: false },
       { text: 'Priority SLA support', included: false },
     ],
-    cta: 'Get Started Free',
-    ctaLink: '/register',
+    cta: 'Sign In',
+    ctaLink: '/login',
     highlighted: false,
   },
   {
@@ -45,8 +45,8 @@ const plans = [
       { text: 'MISP threat intel feeds', included: false },
       { text: 'Priority SLA support', included: false },
     ],
-    cta: 'Start Free Trial',
-    ctaLink: '/register',
+    cta: 'Sign In',
+    ctaLink: '/login',
     highlighted: true,
   },
   {
@@ -69,7 +69,7 @@ const plans = [
       { text: 'Priority SLA support', included: true },
     ],
     cta: 'Contact Sales',
-    ctaLink: '/register',
+    ctaLink: '/login',
     highlighted: false,
   },
 ];

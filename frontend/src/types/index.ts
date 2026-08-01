@@ -18,10 +18,13 @@ export interface LoginPayload {
   password: string;
 }
 
-export interface RegisterPayload {
-  name: string;
-  email: string;
-  password: string;
+export interface AuditLogEntry {
+  id: string;
+  action: 'create_user' | 'update_user' | 'delete_user';
+  actor: { id: string; name?: string; email?: string };
+  target: { id?: string; name?: string; email?: string };
+  details: string;
+  createdAt: string;
 }
 
 export interface ApiResponse<T = unknown> {

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useReducer, useCallback } from 'react';
-import type { User, AuthState, LoginPayload, RegisterPayload } from '../types';
-import { apiLogin, apiRegister, apiGetMe } from '../services/api';
+import type { User, AuthState, LoginPayload } from '../types';
+import { apiLogin, apiGetMe } from '../services/api';
 
 // ─── State & Actions ──────────────────────────────────────────────────────────
 type Action =
@@ -37,7 +37,6 @@ function authReducer(state: AuthState, action: Action): AuthState {
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface AuthContextValue extends AuthState {
   login: (payload: LoginPayload) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => void;
 }
 
@@ -72,19 +71,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dispatch({ type: 'LOGIN_SUCCESS', payload: { user: data.user, token: data.token } });
   }, []);
 
-  const register = useCallback(async (payload: RegisterPayload) => {
-    const data = await apiRegister(payload);
-    localStorage.setItem('medisiem_token', data.token);
-    dispatch({ type: 'LOGIN_SUCCESS', payload: { user: data.user, token: data.token } });
-  }, []);
-
   const logout = useCallback(() => {
     localStorage.removeItem('medisiem_token');
     dispatch({ type: 'LOGOUT' });
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout }}>
+    <AuthContext.Provider value={{ ...state, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

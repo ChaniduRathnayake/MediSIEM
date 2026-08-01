@@ -1,4 +1,14 @@
 import User from '../models/User.js';
+import AuditLog from '../models/AuditLog.js';
+
+// Best-effort audit trail — never let a logging failure break the actual request.
+const logAudit = async (entry) => {
+  try {
+    await AuditLog.create(entry);
+  } catch (err) {
+    console.error('[audit-log]', err);
+  }
+};
 
 // ─── GET /api/users  (admin only) ─────────────────────────────────────────────
 export const getAllUsers = async (req, res) => {
@@ -41,22 +51,56 @@ export const updateUser = async (req, res) => {
       return res.status(403).json({ error: 'Access denied.' });
     }
 
-    const allowedFields = ['name', 'email'];
+    if (req.body.role !== undefined && !['admin', 'user'].includes(req.body.role)) {
+      return res.status(400).json({ error: 'Role must be "admin" or "user".' });
+    }
+
+    const allowedFields = ['name', 'email', 'password'];
     if (req.user.role === 'admin') allowedFields.push('role');
 
-    const updates = {};
-    for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
+    // Password field is select:false — explicitly include it so comparePassword works below
+    const user = await User.findById(id).select('+password');
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    // Users changing their own password must confirm it with their current password.
+    // (Admins resetting someone else's password are exempt — they don't know it.)
+    if (req.body.password && req.user.id === id) {
+      const { currentPassword } = req.body;
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required.' });
+      }
+      if (!(await user.comparePassword(currentPassword))) {
+        return res.status(401).json({ error: 'Current password is incorrect.' });
       }
     }
 
-    const user = await User.findByIdAndUpdate(id, updates, {
-      new: true,          // return updated doc
-      runValidators: true,
-    });
+    const before = { name: user.name, email: user.email, role: user.role };
 
-    if (!user) return res.status(404).json({ error: 'User not found.' });
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined && req.body[field] !== '') {
+        user[field] = field === 'email' ? req.body[field].toLowerCase().trim() : req.body[field];
+      }
+    }
+
+    // .save() (not findByIdAndUpdate) so the pre-save hook re-hashes a changed password
+    await user.save();
+
+    if (req.user.role === 'admin') {
+      const changes = [];
+      if (user.name !== before.name) changes.push(`name "${before.name}" → "${user.name}"`);
+      if (user.email !== before.email) changes.push(`email "${before.email}" → "${user.email}"`);
+      if (user.role !== before.role) changes.push(`role "${before.role}" → "${user.role}"`);
+      if (req.body.password) changes.push('password changed');
+
+      if (changes.length > 0) {
+        await logAudit({
+          action: 'update_user',
+          actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+          target: { id: user._id.toString(), name: user.name, email: user.email },
+          details: changes.join(', '),
+        });
+      }
+    }
 
     return res.status(200).json({ user });
   } catch (err) {
@@ -64,7 +108,53 @@ export const updateUser = async (req, res) => {
       const messages = Object.values(err.errors).map((e) => e.message);
       return res.status(400).json({ error: messages[0] });
     }
+    if (err.code === 11000) {
+      return res.status(409).json({ error: 'Email already registered.' });
+    }
     console.error('[updateUser]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+};
+
+// ─── POST /api/users  (admin only) ────────────────────────────────────────────
+export const createUser = async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email and password are required.' });
+    }
+
+    if (role && !['admin', 'user'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be "admin" or "user".' });
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      return res.status(409).json({ error: 'Email already registered.' });
+    }
+
+    const newUser = await User.create({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      password,
+      role: role || 'user',
+    });
+
+    await logAudit({
+      action: 'create_user',
+      actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+      target: { id: newUser._id.toString(), name: newUser.name, email: newUser.email },
+      details: `Created as ${newUser.role === 'admin' ? 'Admin' : 'SOC Analyst'}`,
+    });
+
+    return res.status(201).json({ user: newUser });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map((e) => e.message);
+      return res.status(400).json({ error: messages[0] });
+    }
+    console.error('[createUser]', err);
     return res.status(500).json({ error: 'Server error.' });
   }
 };
@@ -72,8 +162,21 @@ export const updateUser = async (req, res) => {
 // ─── DELETE /api/users/:id  (admin only) ──────────────────────────────────────
 export const deleteUser = async (req, res) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+
+    if (req.user.id === id) {
+      return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+
+    const user = await User.findByIdAndDelete(id);
     if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    await logAudit({
+      action: 'delete_user',
+      actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+      target: { id: user._id.toString(), name: user.name, email: user.email },
+      details: `Deleted ${user.role === 'admin' ? 'Admin' : 'SOC Analyst'} account`,
+    });
 
     return res.status(200).json({ message: 'User deleted successfully.' });
   } catch (err) {

@@ -1,4 +1,4 @@
-import type { LoginPayload, RegisterPayload, User } from '../types';
+import type { LoginPayload, User, AuditLogEntry } from '../types';
 
 /**
  * Base URL for the backend API.
@@ -31,6 +31,7 @@ const MOCK_USERS: (User & { password: string })[] = [
 ];
 
 let mockUsers = [...MOCK_USERS];
+let mockAuditLog: AuditLogEntry[] = [];
 
 // Simple mock JWT (not secure – for demo only)
 function mockToken(user: User): string {
@@ -48,6 +49,23 @@ function decodeMockToken(token: string): User | null {
   } catch {
     return null;
   }
+}
+
+// Mirrors the backend's admin-action audit trail for the mock fallback.
+function pushMockAudit(token: string, action: AuditLogEntry['action'], target: AuditLogEntry['target'], details: string) {
+  const actor = decodeMockToken(token);
+  if (!actor || actor.role !== 'admin') return;
+  mockAuditLog = [
+    {
+      id: Math.random().toString(36).slice(2),
+      action,
+      actor: { id: actor.id, name: actor.name, email: actor.email },
+      target,
+      details,
+      createdAt: new Date().toISOString(),
+    },
+    ...mockAuditLog,
+  ];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,14 +111,46 @@ export async function apiLogin(payload: LoginPayload): Promise<{ token: string; 
   }
 }
 
-export async function apiRegister(payload: RegisterPayload): Promise<{ token: string; user: User }> {
+export async function apiGetMe(token: string): Promise<{ user: User }> {
   try {
-    return await request('/auth/register', { method: 'POST', body: JSON.stringify(payload) });
+    return await request('/auth/me', { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
   } catch (err: unknown) {
     if (err instanceof Error && err.message === '__USE_MOCK__') {
-      // Mock fallback
-      if (!payload.name || !payload.email || !payload.password) throw new Error('All fields are required.');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('Invalid email format.');
+      const user = decodeMockToken(token);
+      if (!user) throw new Error('Invalid token.');
+      return { user };
+    }
+    throw err;
+  }
+}
+
+// ─── User Management API ───────────────────────────────────────────────────────
+export async function apiGetAllUsers(token: string): Promise<{ users: User[] }> {
+  try {
+    return await request('/users', {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === '__USE_MOCK__') {
+      return { users: mockUsers.map(({ password: _, ...u }) => u) };
+    }
+    throw err;
+  }
+}
+
+export async function apiCreateUser(
+  token: string,
+  payload: { name: string; email: string; password: string; role: 'admin' | 'user' }
+): Promise<{ user: User }> {
+  try {
+    return await request('/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === '__USE_MOCK__') {
+      if (!payload.name || !payload.email || !payload.password) throw new Error('Name, email and password are required.');
       if (payload.password.length < 8) throw new Error('Password must be at least 8 characters.');
       if (mockUsers.find((u) => u.email.toLowerCase() === payload.email.toLowerCase())) {
         throw new Error('Email already registered.');
@@ -110,25 +160,94 @@ export async function apiRegister(payload: RegisterPayload): Promise<{ token: st
         name: payload.name.trim(),
         email: payload.email.toLowerCase().trim(),
         password: payload.password,
-        role: 'user',
+        role: payload.role || 'user',
         createdAt: new Date().toISOString(),
       };
       mockUsers.push(newUser);
       const { password: _, ...user } = newUser;
-      return { token: mockToken(user), user };
+      pushMockAudit(token, 'create_user', { id: user.id, name: user.name, email: user.email }, `Created as ${user.role === 'admin' ? 'Admin' : 'SOC Analyst'}`);
+      return { user };
     }
     throw err;
   }
 }
 
-export async function apiGetMe(token: string): Promise<{ user: User }> {
+export async function apiUpdateUser(
+  token: string,
+  id: string,
+  payload: { name?: string; email?: string; password?: string; currentPassword?: string; role?: 'admin' | 'user' }
+): Promise<{ user: User }> {
   try {
-    return await request('/auth/me', { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+    return await request(`/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
   } catch (err: unknown) {
     if (err instanceof Error && err.message === '__USE_MOCK__') {
-      const user = decodeMockToken(token);
-      if (!user) throw new Error('Invalid token.');
+      const idx = mockUsers.findIndex((u) => u.id === id);
+      if (idx === -1) throw new Error('User not found.');
+      if (payload.password) {
+        if (payload.currentPassword !== undefined && mockUsers[idx].password !== payload.currentPassword) {
+          throw new Error('Current password is incorrect.');
+        }
+        if (payload.password.length < 8) throw new Error('Password must be at least 8 characters.');
+      }
+      if (payload.email && mockUsers.some((u) => u.id !== id && u.email.toLowerCase() === payload.email!.toLowerCase())) {
+        throw new Error('Email already registered.');
+      }
+      const before = mockUsers[idx];
+      const updated = {
+        ...before,
+        ...(payload.name ? { name: payload.name.trim() } : {}),
+        ...(payload.email ? { email: payload.email.toLowerCase().trim() } : {}),
+        ...(payload.password ? { password: payload.password } : {}),
+        ...(payload.role ? { role: payload.role } : {}),
+      };
+      mockUsers[idx] = updated;
+      const { password: _, ...user } = updated;
+
+      const changes: string[] = [];
+      if (payload.name && updated.name !== before.name) changes.push(`name "${before.name}" → "${updated.name}"`);
+      if (payload.email && updated.email !== before.email) changes.push(`email "${before.email}" → "${updated.email}"`);
+      if (payload.role && updated.role !== before.role) changes.push(`role "${before.role}" → "${updated.role}"`);
+      if (payload.password) changes.push('password changed');
+      if (changes.length > 0) {
+        pushMockAudit(token, 'update_user', { id: user.id, name: user.name, email: user.email }, changes.join(', '));
+      }
+
       return { user };
+    }
+    throw err;
+  }
+}
+
+export async function apiDeleteUser(token: string, id: string): Promise<{ message: string }> {
+  try {
+    return await request(`/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === '__USE_MOCK__') {
+      const idx = mockUsers.findIndex((u) => u.id === id);
+      if (idx === -1) throw new Error('User not found.');
+      const [removed] = mockUsers.splice(idx, 1);
+      pushMockAudit(token, 'delete_user', { id: removed.id, name: removed.name, email: removed.email }, `Deleted ${removed.role === 'admin' ? 'Admin' : 'SOC Analyst'} account`);
+      return { message: 'User deleted successfully.' };
+    }
+    throw err;
+  }
+}
+
+export async function apiGetAuditLog(token: string): Promise<{ logs: AuditLogEntry[] }> {
+  try {
+    return await request('/audit-log', {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === '__USE_MOCK__') {
+      return { logs: mockAuditLog };
     }
     throw err;
   }

@@ -75,8 +75,6 @@ const Footer: React.FC = () => (
             </li>
             <li>
               <Link to="/login" className="hover:text-cyan-400 transition-colors">Sign In</Link>
-              {' · '}
-              <Link to="/register" className="hover:text-cyan-400 transition-colors">Register</Link>
             </li>
           </ul>
         </div>

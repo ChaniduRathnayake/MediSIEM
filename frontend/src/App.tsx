@@ -5,7 +5,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 // Pages
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import AboutPage from './pages/AboutPage';
 import ServicesPage from './pages/ServicesPage';
 import PricingPage from './pages/PricingPage';
@@ -117,14 +116,6 @@ const AppRoutes: React.FC = () => (
       element={
         <PublicOnlyRoute>
           <LoginPage />
-        </PublicOnlyRoute>
-      }
-    />
-    <Route
-      path="/register"
-      element={
-        <PublicOnlyRoute>
-          <RegisterPage />
         </PublicOnlyRoute>
       }
     />

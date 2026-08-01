@@ -177,10 +177,10 @@ const AboutPage: React.FC = () => (
       <div className="max-w-2xl mx-auto">
         <Shield className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
         <h2 className="text-2xl font-bold mb-4">Ready to Explore the Platform?</h2>
-        <p className="text-slate-400 mb-7">Create an account to access the MediSIEM dashboard.</p>
+        <p className="text-slate-400 mb-7">Sign in to access the MediSIEM dashboard.</p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link to="/register" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl hover:from-cyan-400 hover:to-blue-500 transition-all shadow-xl shadow-cyan-500/20">
-            Get Started <ArrowRight className="w-4 h-4" />
+          <Link to="/login" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl hover:from-cyan-400 hover:to-blue-500 transition-all shadow-xl shadow-cyan-500/20">
+            Sign In <ArrowRight className="w-4 h-4" />
           </Link>
           <Link to="/services" className="flex items-center justify-center gap-2 px-7 py-3.5 bg-slate-800 text-white font-semibold rounded-xl hover:bg-slate-700 transition-all border border-slate-700">
             View Services

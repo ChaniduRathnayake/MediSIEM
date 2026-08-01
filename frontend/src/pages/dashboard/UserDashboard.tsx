@@ -4,8 +4,8 @@ import {
   Shield,
   FileText,
   Bell,
-  LogOut,
   ChevronRight,
+  ChevronDown,
   Clock,
   User,
   Download,
@@ -19,6 +19,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import AccountMenu from '../../components/AccountMenu';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Tab = 'overview' | 'alerts' | 'reports';
@@ -313,13 +314,14 @@ const reportCategoryConfig: Record<ReportCategory, { badge: string; dot: string 
 
 // ─── UserDashboard ─────────────────────────────────────────────────────────────
 const UserDashboard: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [severityFilter, setSeverityFilter] = useState<Severity>('all');
   const [reportCategory, setReportCategory] = useState<ReportCategory | 'all'>('all');
   const [notifications, setNotifications] = useState(NOTIFICATIONS);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -412,21 +414,27 @@ const UserDashboard: React.FC = () => {
               </div>
 
               {/* User pill */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/60 border border-slate-700">
-                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                  <User className="w-3.5 h-3.5 text-white" />
-                </div>
-                <span className="text-sm text-slate-300 hidden sm:block">{user?.name}</span>
-              </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowAccountMenu(!showAccountMenu)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/60 border border-slate-700 hover:border-slate-600 transition-colors"
+                >
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                    <User className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <span className="text-sm text-slate-300 hidden sm:block">{user?.name}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showAccountMenu ? 'rotate-180' : ''}`} />
+                </button>
 
-              {/* Logout */}
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-all text-sm"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:block">Logout</span>
-              </button>
+                {showAccountMenu && (
+                  <AccountMenu
+                    token={token}
+                    userId={user?.id}
+                    onClose={() => setShowAccountMenu(false)}
+                    onLogout={handleLogout}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
