@@ -1,22 +1,15 @@
-// Must be the first import: services imported below (alertPipeline.js ->
-// wazuhIndexerService.js/caapService.js) read process.env at module top-level,
-// so dotenv has to populate it before those modules are evaluated. ESM
-// evaluates sibling imports in file order, so this only works as line 1.
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-import wazuhRoutes from './routes/wazuh.js';
-import auditLogRoutes from './routes/auditLog.js';
-import deviceRoutes from './routes/devices.js';
-import deviceGroupRoutes from './routes/deviceGroups.js';
-import complianceRoutes from './routes/compliance.js';
 import alertRoutes from './routes/alerts.js';
 import { startPipeline } from './services/alertPipeline.js';
+
+dotenv.config();
 
 // ─── MongoDB Connection ────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/medisiem';
@@ -41,11 +34,6 @@ app.use(express.json());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/wazuh', wazuhRoutes);
-app.use('/api/audit-log', auditLogRoutes);
-app.use('/api/devices', deviceRoutes);
-app.use('/api/device-groups', deviceGroupRoutes);
-app.use('/api/compliance', complianceRoutes);
 app.use('/api/alerts', alertRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
@@ -77,6 +65,6 @@ io.on('connection', (socket) => {
 
 httpServer.listen(PORT, () => {
   console.log(`✅  MediSIEM API running on http://localhost:${PORT}`);
-  // Start polling the Indexer → CAAP enrichment (pass-through) → live push.
+  // Start pulling from Wazuh → CAAP → live push once the server is up.
   startPipeline(io);
 });

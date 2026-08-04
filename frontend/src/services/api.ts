@@ -8,7 +8,7 @@ import type { LoginPayload, User, AuditLogEntry } from '../types';
  * For demo/preview purposes (no backend running), the service
  * falls back to a local mock implementation below.
  */
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 // ─── Mock Data (used when backend is unavailable) ─────────────────────────────
 const MOCK_USERS: (User & { password: string })[] = [

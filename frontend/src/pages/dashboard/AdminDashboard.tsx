@@ -24,6 +24,9 @@ import { apiGetAllUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetAudi
 import type { User as MediUser, AuditLogEntry } from '../../types';
 import AccountMenu from '../../components/AccountMenu';
 import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
+import { useLiveAlerts } from '../../hooks/useLiveAlerts';
+import type { EnrichedAlert, AssignedAnalyst } from '../../services/alertsApi';
+import { apiAssignAlert } from '../../services/alertsApi';
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard: React.FC<{
@@ -48,6 +51,12 @@ const StatCard: React.FC<{
     <div className="text-xs text-slate-500 mt-0.5">{sub}</div>
   </div>
 );
+
+// ─── Alert severity / status derivation (shared by Overview + Alerts tab) ──────
+type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+const casToSeverity = (cas: number): Severity => (cas >= 8 ? 'CRITICAL' : cas >= 6 ? 'HIGH' : cas >= 4 ? 'MEDIUM' : 'LOW');
+const actionToStatus = (action: EnrichedAlert['action']): 'Open' | 'Investigating' | 'Resolved' =>
+  action === 'Immediate' ? 'Open' : action === 'Investigate' ? 'Investigating' : 'Resolved';
 
 // ─── Alert Row ────────────────────────────────────────────────────────────────
 const AlertRow: React.FC<{
@@ -94,14 +103,6 @@ const AlertRow: React.FC<{
     </tr>
   );
 };
-
-const MOCK_ALERTS = [
-  { severity: 'CRITICAL' as const, device: 'ICU-VENT-04', event: 'Unauthorised firmware modification detected', cas: 9.6, time: '2 min ago', status: 'Open' as const },
-  { severity: 'HIGH' as const, device: 'INF-PUMP-12', event: 'Anomalous network traffic to external IP', cas: 7.8, time: '8 min ago', status: 'Investigating' as const },
-  { severity: 'HIGH' as const, device: 'CARDIAC-MON-7', event: 'Failed authentication — brute force pattern', cas: 7.2, time: '15 min ago', status: 'Investigating' as const },
-  { severity: 'MEDIUM' as const, device: 'WORKSTATION-ER', event: 'Unusual process execution via PowerShell', cas: 5.4, time: '31 min ago', status: 'Open' as const },
-  { severity: 'LOW' as const, device: 'NURSE-STATION-3', event: 'Port scan from internal subnet', cas: 2.1, time: '1 hr ago', status: 'Resolved' as const },
-];
 
 // ─── Users Panel ────────────────────────────────────────────────────────────
 const roleLabel = (role: string) => (role === 'admin' ? 'Admin' : 'SOC Analyst');
@@ -1226,6 +1227,304 @@ const NotificationBell: React.FC<{ onViewAll: () => void }> = ({ onViewAll }) =>
   );
 };
 
+// ─── Alerts tab (full live alert list + clinical/medical context) ─────────────
+const DEPARTMENT_DOT: Record<string, string> = {
+  ICU: 'bg-red-400',
+  Cardiology: 'bg-pink-400',
+  Radiology: 'bg-violet-400',
+  Emergency: 'bg-orange-400',
+  'General Ward': 'bg-cyan-400',
+  General: 'bg-slate-500',
+};
+
+const DepartmentBadge: React.FC<{ department: string }> = ({ department }) => (
+  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 whitespace-nowrap">
+    <span className={`w-1.5 h-1.5 rounded-full ${DEPARTMENT_DOT[department] ?? 'bg-slate-600'}`} />
+    <span className="text-xs text-slate-300">{department}</span>
+  </span>
+);
+
+// Small score chip used in the expanded row — TR/CC/TS/AE/TC each feed CAS
+// (0.25 TR + 0.30 CC + 0.25 TS + 0.10 AE + 0.10 TC), so surfacing them
+// individually is what makes an alert's clinical context legible instead of
+// just a single opaque number.
+const ScoreChip: React.FC<{ label: string; value: number | null | undefined; hint: string }> = ({ label, value, hint }) => (
+  <div className="px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-800" title={hint}>
+    <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
+    <div className="text-sm font-mono text-white mt-0.5">{typeof value === 'number' ? value.toFixed(1) : '—'}</div>
+  </div>
+);
+
+type SortBy = 'cas' | 'time';
+
+const AlertsPanel: React.FC<{
+  alerts: EnrichedAlert[];
+  connected: boolean;
+  loading: boolean;
+  error: string | null;
+  token: string | null;
+}> = ({ alerts, connected, loading, error, token }) => {
+  const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+  const [actionFilter, setActionFilter] = useState<EnrichedAlert['action'] | 'all'>('all');
+  const [sortBy, setSortBy] = useState<SortBy>('cas');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const [analysts, setAnalysts] = useState<MediUser[]>([]);
+  // Overlay on top of the `alerts` prop: apiGetAlerts already returns
+  // assignedTo for each alert, but new alerts pushed over Socket.IO don't
+  // carry it, and we want an assignment to reflect immediately after the
+  // PATCH resolves without waiting on the next poll. Keyed by alert id;
+  // `undefined` means "use whatever the alert prop says", not "unassigned".
+  const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, AssignedAnalyst | null>>({});
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    apiGetAllUsers(token)
+      .then((data) => setAnalysts(data.users.filter((u) => u.role === 'user'))) // SOC analysts only — admins triage, they don't get assigned
+      .catch(() => {});
+  }, [token]);
+
+  const assignedToFor = (a: EnrichedAlert): AssignedAnalyst | null =>
+    a.id in assignmentOverrides ? assignmentOverrides[a.id] : (a.assignedTo ?? null);
+
+  const handleAssign = async (alertId: string, analystId: string) => {
+    if (!token) return;
+    setAssigningId(alertId);
+    try {
+      const { assignedTo } = await apiAssignAlert(token, alertId, analystId || null);
+      setAssignmentOverrides((prev) => ({ ...prev, [alertId]: assignedTo }));
+    } catch (err) {
+      console.error('Failed to assign alert', err);
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
+  const departments = useMemo(
+    () => Array.from(new Set(alerts.map((a) => a.department))).sort(),
+    [alerts]
+  );
+
+  const filtered = useMemo(() => {
+    const list = alerts
+      .filter((a) => severityFilter === 'all' || casToSeverity(a.CAS) === severityFilter)
+      .filter((a) => departmentFilter === 'all' || a.department === departmentFilter)
+      .filter((a) => actionFilter === 'all' || a.action === actionFilter);
+    return sortBy === 'time'
+      ? list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      : list.sort((a, b) => b.CAS - a.CAS);
+  }, [alerts, severityFilter, departmentFilter, actionFilter, sortBy]);
+
+  const stats = useMemo(() => {
+    const critical = alerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
+    const immediate = alerts.filter((a) => a.action === 'Immediate').length;
+    const avgCas = alerts.length ? alerts.reduce((sum, a) => sum + a.CAS, 0) / alerts.length : 0;
+    return { total: alerts.length, critical, immediate, avgCas };
+  }, [alerts]);
+
+  const actionColor: Record<EnrichedAlert['action'], string> = {
+    Immediate: 'text-red-400 bg-red-500/10 border-red-500/30',
+    Investigate: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    Monitor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  };
+
+  return (
+    <div className="p-5 space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Alerts</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real RF / Isolation Forest / K-Means classifications, ranked by Clinical Alert Score
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-red-500'}`} />
+          {connected ? 'Live' : 'Reconnecting…'}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={<Bell className="w-5 h-5 text-cyan-400" />} label="Total Alerts" value={String(stats.total)} sub="In current buffer" color="cyan" />
+        <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Critical" value={String(stats.critical)} sub="CAS ≥ 8" color="red" />
+        <StatCard icon={<Zap className="w-5 h-5 text-amber-400" />} label="Immediate Action" value={String(stats.immediate)} sub="Needs response now" color="amber" />
+        <StatCard icon={<BarChart3 className="w-5 h-5 text-violet-400" />} label="Average CAS" value={stats.avgCas.toFixed(1)} sub="Across all alerts" color="violet" />
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="flex items-center gap-1.5 text-xs text-slate-500">
+          <Filter className="w-3.5 h-3.5" /> Filter
+        </span>
+        <select
+          value={severityFilter}
+          onChange={(e) => setSeverityFilter(e.target.value as Severity | 'all')}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="all">All severities</option>
+          {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as Severity[]).map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="all">All departments</option>
+          {departments.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+        <select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value as EnrichedAlert['action'] | 'all')}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="all">All actions</option>
+          <option value="Immediate">Immediate</option>
+          <option value="Investigate">Investigate</option>
+          <option value="Monitor">Monitor</option>
+        </select>
+
+        <span className="flex items-center gap-1.5 text-xs text-slate-500 ml-2">
+          <ChevronsUpDown className="w-3.5 h-3.5" /> Sort
+        </span>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortBy)}
+          className="px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-cyan-500/60"
+        >
+          <option value="cas">Clinical Alert Score</option>
+          <option value="time">Most recent</option>
+        </select>
+
+        {(severityFilter !== 'all' || departmentFilter !== 'all' || actionFilter !== 'all') && (
+          <span className="text-xs text-slate-500">{filtered.length} of {alerts.length} shown</span>
+        )}
+      </div>
+
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
+          </div>
+        ) : error ? (
+          <div className="flex items-center gap-2 px-5 py-6 text-red-400 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-14">
+            {alerts.length === 0 ? 'No alerts yet — waiting for the pipeline to index the first one.' : 'No alerts match the current filters.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
+                  <th className="py-2.5 px-4 text-left">Severity</th>
+                  <th className="py-2.5 px-4 text-left">Device</th>
+                  <th className="py-2.5 px-4 text-left">Department</th>
+                  <th className="py-2.5 px-4 text-left">Event</th>
+                  <th className="py-2.5 px-4 text-left">Cluster</th>
+                  <th className="py-2.5 px-4 text-left">CAS</th>
+                  <th className="py-2.5 px-4 text-left">Action</th>
+                  <th className="py-2.5 px-4 text-left">Time</th>
+                  <th className="py-2.5 px-4 text-left">Assigned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((a) => {
+                  const severity = casToSeverity(a.CAS);
+                  const sevColor: Record<Severity, string> = {
+                    CRITICAL: 'text-red-400 bg-red-500/10 border-red-500/30',
+                    HIGH: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
+                    MEDIUM: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+                    LOW: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+                  };
+                  const isExpanded = expandedId === a.id;
+                  const assignedTo = assignedToFor(a);
+                  return (
+                    <React.Fragment key={a.id}>
+                      <tr
+                        onClick={() => setExpandedId(isExpanded ? null : a.id)}
+                        className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors cursor-pointer"
+                      >
+                        <td className="py-3 px-4">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sevColor[severity]}`}>{severity}</span>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-slate-300 font-mono">{a.agent}</td>
+                        <td className="py-3 px-4"><DepartmentBadge department={a.department} /></td>
+                        <td className="py-3 px-4 text-sm text-slate-400 max-w-xs truncate">
+                          {a.label !== 'Unclassified' ? a.label : a.ruleDescription}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-500 capitalize">{a.cluster}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-slate-700 rounded-full h-1.5 w-16">
+                              <div
+                                className={`h-1.5 rounded-full ${a.CAS >= 8 ? 'bg-red-500' : a.CAS >= 6 ? 'bg-orange-500' : a.CAS >= 4 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                style={{ width: `${(a.CAS / 10) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-mono text-slate-400">{a.CAS.toFixed(1)}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${actionColor[a.action]}`}>{a.action}</span>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">{new Date(a.timestamp).toLocaleTimeString()}</td>
+                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={assignedTo?.id ?? ''}
+                            disabled={assigningId === a.id}
+                            onChange={(e) => handleAssign(a.id, e.target.value)}
+                            className={`px-2 py-1 bg-slate-800 border rounded-lg text-xs focus:outline-none focus:border-cyan-500/60 disabled:opacity-50 ${
+                              assignedTo ? 'border-cyan-500/30 text-cyan-400' : 'border-slate-700 text-slate-500'
+                            }`}
+                          >
+                            <option value="">Unassigned</option>
+                            {analysts.map((u) => (
+                              <option key={u.id} value={u.id}>{u.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-slate-950/50 border-b border-slate-800/60">
+                          <td colSpan={9} className="px-4 py-4">
+                            <div className="grid sm:grid-cols-5 gap-2 mb-3">
+                              <ScoreChip label="TR" value={a.TR_score} hint="Threat Risk — RF classification confidence" />
+                              <ScoreChip label="CC" value={a.CC_score} hint="Clinical Criticality — how life-critical this device is" />
+                              <ScoreChip label="TS" value={a.TS_score} hint="Time Sensitivity — Isolation Forest anomaly + time of day" />
+                              <ScoreChip label="AE" value={a.AE_score} hint="Active Exploitation — known-exploited CVE match" />
+                              <ScoreChip label="TC" value={a.TC_score} hint="Temporal Context — shift-based rule" />
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              <span className="text-slate-500">Confidence: </span>
+                              {typeof a.confidence === 'number' ? `${(a.confidence * 100).toFixed(1)}%` : 'n/a (rule.level fallback, not a real ML classification)'}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              <span className="text-slate-500">Explanation: </span>{a.explanation}
+                            </p>
+                            {a.ruleLevel !== null && (
+                              <p className="text-xs text-slate-500 mt-1">Wazuh rule.level: {a.ruleLevel}</p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const AdminDashboard: React.FC = () => {
   const { user, logout, token } = useAuth();
   const navigate = useNavigate();
@@ -1235,6 +1534,7 @@ const AdminDashboard: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const { summary: presenceSummary, loading: presenceLoading, error: presenceError } = usePresenceSummary(token);
+  const { alerts: liveAlerts, connected: alertsConnected, loading: alertsLoading, error: alertsError } = useLiveAlerts(token);
 
   const handleLogout = () => {
     logout();
@@ -1459,12 +1759,15 @@ const AdminDashboard: React.FC = () => {
             {activeNav === 'Users' && <UsersPanel token={token} currentUserId={user?.id} />}
             {activeNav === 'Audit Log' && <AuditLogPanel token={token} />}
             {activeNav === 'Devices' && <DevicesPanel />}
+            {activeNav === 'Alerts' && (
+              <AlertsPanel alerts={liveAlerts} connected={alertsConnected} loading={alertsLoading} error={alertsError} token={token} />
+            )}
             {activeNav === 'Vulnerabilities' && <VulnerabilitiesPanel />}
             {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
             {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
             {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
             {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
-             activeNav !== 'Vulnerabilities' &&
+             activeNav !== 'Alerts' && activeNav !== 'Vulnerabilities' &&
              activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && <div className="p-5 space-y-6">
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1542,9 +1845,18 @@ const AdminDashboard: React.FC = () => {
                   <h2 className="font-semibold text-white">Active Security Alerts</h2>
                   <p className="text-xs text-slate-500 mt-0.5">Sorted by Clinical Alert Score (CAS)</p>
                 </div>
-                <button className="px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors">
-                  View All
-                </button>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className={`w-2 h-2 rounded-full ${alertsConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                    {alertsConnected ? 'Live' : 'Reconnecting…'}
+                  </div>
+                  <button
+                    onClick={() => setActiveNav('Alerts')}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+                  >
+                    View All
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1559,8 +1871,25 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {MOCK_ALERTS.map((a) => (
-                      <AlertRow key={a.device + a.time} {...a} />
+                    {alertsLoading && (
+                      <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading alerts…</td></tr>
+                    )}
+                    {alertsError && (
+                      <tr><td colSpan={6} className="py-6 text-center text-sm text-red-400">{alertsError}</td></tr>
+                    )}
+                    {!alertsLoading && !alertsError && liveAlerts.length === 0 && (
+                      <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-500">No alerts yet.</td></tr>
+                    )}
+                    {liveAlerts.slice(0, 5).map((a) => (
+                      <AlertRow
+                        key={a.id}
+                        severity={casToSeverity(a.CAS)}
+                        device={a.agent}
+                        event={a.label !== 'Unclassified' ? a.label : a.ruleDescription}
+                        cas={a.CAS}
+                        time={new Date(a.timestamp).toLocaleTimeString()}
+                        status={actionToStatus(a.action)}
+                      />
                     ))}
                   </tbody>
                 </table>

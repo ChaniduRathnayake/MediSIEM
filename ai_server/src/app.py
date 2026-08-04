@@ -45,15 +45,27 @@ KMEANS_FEATURES = ["flow_bytes_s", "flow_packets_s", "flow_iat_mean", "fwd_pkt_l
 CLUSTER_LABELS = {0: "idle", 1: "active"}  # confirm actual index<->label mapping from training
 
 # Clinical Criticality (CC) lookup — rule-based, no ML (Phase 2, Day 4)
-# Clinical Criticality (CC) lookup — rule-based, no ML (Phase 2, Day 4)
 # Rescaled 1-10 (doubled from the plan's 1-5 table) so CAS ceiling reaches 10,
 # matching the documented thresholds (Immediate >= 8, Investigate >= 5).
+#
+# Keys MUST match the device_type strings actually produced by
+# backend/config/deviceInventory.js and ml-pipeline/device_map.json — the
+# original "Radiology"/"Nurse WS"/"Admin PC" keys never matched anything
+# real (those inventories emit "CT/MRI System" and "Workstation"), so
+# Cardiac Monitor and CT/MRI System alerts were silently falling through to
+# DEFAULT_CC regardless of actual severity. Values below: ICU Ventilator and
+# Infusion Pump unchanged; Cardiac Monitor=8 from the documented
+# "Cardiac Monitor — ARP Spoof" scenario in CAAP_Weight_Justification.html
+# (CC=4 on the 1-5 scale -> 8 doubled); CT/MRI System=6 inherits the old
+# orphaned "Radiology" value since CT/MRI is the radiology-department
+# device; Workstation=4 merges the old "Nurse WS"(4)/"Admin PC"(2) split
+# into one value since deviceInventory.js doesn't currently distinguish them.
 CC_LOOKUP = {
     "ICU Ventilator": 10,
     "Infusion Pump": 8,
-    "Radiology": 6,
-    "Nurse WS": 4,
-    "Admin PC": 2,
+    "Cardiac Monitor": 8,
+    "CT/MRI System": 6,
+    "Workstation": 4,
 }
 DEFAULT_CC = 2  # unknown device types treated as lowest criticality
 
