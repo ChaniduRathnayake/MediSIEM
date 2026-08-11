@@ -79,7 +79,7 @@ function safe(v: unknown): React.ReactNode {
 
 // ─── Small building blocks ───────────────────────────────────────────────────────
 const SectionUnavailable: React.FC<{ message?: string }> = ({ message }) => (
-  <div className="flex items-start gap-2 p-4 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500 text-xs">
+  <div className="flex items-start gap-2 p-4 rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-xs">
     <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
     <span>{message || 'Not available — this module may not be enabled on the manager, or no data has been collected yet for this agent.'}</span>
   </div>
@@ -95,21 +95,21 @@ const SimpleTable: React.FC<{
   loadingMore?: boolean;
 }> = ({ columns, rows, empty = 'No data', shownCount, totalCount, onLoadMore, loadingMore }) => (
   <div>
-    <div className="overflow-x-auto rounded-lg border border-slate-800">
+    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-slate-800 bg-slate-800/40">
+          <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/40">
             {columns.map((c) => (
-              <th key={c} className="py-2 px-3 text-left font-medium text-slate-500 whitespace-nowrap">{c}</th>
+              <th key={c} className="py-2 px-3 text-left font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">{c}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={columns.length} className="py-8 text-center text-slate-500">{empty}</td></tr>
+            <tr><td colSpan={columns.length} className="py-8 text-center text-slate-400 dark:text-slate-500">{empty}</td></tr>
           ) : rows.map((r, i) => (
-            <tr key={i} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors">
-              {r.map((cell, j) => <td key={j} className="py-2 px-3 text-slate-300 whitespace-nowrap">{cell}</td>)}
+            <tr key={i} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
+              {r.map((cell, j) => <td key={j} className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{cell}</td>)}
             </tr>
           ))}
         </tbody>
@@ -117,7 +117,7 @@ const SimpleTable: React.FC<{
     </div>
     {totalCount !== undefined && shownCount !== undefined && totalCount > shownCount && (
       <div className="flex items-center gap-3 mt-2">
-        <p className="text-xs text-slate-600">Showing {shownCount} of {totalCount}</p>
+        <p className="text-xs text-slate-400 dark:text-slate-600">Showing {shownCount} of {totalCount}</p>
         {onLoadMore && (
           <button
             onClick={onLoadMore}
@@ -135,9 +135,9 @@ const SimpleTable: React.FC<{
 const KeyValueGrid: React.FC<{ rows: [string, React.ReactNode][] }> = ({ rows }) => (
   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
     {rows.map(([label, value]) => (
-      <div key={label} className="flex items-center justify-between gap-4 py-1 border-b border-slate-800/60 text-sm">
-        <dt className="text-slate-500 flex-shrink-0">{label}</dt>
-        <dd className="text-white text-right break-all">{value}</dd>
+      <div key={label} className="flex items-center justify-between gap-4 py-1 border-b border-slate-100 dark:border-slate-800/60 text-sm">
+        <dt className="text-slate-400 dark:text-slate-500 flex-shrink-0">{label}</dt>
+        <dd className="text-slate-900 dark:text-white text-right break-all">{value}</dd>
       </div>
     ))}
   </dl>
@@ -153,7 +153,7 @@ const severityBadgeClass = (severity?: string): string => {
 
 const vulnFilterBtnClass = (active: boolean) =>
   `px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
   }`;
 
 type VulnSeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low';
@@ -202,7 +202,7 @@ const VulnerabilitiesSection: React.FC<{
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search CVE or package…"
-          className="ml-auto px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
+          className="ml-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
         />
       </div>
 
@@ -277,12 +277,12 @@ const fimEventClass = (event: string | null): string => {
   if (e === 'added') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
   if (e === 'deleted') return 'text-red-400 bg-red-500/10 border-red-500/30';
   if (e === 'modified') return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
-  return 'text-slate-400 bg-slate-800 border-slate-700';
+  return 'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700';
 };
 
 const fimTabBtnClass = (active: boolean) =>
   `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+    active ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
   }`;
 
 const FIM_PAGE_SIZE = 25;
@@ -323,7 +323,7 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
           value={path}
           onChange={(e) => setPath(e.target.value)}
           placeholder="Filter by file path…"
-          className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
+          className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
         />
         <div className="flex items-center gap-1.5">
           {[7, 30, 90].map((d) => (
@@ -334,7 +334,7 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
       </div>
 
       {loading && events.length === 0 ? (
-        <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
+        <div className="flex items-center justify-center gap-2 py-14 text-slate-400 dark:text-slate-500 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading change history…
         </div>
       ) : error ? (
@@ -342,7 +342,7 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
           <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
         </div>
       ) : events.length === 0 ? (
-        <p className="text-sm text-slate-500 text-center py-14">
+        <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-14">
           No file changes detected{path ? ' for this path' : ''}{days ? ` in the last ${days} days` : ''}.
         </p>
       ) : (
@@ -351,11 +351,11 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
             const pairs = extractFimDiffPairs(ev.syscheck);
             const diffText = typeof ev.syscheck.diff === 'string' ? ev.syscheck.diff : null;
             return (
-              <div key={ev.id} className="rounded-lg border border-slate-800 bg-slate-800/30 p-3">
+              <div key={ev.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/30 p-3">
                 <div className="flex items-start justify-between gap-2 flex-wrap">
                   <div className="min-w-0">
-                    <p className="text-sm text-white font-mono break-all">{ev.path ?? 'Unknown path'}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-sm text-slate-900 dark:text-white font-mono break-all">{ev.path ?? 'Unknown path'}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                       {ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '—'}
                       {ev.ruleDescription ? ` · ${ev.ruleDescription}` : ''}
                       {ev.ruleLevel !== null ? ` · level ${ev.ruleLevel}` : ''}
@@ -369,25 +369,25 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
                 {ev.changedAttributes.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {ev.changedAttributes.map((a) => (
-                      <span key={a} className="text-xs px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400">{a}</span>
+                      <span key={a} className="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400">{a}</span>
                     ))}
                   </div>
                 )}
 
                 {pairs.length > 0 && (
-                  <div className="mt-2.5 overflow-x-auto rounded-lg border border-slate-800">
+                  <div className="mt-2.5 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 bg-slate-800/40">
-                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">Attribute</th>
-                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">Before</th>
-                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-500">After</th>
+                        <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/40">
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-400 dark:text-slate-500">Attribute</th>
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-400 dark:text-slate-500">Before</th>
+                          <th className="py-1.5 px-2.5 text-left font-medium text-slate-400 dark:text-slate-500">After</th>
                         </tr>
                       </thead>
                       <tbody>
                         {pairs.map((p) => (
-                          <tr key={p.key} className="border-b border-slate-800/60 last:border-0">
-                            <td className="py-1.5 px-2.5 text-slate-400 whitespace-nowrap">{p.label}</td>
+                          <tr key={p.key} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                            <td className="py-1.5 px-2.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">{p.label}</td>
                             <td className="py-1.5 px-2.5 text-red-400/80 font-mono break-all">{p.before}</td>
                             <td className="py-1.5 px-2.5 text-emerald-400/80 font-mono break-all">{p.after}</td>
                           </tr>
@@ -398,7 +398,7 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
                 )}
 
                 {diffText && (
-                  <pre className="mt-2.5 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap">
+                  <pre className="mt-2.5 p-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 overflow-x-auto whitespace-pre-wrap">
                     {diffText}
                   </pre>
                 )}
@@ -410,19 +410,19 @@ const FimHistoryPanel: React.FC<{ agent: WazuhAgent; config: WazuhConfig }> = ({
 
       {total > 0 && (
         <div className="flex items-center justify-between px-1 pt-1">
-          <p className="text-xs text-slate-500">Page {page} of {totalPages} · {total.toLocaleString()} total changes</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Page {page} of {totalPages} · {total.toLocaleString()} total changes</p>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1 || loading}
-              className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Previous
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages || loading}
-              className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Next
             </button>
@@ -460,7 +460,7 @@ const FimSection: React.FC<{
         hasIndexerConfig(config) ? (
           <FimHistoryPanel agent={agent} config={config} />
         ) : (
-          <div className="flex items-start gap-2 p-4 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500 text-xs">
+          <div className="flex items-start gap-2 p-4 rounded-lg bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-xs">
             <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               Real change history (before/after diffs) needs the Wazuh Indexer — add its connection details
@@ -469,7 +469,7 @@ const FimSection: React.FC<{
           </div>
         )
       ) : loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm">
+        <div className="flex items-center justify-center gap-2 py-16 text-slate-400 dark:text-slate-500 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading current state…
         </div>
       ) : error ? (
@@ -568,27 +568,27 @@ const AgentDetailsModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-4xl rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden max-h-[88vh] flex flex-col"
+        className="w-full max-w-4xl rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[88vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <div>
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
               {agent.name}
-              <span className="text-slate-600 font-mono text-xs font-normal">#{agent.id}</span>
+              <span className="text-slate-400 dark:text-slate-600 font-mono text-xs font-normal">#{agent.id}</span>
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">{meta.label} · {agent.ip ?? 'no IP'} · {formatOs(agent.os)}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{meta.label} · {agent.ip ?? 'no IP'} · {formatOs(agent.os)}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
+          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Section tabs — omitted entirely when the modal is scoped to one section */}
         {!onlySection && (
-          <div className="flex gap-1 px-6 py-2.5 border-b border-slate-800 overflow-x-auto flex-shrink-0">
+          <div className="flex gap-1 px-6 py-2.5 border-b border-slate-200 dark:border-slate-800 overflow-x-auto flex-shrink-0">
             {sections.map((s) => (
               <button
                 key={s.id}
@@ -596,7 +596,7 @@ const AgentDetailsModal: React.FC<{
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
                   section === s.id
                     ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'
                 }`}
               >
                 {s.icon} {s.label}
@@ -615,7 +615,7 @@ const AgentDetailsModal: React.FC<{
               ['Status', (
                 <span className="flex items-center gap-1.5 justify-end">
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                  <span className={meta.online ? 'text-emerald-400' : 'text-slate-300'}>{meta.label}</span>
+                  <span className={meta.online ? 'text-emerald-400' : 'text-slate-700 dark:text-slate-300'}>{meta.label}</span>
                 </span>
               )],
               ['IP Address', agent.ip ?? '—'],
@@ -642,7 +642,7 @@ const AgentDetailsModal: React.FC<{
               loadingMoreCurrent={loadingMore === 'fim'}
             />
           ) : loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm">
+            <div className="flex items-center justify-center gap-2 py-16 text-slate-400 dark:text-slate-500 text-sm">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading {sections.find((s) => s.id === section)?.label.toLowerCase()}…
             </div>
           ) : error ? (
@@ -654,7 +654,7 @@ const AgentDetailsModal: React.FC<{
           ) : section === 'hardware' ? (
             <div className="space-y-5">
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Hardware</h3>
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Hardware</h3>
                 {details.hardware.ok && details.hardware.item ? (
                   <KeyValueGrid rows={[
                     ['CPU', safe(details.hardware.item.cpu?.name)],
@@ -670,7 +670,7 @@ const AgentDetailsModal: React.FC<{
                 )}
               </div>
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Operating System</h3>
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Operating System</h3>
                 {details.os.ok && details.os.item ? (
                   <KeyValueGrid rows={[
                     ['Hostname', safe(details.os.item.hostname)],
@@ -690,7 +690,7 @@ const AgentDetailsModal: React.FC<{
           ) : section === 'network' ? (
             <div className="space-y-5">
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Interfaces {details.netiface.ok && `(${details.netiface.total})`}
                 </h3>
                 {details.netiface.ok ? (
@@ -709,7 +709,7 @@ const AgentDetailsModal: React.FC<{
                 ) : <SectionUnavailable message={details.netiface.error} />}
               </div>
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                   IP Addresses {details.netaddr.ok && `(${details.netaddr.total})`}
                 </h3>
                 {details.netaddr.ok ? (
@@ -726,7 +726,7 @@ const AgentDetailsModal: React.FC<{
                 ) : <SectionUnavailable message={details.netaddr.error} />}
               </div>
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Gateways {details.netproto.ok && `(${details.netproto.total})`}
                 </h3>
                 {details.netproto.ok ? (
@@ -741,7 +741,7 @@ const AgentDetailsModal: React.FC<{
                 ) : <SectionUnavailable message={details.netproto.error} />}
               </div>
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Listening / Active Ports {details.ports.ok && `(${details.ports.total})`}
                 </h3>
                 {details.ports.ok ? (

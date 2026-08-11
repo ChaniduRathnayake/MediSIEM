@@ -1,18 +1,29 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
 import { protect } from '../middleware/auth.js';
+import JWT_SECRET from '../config/jwt.js';
 
 const router = express.Router();
-const getJwtSecret = () => process.env.JWT_SECRET || 'medisiem_secret';
-const JWT_EXPIRES = '7d';
+const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '7d';
+
+// Brute-force guard — keyed by IP, independent of whether the attempted
+// email exists, so it can't be used to enumerate accounts either.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in a few minutes.' },
+});
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
 
@@ -24,7 +35,7 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id },
-      getJwtSecret(),
+      JWT_SECRET,
       { expiresIn: JWT_EXPIRES }
     );
 

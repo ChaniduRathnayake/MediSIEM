@@ -9,6 +9,7 @@
 import { fetchNewAlerts } from './wazuhIndexerService.js';
 import { enrichAlert } from './caapService.js';
 import { lookupDevice } from '../config/deviceInventory.js';
+import DetectionRule from '../models/DetectionRule.js';
 
 const {
   ALERT_POLL_INTERVAL_MS = '5000',
@@ -19,9 +20,69 @@ const BUFFER_SIZE = parseInt(ALERT_BUFFER_SIZE, 10);
 const POLL_INTERVAL = parseInt(ALERT_POLL_INTERVAL_MS, 10);
 
 let buffer = []; // newest first
+let bufferedIds = new Set(); // mirrors buffer's ids — O(1) dedup check, see pollOnce()
 let lastTimestamp = null;
 let io = null; // set via init()
 let pollHandle = null;
+
+// Cumulative counters — unlike `buffer` (capped at BUFFER_SIZE, oldest
+// evicted to bound memory), these only ever grow for the life of the
+// process. The buffer is what the alert *list* is drawn from; these are
+// what "Total Alerts" / severity-mix stats should be drawn from, so those
+// numbers don't freeze the instant the buffer fills up.
+let totalCount = 0;
+const severityTotals = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+
+function casToSeverity(cas) {
+  if (cas >= 8) return 'CRITICAL';
+  if (cas >= 6) return 'HIGH';
+  if (cas >= 4) return 'MEDIUM';
+  return 'LOW';
+}
+
+// ─── Rule evaluation ────────────────────────────────────────────────────────
+// Fixed field/operator whitelist — no scripting, no eval — evaluated against
+// the same flattened alert shape toDisplayAlert() produces below. All
+// conditions in a rule must match (AND only, see DetectionRule.js).
+function conditionMatches(alert, { field, operator, value }) {
+  const actual = alert[field];
+  if (actual === undefined || actual === null) return false;
+
+  if (operator === 'contains') {
+    return String(actual).toLowerCase().includes(String(value).toLowerCase());
+  }
+  if (operator === 'equals') {
+    // Numeric fields compare numerically even if `value` arrived as a string
+    // from a form input; string fields compare case-insensitively.
+    return typeof actual === 'number' ? Number(actual) === Number(value) : String(actual).toLowerCase() === String(value).toLowerCase();
+  }
+  const a = Number(actual);
+  const v = Number(value);
+  if (Number.isNaN(a) || Number.isNaN(v)) return false;
+  if (operator === 'gte') return a >= v;
+  if (operator === 'lte') return a <= v;
+  if (operator === 'gt') return a > v;
+  if (operator === 'lt') return a < v;
+  return false;
+}
+
+function evaluateRules(alert, rules) {
+  return rules
+    .filter((rule) => rule.conditions.every((cond) => conditionMatches(alert, cond)))
+    .map((rule) => ({ id: rule._id.toString(), name: rule.name }));
+}
+
+// Re-fetched once per poll cycle rather than cached indefinitely — cheap for
+// a small collection, and means a rule edited in the UI takes effect on the
+// very next poll without a separate cache-invalidation path.
+async function getEnabledRules() {
+  try {
+    return await DetectionRule.find({ enabled: true });
+  } catch (err) {
+    console.error('[alertPipeline] failed to load detection rules:', err.message);
+    return [];
+  }
+}
 
 function toDisplayAlert(raw, enrichment) {
   // flow_consumer.py already stamps agent.department (real ML path). The
@@ -51,7 +112,23 @@ async function pollOnce() {
     const rawAlerts = await fetchNewAlerts(lastTimestamp);
     if (!rawAlerts.length) return;
 
+    // Loaded once per poll cycle, not per-alert — same rule set applies to
+    // every alert in this batch.
+    const rules = await getEnabledRules();
+
     for (const raw of rawAlerts) {
+      // The Indexer's `@timestamp gt lastTimestamp` cursor can re-return an
+      // alert already in the buffer — e.g. when several documents share the
+      // same timestamp at millisecond precision and the range query's
+      // boundary handling doesn't exclude all of them cleanly. Guard here
+      // instead of trusting the query to never repeat itself: without this,
+      // a re-fetched alert both duplicates the React key on the frontend
+      // AND re-evaluates/re-emits as if it were new.
+      if (bufferedIds.has(raw.id)) {
+        lastTimestamp = raw['@timestamp'] || lastTimestamp;
+        continue;
+      }
+
       // caap-alerts documents are already fully scored by flow_consumer.py
       // (real RF + Isolation Forest + K-Means via /predict) — use them as-is.
       // Only alerts with no CAS field at all (e.g. polling a raw
@@ -75,10 +152,21 @@ async function pollOnce() {
       }
 
       const displayAlert = toDisplayAlert(raw, enrichment);
+      displayAlert.matchedRules = evaluateRules(displayAlert, rules);
       buffer.unshift(displayAlert);
-      if (buffer.length > BUFFER_SIZE) buffer.pop();
+      bufferedIds.add(displayAlert.id);
+      if (buffer.length > BUFFER_SIZE) {
+        const evicted = buffer.pop();
+        bufferedIds.delete(evicted.id);
+      }
 
-      if (io) io.emit('alert:new', displayAlert);
+      totalCount += 1;
+      severityTotals[casToSeverity(displayAlert.CAS ?? 0)] += 1;
+
+      if (io) {
+        io.emit('alert:new', displayAlert);
+        io.emit('alerts:stats', { totalCount, severityTotals });
+      }
       lastTimestamp = raw['@timestamp'] || lastTimestamp;
     }
   } catch (err) {
@@ -106,4 +194,9 @@ export function getBufferedAlerts({ limit = 100, sortByCas = false } = {}) {
   return alerts.slice(0, limit);
 }
 
-export default { startPipeline, stopPipeline, getBufferedAlerts };
+/** Cumulative counts since this process started — never shrinks, unlike the bounded buffer. */
+export function getAlertStats() {
+  return { totalCount, severityTotals: { ...severityTotals } };
+}
+
+export default { startPipeline, stopPipeline, getBufferedAlerts, getAlertStats };

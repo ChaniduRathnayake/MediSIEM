@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, Menu, X, ChevronRight, FlaskConical } from 'lucide-react';
+import { Shield, Menu, X, FlaskConical } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
 
 const NAV_LINKS = [
   { label: 'Home', href: '/' },
@@ -18,7 +19,8 @@ const Navbar: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
@@ -27,24 +29,21 @@ const Navbar: React.FC = () => {
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-50 border-b transition-colors duration-200 ${
         scrolled
-          ? 'bg-slate-950/95 backdrop-blur-md shadow-lg shadow-cyan-500/5 border-b border-slate-800'
-          : 'bg-transparent'
+          ? 'bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-slate-200 dark:border-slate-800'
+          : 'bg-white/40 dark:bg-slate-950/40 border-transparent'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-15">
 
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="relative">
-              <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:shadow-cyan-500/50 transition-shadow">
-                <Shield className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
-              </div>
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+          <Link to="/" className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-cyan-500 rounded-md flex items-center justify-center">
+              <Shield className="w-4 h-4 text-slate-950" strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-lg text-white tracking-tight">
+            <span className="font-semibold text-[15px] text-slate-900 dark:text-white tracking-tight">
               Medi<span className="text-cyan-400">SIEM</span>
             </span>
           </Link>
@@ -57,10 +56,10 @@ const Navbar: React.FC = () => {
                 <Link
                   key={link.href}
                   to={link.href}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`px-3.5 py-2 rounded-md text-sm font-medium transition-colors ${
                     active
-                      ? 'text-cyan-400 bg-cyan-500/10'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      ? 'text-slate-900 dark:text-white bg-slate-100 dark:bg-white/5'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
                   }`}
                 >
                   {link.label}
@@ -73,11 +72,9 @@ const Navbar: React.FC = () => {
               href={CAS_DEMO_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium ml-1
-                         text-blue-400 hover:text-blue-300
-                         bg-blue-500/10 hover:bg-blue-500/15
-                         border border-blue-500/25 hover:border-blue-400/50
-                         transition-all duration-200"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium ml-1
+                         text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5
+                         transition-colors"
             >
               <FlaskConical className="w-3.5 h-3.5" />
               CAS Demo
@@ -85,39 +82,43 @@ const Navbar: React.FC = () => {
           </nav>
 
           {/* CTA Buttons */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2">
+            <ThemeToggle />
             <Link
               to="/login"
-              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40"
+              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-semibold rounded-md transition-colors"
             >
-              Sign In <ChevronRight className="w-3.5 h-3.5" />
+              Sign In
             </Link>
           </div>
 
           {/* Mobile Toggle */}
-          <button
-            onClick={() => setOpen(!open)}
-            className="md:hidden p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-            aria-label="Toggle menu"
-          >
-            {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          <div className="md:hidden flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={() => setOpen(!open)}
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-md hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+              aria-label="Toggle menu"
+            >
+              {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Mobile Menu */}
       {open && (
-        <div className="md:hidden bg-slate-950/98 backdrop-blur-md border-t border-slate-800 px-4 py-4 space-y-1">
+        <div className="md:hidden bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 px-4 py-4 space-y-1 animate-fade-in">
           {NAV_LINKS.map((link) => {
             const active = location.pathname === link.href;
             return (
               <Link
                 key={link.href}
                 to={link.href}
-                className={`block px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                className={`block px-3.5 py-2.5 rounded-md text-sm font-medium transition-colors ${
                   active
-                    ? 'text-cyan-400 bg-cyan-500/10'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'text-slate-900 dark:text-white bg-slate-100 dark:bg-white/5'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
                 }`}
               >
                 {link.label}
@@ -130,20 +131,18 @@ const Navbar: React.FC = () => {
             href={CAS_DEMO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium
-                       text-blue-400 hover:text-blue-300
-                       bg-blue-500/10 hover:bg-blue-500/15
-                       border border-blue-500/25
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-md text-sm font-medium
+                       text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5
                        transition-colors"
           >
             <FlaskConical className="w-4 h-4" />
             CAS Demo
           </a>
 
-          <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
+          <div className="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800">
             <Link
               to="/login"
-              className="block px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-semibold rounded-lg text-center"
+              className="block px-4 py-2.5 bg-cyan-500 text-slate-950 text-sm font-semibold rounded-md text-center"
             >
               Sign In
             </Link>

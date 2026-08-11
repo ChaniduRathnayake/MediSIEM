@@ -5,8 +5,7 @@ import { CheckCircle, X, Zap, Shield, Building, ChevronRight } from 'lucide-reac
 const plans = [
   {
     name: 'Starter',
-    icon: <Zap className="w-5 h-5" />,
-    color: 'slate',
+    icon: <Zap className="w-4.5 h-4.5" />,
     price: { monthly: 0, annual: 0 },
     desc: 'Perfect for small clinics and research trials.',
     badge: null,
@@ -28,8 +27,7 @@ const plans = [
   },
   {
     name: 'Hospital',
-    icon: <Shield className="w-5 h-5" />,
-    color: 'cyan',
+    icon: <Shield className="w-4.5 h-4.5" />,
     price: { monthly: 15000, annual: 12000 },
     desc: 'For small-to-medium private hospitals in developing regions.',
     badge: 'Most Popular',
@@ -51,8 +49,7 @@ const plans = [
   },
   {
     name: 'Enterprise',
-    icon: <Building className="w-5 h-5" />,
-    color: 'violet',
+    icon: <Building className="w-4.5 h-4.5" />,
     price: { monthly: 20000, annual: 17000 },
     desc: 'For public healthcare clusters and large hospital networks.',
     badge: 'Full Platform',
@@ -81,40 +78,35 @@ const PricingPage: React.FC = () => {
     p === 0 ? 'Free' : `LKR ${p.toLocaleString()}`;
 
   return (
-    <div className="bg-slate-950 min-h-screen text-white pt-24">
+    <div className="bg-white dark:bg-slate-950 min-h-screen text-slate-900 dark:text-white pt-28">
       {/* ── Header ── */}
-      <section className="py-20 px-4 text-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.03)_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
-        <div className="relative max-w-3xl mx-auto">
-          <h1 className="text-4xl md:text-5xl font-black mb-5">
-            Simple,{' '}
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-              Transparent
-            </span>{' '}
-            Pricing
+      <section className="py-16 px-4">
+        <div className="max-w-3xl mx-auto text-center">
+          <h1 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">
+            Simple, transparent pricing
           </h1>
-          <p className="text-lg text-slate-400 mb-8">
+          <p className="text-base text-slate-500 dark:text-slate-400 mb-8">
             Safety-as-a-Service — a fraction of enterprise SIEM costs, purpose-built for healthcare.
           </p>
 
           {/* Toggle */}
-          <div className="inline-flex items-center gap-3 p-1.5 rounded-xl bg-slate-800 border border-slate-700">
+          <div className="inline-flex items-center gap-1 p-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setAnnual(false)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-                !annual ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'
+              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                !annual ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Monthly
             </button>
             <button
               onClick={() => setAnnual(true)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                annual ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'
+              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
+                annual ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Annual
-              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full font-semibold">
+              <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 text-[10px] rounded font-semibold">
                 Save 20%
               </span>
             </button>
@@ -123,41 +115,41 @@ const PricingPage: React.FC = () => {
       </section>
 
       {/* ── Plans ── */}
-      <section className="py-10 px-4">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-6 items-start">
+      <section className="py-6 px-4">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-4 items-start">
           {plans.map((plan) => (
             <div
               key={plan.name}
-              className={`relative rounded-3xl p-7 border transition-all ${
+              className={`relative rounded-lg p-6 border ${
                 plan.highlighted
-                  ? 'bg-gradient-to-b from-cyan-950/60 to-slate-900/80 border-cyan-500/40 shadow-2xl shadow-cyan-500/10 scale-[1.02]'
-                  : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                  ? 'bg-white dark:bg-slate-900 border-cyan-500/30'
+                  : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
               }`}
             >
               {/* Badge */}
               {plan.badge && (
-                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                  <span className="px-4 py-1 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold shadow-lg shadow-cyan-500/30">
+                <div className="absolute -top-3 left-6">
+                  <span className="px-2.5 py-1 rounded bg-cyan-500 text-slate-950 text-xs font-bold">
                     {plan.badge}
                   </span>
                 </div>
               )}
 
               {/* Icon & Name */}
-              <div className={`w-10 h-10 rounded-xl bg-${plan.color}-500/10 flex items-center justify-center text-${plan.color}-400 mb-4`}>
+              <div className="w-9 h-9 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 mb-4">
                 {plan.icon}
               </div>
-              <h3 className="text-xl font-bold text-white mb-1">{plan.name}</h3>
-              <p className="text-sm text-slate-400 mb-5">{plan.desc}</p>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">{plan.name}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">{plan.desc}</p>
 
               {/* Price */}
               <div className="mb-6">
                 <div className="flex items-end gap-1">
-                  <span className="text-4xl font-black text-white">
+                  <span className="text-3xl font-bold text-slate-900 dark:text-white">
                     {formatPrice(annual ? plan.price.annual : plan.price.monthly)}
                   </span>
                   {plan.price.monthly > 0 && (
-                    <span className="text-slate-500 text-sm mb-1.5">/month</span>
+                    <span className="text-slate-400 dark:text-slate-500 text-sm mb-1">/month</span>
                   )}
                 </div>
                 {annual && plan.price.monthly > 0 && (
@@ -170,25 +162,25 @@ const PricingPage: React.FC = () => {
               {/* CTA */}
               <Link
                 to={plan.ctaLink}
-                className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm mb-7 transition-all ${
+                className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-md font-semibold text-sm mb-7 transition-colors ${
                   plan.highlighted
-                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/25'
-                    : 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-700'
+                    ? 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
                 }`}
               >
                 {plan.cta} <ChevronRight className="w-4 h-4" />
               </Link>
 
               {/* Features */}
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {plan.features.map((f) => (
                   <li key={f.text} className="flex items-start gap-2.5 text-sm">
                     {f.included ? (
                       <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
                     ) : (
-                      <X className="w-4 h-4 text-slate-600 flex-shrink-0 mt-0.5" />
+                      <X className="w-4 h-4 text-slate-700 flex-shrink-0 mt-0.5" />
                     )}
-                    <span className={f.included ? 'text-slate-300' : 'text-slate-600'}>
+                    <span className={f.included ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-600'}>
                       {f.text}
                     </span>
                   </li>
@@ -200,28 +192,28 @@ const PricingPage: React.FC = () => {
       </section>
 
       {/* ── Cost Breakdown ── */}
-      <section className="py-20 px-4">
+      <section className="py-16 px-4 border-t border-slate-200 dark:border-slate-800 mt-10">
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-10">Project Cost Structure</h2>
-          <div className="grid sm:grid-cols-3 gap-5">
+          <h2 className="text-xl font-bold text-center mb-8">Project cost structure</h2>
+          <div className="grid sm:grid-cols-3 gap-4">
             {[
-              { label: 'Total Project Cost', value: 'LKR 550,000', desc: 'Full platform development budget', color: 'text-white' },
-              { label: 'Development', value: 'LKR 500,000', desc: 'Security-vs-Life logic & playbooks', color: 'text-cyan-400' },
-              { label: 'Infrastructure', value: 'LKR 50,000', desc: 'Cloud gateways, datasets & notifications', color: 'text-violet-400' },
+              { label: 'Total Project Cost', value: 'LKR 550,000', desc: 'Full platform development budget' },
+              { label: 'Development', value: 'LKR 500,000', desc: 'Security-vs-Life logic & playbooks' },
+              { label: 'Infrastructure', value: 'LKR 50,000', desc: 'Cloud gateways, datasets & notifications' },
             ].map((item) => (
-              <div key={item.label} className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center">
-                <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">{item.label}</div>
-                <div className={`text-2xl font-black mb-1 ${item.color}`}>{item.value}</div>
-                <div className="text-xs text-slate-400">{item.desc}</div>
+              <div key={item.label} className="p-5 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center">
+                <div className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">{item.label}</div>
+                <div className="text-xl font-bold mb-1 text-slate-900 dark:text-white">{item.value}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</div>
               </div>
             ))}
           </div>
 
-          <div className="mt-8 p-6 rounded-2xl bg-slate-900/40 border border-slate-800 text-sm text-slate-400 leading-relaxed">
-            <p className="font-semibold text-slate-200 mb-2">Revenue Model — "Safety-as-a-Service"</p>
+          <div className="mt-6 p-5 rounded-lg bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+            <p className="font-semibold text-slate-200 mb-2">Revenue model — "Safety-as-a-Service"</p>
             <p>
-              A one-time <strong className="text-white">Setup Fee</strong> covers hospital-specific IoMT integration.
-              Monthly <strong className="text-white">subscriptions (LKR 15,000 – 20,000/month)</strong> cover
+              A one-time <strong className="text-slate-900 dark:text-white">Setup Fee</strong> covers hospital-specific IoMT integration.
+              Monthly <strong className="text-slate-900 dark:text-white">subscriptions (LKR 15,000 – 20,000/month)</strong> cover
               logic updates, threat intelligence feeds, and clinician push notification services —
               a fraction of enterprise SIEM licensing costs.
             </p>
@@ -232,8 +224,8 @@ const PricingPage: React.FC = () => {
       {/* ── FAQ ── */}
       <section className="py-10 px-4 pb-24">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-10">Frequently Asked Questions</h2>
-          <div className="space-y-4">
+          <h2 className="text-xl font-bold text-center mb-8">Frequently asked questions</h2>
+          <div className="space-y-3">
             {[
               {
                 q: 'Can components be purchased separately?',
@@ -252,9 +244,9 @@ const PricingPage: React.FC = () => {
                 a: 'No. MediSIEM processes network security telemetry and device logs only. No patient health records (PHI) are ingested or stored.',
               },
             ].map((item) => (
-              <div key={item.q} className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-                <h4 className="font-semibold text-white mb-2">{item.q}</h4>
-                <p className="text-sm text-slate-400 leading-relaxed">{item.a}</p>
+              <div key={item.q} className="p-4 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                <h4 className="font-semibold text-slate-900 dark:text-white mb-1.5 text-sm">{item.q}</h4>
+                <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{item.a}</p>
               </div>
             ))}
           </div>

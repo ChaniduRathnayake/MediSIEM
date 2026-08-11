@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import { logAudit } from '../utils/auditLog.js';
+import { getPasswordPolicy, validatePassword } from '../utils/passwordPolicy.js';
 
 // ─── GET /api/users  (admin only) ─────────────────────────────────────────────
 export const getAllUsers = async (req, res) => {
@@ -65,6 +66,12 @@ export const updateUser = async (req, res) => {
       }
     }
 
+    if (req.body.password) {
+      const policy = await getPasswordPolicy();
+      const { valid, errors } = validatePassword(req.body.password, policy);
+      if (!valid) return res.status(400).json({ error: errors[0], errors });
+    }
+
     const before = { name: user.name, email: user.email, role: user.role };
 
     for (const field of allowedFields) {
@@ -124,6 +131,10 @@ export const createUser = async (req, res) => {
     if (existing) {
       return res.status(409).json({ error: 'Email already registered.' });
     }
+
+    const policy = await getPasswordPolicy();
+    const { valid, errors } = validatePassword(password, policy);
+    if (!valid) return res.status(400).json({ error: errors[0], errors });
 
     const newUser = await User.create({
       name: name.trim(),

@@ -11,6 +11,10 @@ import { WazuhConfig, WAZUH_DEFAULTS, WazuhAgent, normalizeAgentStatus, formatOs
 import { testIndexerConnection } from './complianceApi';
 import AgentDetailsModal from './AgentDetailsModal';
 import AlertsBrowser from './AlertsBrowser';
+import ChartCard from '../../components/charts/ChartCard';
+import TopBarChart from '../../components/charts/TopBarChart';
+import { SEVERITY_COLORS } from '../../utils/chartData';
+import StatCard from '../../components/StatCard';
 
 // ─── Config Panel ─────────────────────────────────────────────────────────────
 const ConfigPanel: React.FC<{
@@ -63,8 +67,8 @@ const ConfigPanel: React.FC<{
   };
 
   const input =
-    'w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white ' +
-    'placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 focus:ring-1 ' +
+    'w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white ' +
+    'placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 focus:ring-1 ' +
     'focus:ring-cyan-500/20 transition-all';
 
   const dockerHints = [
@@ -75,18 +79,18 @@ const ConfigPanel: React.FC<{
 
   return (
     <div className="max-w-lg mx-auto">
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
+        <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
             <Terminal className="w-5 h-5 text-cyan-400" />
           </div>
           <div className="flex-1">
-            <h2 className="text-sm font-bold text-white">Wazuh API Connection</h2>
-            <p className="text-xs text-slate-500">Connect to your Wazuh manager via the backend proxy</p>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">Wazuh API Connection</h2>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Connect to your Wazuh manager via the backend proxy</p>
           </div>
           {onBack && (
-            <button onClick={onBack} className="text-xs text-slate-400 hover:text-white transition-colors">
+            <button onClick={onBack} className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
               ← Cancel
             </button>
           )}
@@ -103,17 +107,17 @@ const ConfigPanel: React.FC<{
           </button>
 
           {showHints && (
-            <div className="rounded-lg bg-slate-800/60 border border-slate-700 overflow-hidden">
+            <div className="rounded-lg bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 overflow-hidden">
               {dockerHints.map((hint) => (
                 <button
                   key={hint.host}
                   onClick={() => setHost(hint.host)}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-slate-700/60 transition-colors border-b border-slate-700/40 last:border-0 ${
-                    host === hint.host ? 'text-cyan-400' : 'text-slate-300'
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-slate-200 dark:hover:bg-slate-700/60 transition-colors border-b border-slate-700/40 last:border-0 ${
+                    host === hint.host ? 'text-cyan-400' : 'text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   <span>{hint.label}</span>
-                  <span className="font-mono text-slate-500">{hint.host}</span>
+                  <span className="font-mono text-slate-400 dark:text-slate-500">{hint.host}</span>
                 </button>
               ))}
             </div>
@@ -122,7 +126,7 @@ const ConfigPanel: React.FC<{
           {/* Host + Port */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="text-xs font-medium text-slate-400 mb-1.5 block">Manager Host</label>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Manager Host</label>
               <input
                 className={input}
                 value={host}
@@ -131,7 +135,7 @@ const ConfigPanel: React.FC<{
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-400 mb-1.5 block">Port</label>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Port</label>
               <input
                 className={input}
                 value={port}
@@ -143,7 +147,7 @@ const ConfigPanel: React.FC<{
 
           {/* Username */}
           <div>
-            <label className="text-xs font-medium text-slate-400 mb-1.5 block">Username</label>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Username</label>
             <input
               className={input}
               value={username}
@@ -154,7 +158,7 @@ const ConfigPanel: React.FC<{
 
           {/* Password */}
           <div>
-            <label className="text-xs font-medium text-slate-400 mb-1.5 block">Password</label>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Password</label>
             <div className="relative">
               <input
                 type={showPw ? 'text' : 'password'}
@@ -165,7 +169,7 @@ const ConfigPanel: React.FC<{
               />
               <button
                 onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-300 transition-colors"
               >
                 {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -173,7 +177,7 @@ const ConfigPanel: React.FC<{
           </div>
 
           {/* Wazuh Indexer (optional — powers the HIPAA/GDPR Compliances views) */}
-          <div className="pt-1 border-t border-slate-800">
+          <div className="pt-1 border-t border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setShowIndexer(!showIndexer)}
               className="w-full flex items-center gap-2 text-xs text-cyan-400 hover:text-cyan-300 transition-colors pt-3"
@@ -184,14 +188,14 @@ const ConfigPanel: React.FC<{
 
             {showIndexer && (
               <div className="space-y-4 mt-3">
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
                   Separate service from the manager above — holds the alert history the
                   HIPAA/GDPR compliance views query. Leave blank to skip those views.
                 </p>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Host</label>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Indexer Host</label>
                     <input
                       className={input}
                       value={indexerHost}
@@ -200,7 +204,7 @@ const ConfigPanel: React.FC<{
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-400 mb-1.5 block">Port</label>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Port</label>
                     <input
                       className={input}
                       value={indexerPort}
@@ -211,7 +215,7 @@ const ConfigPanel: React.FC<{
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Username</label>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Indexer Username</label>
                   <input
                     className={input}
                     value={indexerUsername}
@@ -221,7 +225,7 @@ const ConfigPanel: React.FC<{
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-400 mb-1.5 block">Indexer Password</label>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Indexer Password</label>
                   <div className="relative">
                     <input
                       type={showIndexerPw ? 'text' : 'password'}
@@ -232,7 +236,7 @@ const ConfigPanel: React.FC<{
                     />
                     <button
                       onClick={() => setShowIndexerPw(!showIndexerPw)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-300 transition-colors"
                     >
                       {showIndexerPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -258,8 +262,8 @@ const ConfigPanel: React.FC<{
                 <button
                   onClick={handleTestIndexer}
                   disabled={indexerTesting || !indexerHost || !indexerPort || !indexerUsername || !indexerPassword}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700
-                    hover:border-cyan-500/40 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-slate-300 text-sm font-semibold transition-all"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700
+                    hover:border-cyan-500/40 hover:text-slate-900 dark:hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300 text-sm font-semibold transition-all"
                 >
                   {indexerTesting ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Testing Indexer…</>
@@ -276,7 +280,7 @@ const ConfigPanel: React.FC<{
             <Shield className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-cyan-300">
               Connects via the MediSIEM backend proxy — identical to{' '}
-              <code className="font-mono bg-slate-800 px-1 rounded">
+              <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">
                 curl -k -u user:pass https://host:55000/security/user/authenticate?raw=true
               </code>.
               TLS cert verification is bypassed for self-signed certs.
@@ -301,20 +305,20 @@ const ConfigPanel: React.FC<{
                 <p className="text-xs text-red-300 break-all">{error}</p>
                 {error.includes('backend') && (
                   <p className="text-xs text-red-400/70">
-                    → Make sure <code className="font-mono bg-slate-800 px-1 rounded">npm run dev</code> is running in{' '}
-                    <code className="font-mono bg-slate-800 px-1 rounded">/backend</code> (port 5000).
+                    → Make sure <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">npm run dev</code> is running in{' '}
+                    <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">/backend</code> (port 5000).
                   </p>
                 )}
                 {(error.includes('auth') || error.includes('401') || error.includes('403')) && (
                   <p className="text-xs text-red-400/70">
                     → Check username / password. Default Wazuh API user is{' '}
-                    <code className="font-mono bg-slate-800 px-1 rounded">wazuh-wui</code>.
+                    <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">wazuh-wui</code>.
                   </p>
                 )}
                 {(error.includes('ECONNREFUSED') || error.includes('502')) && (
                   <p className="text-xs text-red-400/70">
                     → Wazuh manager is not reachable. If running Docker Desktop on Windows, try{' '}
-                    <code className="font-mono bg-slate-800 px-1 rounded">https://localhost</code>.
+                    <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">https://localhost</code>.
                   </p>
                 )}
               </div>
@@ -347,27 +351,6 @@ const ConfigPanel: React.FC<{
 };
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
-const StatCard: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
-  sub: string;
-  color: string;
-  loading?: boolean;
-}> = ({ icon, label, value, sub, color, loading }) => (
-  <div className={`p-4 rounded-xl bg-${color}-500/5 border border-${color}-500/20`}>
-    <div className="flex items-start justify-between mb-3">
-      {icon}
-      {loading && <Loader2 className="w-3.5 h-3.5 text-slate-600 animate-spin" />}
-    </div>
-    <div className={`text-2xl font-bold text-${color}-400 mb-0.5`}>
-      {loading ? '…' : value}
-    </div>
-    <div className="text-xs font-medium text-white">{label}</div>
-    <div className="text-xs text-slate-500 mt-0.5">{sub}</div>
-  </div>
-);
-
 // ─── Agent row ────────────────────────────────────────────────────────────────
 const statusMeta: Record<ReturnType<typeof normalizeAgentStatus>, { dot: string; label: string; online: boolean }> = {
   active:          { dot: 'bg-emerald-400', label: 'Active',          online: true },
@@ -381,20 +364,20 @@ const AgentsTable: React.FC<{ agents: UseWazuhReturn['agents']; loading: boolean
   loading,
   onSelect,
 }) => (
-  <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
-    <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
-      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+  <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
         <Server className="w-4 h-4 text-cyan-400" />
         Agents ({agents.length})
       </h3>
-      {loading && <Loader2 className="w-3.5 h-3.5 text-slate-600 animate-spin" />}
+      {loading && <Loader2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600 animate-spin" />}
     </div>
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-800">
+          <tr className="border-b border-slate-200 dark:border-slate-800">
             {['Status', 'ID', 'Name', 'IP', 'OS', 'Version', 'Last Seen', ''].map((h) => (
-              <th key={h} className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 whitespace-nowrap">
+              <th key={h} className="py-2.5 px-4 text-left text-xs font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
                 {h}
               </th>
             ))}
@@ -407,22 +390,22 @@ const AgentsTable: React.FC<{ agents: UseWazuhReturn['agents']; loading: boolean
               <tr
                 key={ag.id}
                 onClick={() => onSelect(ag)}
-                className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors cursor-pointer"
+                className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
               >
                 <td className="py-3 px-4">
                   <span className="flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                    <span className={`text-xs font-medium ${meta.online ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    <span className={`text-xs font-medium ${meta.online ? 'text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                       {meta.label}
                     </span>
                   </span>
                 </td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-500">{ag.id}</td>
-                <td className="py-3 px-4 text-xs text-white font-medium">{ag.name}</td>
-                <td className="py-3 px-4 font-mono text-xs text-slate-400">{ag.ip ?? '—'}</td>
-                <td className="py-3 px-4 text-xs text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
-                <td className="py-3 px-4 text-xs text-slate-500 font-mono">{ag.version ?? '—'}</td>
-                <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">
+                <td className="py-3 px-4 font-mono text-xs text-slate-400 dark:text-slate-500">{ag.id}</td>
+                <td className="py-3 px-4 text-xs text-slate-900 dark:text-white font-medium">{ag.name}</td>
+                <td className="py-3 px-4 font-mono text-xs text-slate-500 dark:text-slate-400">{ag.ip ?? '—'}</td>
+                <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
+                <td className="py-3 px-4 text-xs text-slate-400 dark:text-slate-500 font-mono">{ag.version ?? '—'}</td>
+                <td className="py-3 px-4 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
                   {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
                 </td>
                 <td className="py-3 px-4 text-right">
@@ -438,34 +421,13 @@ const AgentsTable: React.FC<{ agents: UseWazuhReturn['agents']; loading: boolean
           })}
           {!loading && agents.length === 0 && (
             <tr>
-              <td colSpan={8} className="py-10 text-center text-sm text-slate-500">
+              <td colSpan={8} className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
                 No agents found
               </td>
             </tr>
           )}
         </tbody>
       </table>
-    </div>
-  </div>
-);
-
-// ─── Vuln bar ─────────────────────────────────────────────────────────────────
-const VulnBar: React.FC<{ label: string; count: number; total: number; color: string }> = ({
-  label,
-  count,
-  total,
-  color,
-}) => (
-  <div>
-    <div className="flex justify-between text-xs mb-1">
-      <span className={`font-medium text-${color}-400`}>{label}</span>
-      <span className="text-slate-400">{count}</span>
-    </div>
-    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-      <div
-        className={`h-full bg-${color}-500 rounded-full transition-all duration-700`}
-        style={{ width: total ? `${(count / total) * 100}%` : '0%' }}
-      />
     </div>
   </div>
 );
@@ -497,10 +459,10 @@ const WazuhDashboard: React.FC = () => {
     return (
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Shield className="w-5 h-5 text-cyan-400" /> Wazuh SIEM Integration
           </h2>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Connect to your Wazuh manager (running in Docker) to enable live security monitoring
           </p>
         </div>
@@ -532,11 +494,11 @@ const WazuhDashboard: React.FC = () => {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Shield className="w-5 h-5 text-cyan-400" />
             Wazuh SIEM Live
             {apiVersion && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-normal">
                 v{apiVersion}
               </span>
             )}
@@ -556,7 +518,7 @@ const WazuhDashboard: React.FC = () => {
               )}
             </span>
             {lastRefresh && (
-              <span className="text-xs text-slate-600">
+              <span className="text-xs text-slate-400 dark:text-slate-600">
                 · Updated {lastRefresh.toLocaleTimeString()}
               </span>
             )}
@@ -567,14 +529,14 @@ const WazuhDashboard: React.FC = () => {
           <button
             onClick={refresh}
             disabled={!connected || loadingStats}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-40"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loadingStats ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <button
             onClick={() => setShowConfig(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all"
           >
             <Settings className="w-3.5 h-3.5" />
             Settings
@@ -607,7 +569,7 @@ const WazuhDashboard: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-slate-900 border border-slate-800 rounded-2xl w-fit">
+      <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit">
         {[
           { id: 'overview', label: 'Overview',              icon: <Activity     className="w-3.5 h-3.5" /> },
           { id: 'agents',   label: `Agents (${agents.length})`,   icon: <Server       className="w-3.5 h-3.5" /> },
@@ -619,7 +581,7 @@ const WazuhDashboard: React.FC = () => {
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all ${
               tab === t.id
                 ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {t.icon}
@@ -633,65 +595,60 @@ const WazuhDashboard: React.FC = () => {
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
-              icon={<AlertTriangle className="w-5 h-5 text-red-400" />}
-              label="Total Alerts" value={stats?.totalAlerts ?? '—'} sub="All time"
+              icon={<AlertTriangle className="w-5 h-5" />}
+              label="Total Alerts" value={String(stats?.totalAlerts ?? '—')} sub="All time"
               color="red" loading={loadingStats}
             />
             <StatCard
-              icon={<Clock className="w-5 h-5 text-orange-400" />}
-              label="Alerts (24h)" value={stats?.alertsLast24h ?? '—'} sub="Last 24 hours"
+              icon={<Clock className="w-5 h-5" />}
+              label="Alerts (24h)" value={String(stats?.alertsLast24h ?? '—')} sub="Last 24 hours"
               color="orange" loading={loadingStats}
             />
             <StatCard
-              icon={<CheckCircle className="w-5 h-5 text-emerald-400" />}
-              label="Active Agents" value={stats?.activeAgents ?? '—'} sub={`of ${stats?.totalAgents ?? '?'} total`}
+              icon={<CheckCircle className="w-5 h-5" />}
+              label="Active Agents" value={String(stats?.activeAgents ?? '—')} sub={`of ${stats?.totalAgents ?? '?'} total`}
               color="emerald" loading={loadingStats}
             />
             <StatCard
-              icon={<Bug className="w-5 h-5 text-violet-400" />}
-              label="Vulnerabilities" value={totalVulns} sub="Across all agents"
+              icon={<Bug className="w-5 h-5" />}
+              label="Vulnerabilities" value={String(totalVulns)} sub="Across all agents"
               color="violet" loading={loadingStats}
             />
           </div>
 
-          {/* Vuln breakdown */}
-          {stats && totalVulns > 0 && (
-            <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Bug className="w-4 h-4 text-violet-400" />
-                Vulnerability Breakdown
-              </h3>
-              <VulnBar label="Critical" count={stats.vulnerabilities.critical} total={totalVulns} color="red" />
-              <VulnBar label="High"     count={stats.vulnerabilities.high}     total={totalVulns} color="orange" />
-              <VulnBar label="Medium"   count={stats.vulnerabilities.medium}   total={totalVulns} color="amber" />
-              <VulnBar label="Low"      count={stats.vulnerabilities.low}      total={totalVulns} color="blue" />
-            </div>
-          )}
+          {/* Vuln breakdown + agent status */}
+          <div className="grid lg:grid-cols-2 gap-5">
+            <ChartCard
+              title="Vulnerability breakdown"
+              subtitle="Across all agents"
+              height={200}
+              empty={!stats || totalVulns === 0}
+            >
+              <TopBarChart
+                data={stats ? [
+                  { label: 'Critical', value: stats.vulnerabilities.critical },
+                  { label: 'High', value: stats.vulnerabilities.high },
+                  { label: 'Medium', value: stats.vulnerabilities.medium },
+                  { label: 'Low', value: stats.vulnerabilities.low },
+                ] : []}
+                colorOf={(e) => ({ Critical: SEVERITY_COLORS.CRITICAL, High: SEVERITY_COLORS.HIGH, Medium: SEVERITY_COLORS.MEDIUM, Low: SEVERITY_COLORS.LOW }[e.label] ?? '#64748b')}
+              />
+            </ChartCard>
 
-          {/* Agent status summary */}
-          <div className="p-5 rounded-xl bg-slate-900 border border-slate-800">
-            <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-              <Server className="w-4 h-4 text-cyan-400" />
-              Agent Status Summary
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: 'Active',          value: stats?.activeAgents,       color: 'emerald' },
-                { label: 'Disconnected',    value: stats?.disconnectedAgents, color: 'red'     },
-                { label: 'Total',           value: stats?.totalAgents,        color: 'cyan'    },
-                { label: 'Critical Alerts', value: stats?.criticalAlerts,     color: 'orange'  },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className={`p-3 rounded-lg bg-${item.color}-500/5 border border-${item.color}-500/20 text-center`}
-                >
-                  <div className={`text-xl font-bold text-${item.color}-400`}>
-                    {loadingStats ? '…' : (item.value ?? 0)}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">{item.label}</div>
-                </div>
-              ))}
-            </div>
+            <ChartCard
+              title="Agent status summary"
+              subtitle={`${stats?.totalAgents ?? 0} agents total`}
+              height={200}
+              empty={!stats || (stats.totalAgents ?? 0) === 0}
+            >
+              <TopBarChart
+                data={[
+                  { label: 'Active', value: stats?.activeAgents ?? 0 },
+                  { label: 'Disconnected', value: stats?.disconnectedAgents ?? 0 },
+                ]}
+                colorOf={(e) => (e.label === 'Active' ? '#10b981' : '#ef4444')}
+              />
+            </ChartCard>
           </div>
         </div>
       )}

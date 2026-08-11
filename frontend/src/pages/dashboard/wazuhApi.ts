@@ -22,20 +22,21 @@ export interface WazuhConfig {
 
 // ── Well-known defaults for Docker-on-Windows / Docker Desktop ────────────────
 // When Wazuh runs in Docker Desktop on Windows, the manager is reachable from
-// the host (where the Node backend runs) at localhost:55000. The indexer
-// defaults mirror ai_server/src/wazuh_consumer.py's ES_HOST/ES_USER/ES_PASS —
-// same physical Wazuh stack, same default admin/admin credentials.
+// the host (where the Node backend runs) at localhost:55000. Host/port/
+// username are just connection targets, not secrets, so they're safe to
+// pre-fill for convenience — but passwords are deliberately left blank
+// rather than shipping a real-looking credential in the frontend bundle.
 // The user can override any of this in the config panel if their setup differs.
 export const WAZUH_DEFAULTS: WazuhConfig = {
   host:     'https://localhost',
   port:     '55000',
   username: 'wazuh-wui',
-  password: 'MyS3cr37P450r.*-',
+  password: '',
 
   indexerHost:     'https://localhost',
   indexerPort:     '9200',
   indexerUsername: 'admin',
-  indexerPassword: 'admin',
+  indexerPassword: '',
 };
 
 export interface WazuhAgent {
