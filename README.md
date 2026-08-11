@@ -62,6 +62,13 @@ weighting rationale and a live CAS calculator.
   user CRUD, live "logged in now" presence widget, audit log
 - **Device & device group management** — maps Wazuh agents to clinical device
   types/departments (ICU ventilator, infusion pump, cardiac monitor, ...)
+- **Medical device inventory** — a MongoDB-backed hospital asset inventory
+  (ventilators, infusion pumps, monitors, imaging systems, dialysis machines,
+  etc.), independent of Wazuh agent enrollment. Admins onboard devices from
+  the dashboard's Devices tab and tag them with the same group system used
+  for live Wazuh agents; this inventory is what CAAP's Clinical Criticality
+  scoring resolves an alert's `device_type`/`department` against, replacing
+  the old hardcoded lookup table. Seeded with 28 starter devices on first run.
 - **Wazuh integration** — proxies the Wazuh Manager API (agents, alerts,
   vulnerabilities, SCA policy checks, agent details) and the Wazuh Indexer
   (full alert search, HIPAA/GDPR compliance rollups, File Integrity
@@ -183,8 +190,9 @@ All routes are mounted under `/api` on the backend (`:5000`).
 | `/api/auth` | login / me / logout | JWT login, current user, logout |
 | `/api/users` | admin (mostly) | User CRUD, presence ("logged in now") |
 | `/api/audit-log` | admin | Audit log listing |
-| `/api/devices` | mixed | Device metadata, group/OS-category assignment |
-| `/api/device-groups` | mixed | Device group CRUD |
+| `/api/devices` | mixed | Wazuh agent metadata, group/OS-category assignment |
+| `/api/device-groups` | mixed | Device group (tag) CRUD |
+| `/api/medical-devices` | mixed | Onboarded medical device inventory CRUD + tagging (admin write, any authenticated user read) |
 | `/api/wazuh` | protected | Proxies the Wazuh Manager API — agents, alerts, vulnerabilities, SCA checks, agent details |
 | `/api/compliance` | protected | HIPAA/GDPR rollups and File Integrity Monitoring, via the Wazuh Indexer |
 | `/api/alerts` | protected | CAS-ranked live alert feed + analyst assignment |
