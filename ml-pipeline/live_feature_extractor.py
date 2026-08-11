@@ -99,6 +99,12 @@ from collections import defaultdict, deque
 import joblib
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 
+# statistics.fmean is Python 3.8+ only, but this script is meant to run on
+# whatever Python a lab VM happens to ship (e.g. RHEL 8's stock python3.6) —
+# fall back to a plain mean rather than crashing on the first packet.
+if not hasattr(statistics, "fmean"):
+    statistics.fmean = lambda data: sum(data) / len(data) if data else 0.0
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FEATURE_COLS_PATH = os.path.join(SCRIPT_DIR, "..", "ai_server", "models", "feature_cols.pkl")
 
@@ -275,7 +281,9 @@ def compute_features(win: FlowWindow, src_ip: str) -> dict:
         "Weight": fwd_count * bwd_count,
     }
 
-    return {col: row.get(col, 0.0) for col in FEATURE_COLUMNS} | {"Src IP": src_ip}
+    result = {col: row.get(col, 0.0) for col in FEATURE_COLUMNS}
+    result["Src IP"] = src_ip
+    return result
 
 
 class LiveExtractor:

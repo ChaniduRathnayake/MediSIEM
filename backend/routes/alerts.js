@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
-import { getBufferedAlerts } from '../services/alertPipeline.js';
+import { getBufferedAlerts, getAlertStats } from '../services/alertPipeline.js';
 import AlertAssignment from '../models/AlertAssignment.js';
 import User from '../models/User.js';
 
@@ -20,7 +20,7 @@ router.get('/', protect, async (req, res) => {
     const byAlertId = new Map(assignments.map((a) => [a.alertId, a.analyst]));
     const withAssignments = alerts.map((a) => ({ ...a, assignedTo: byAlertId.get(a.id) ?? null }));
 
-    res.json({ alerts: withAssignments, count: withAssignments.length });
+    res.json({ alerts: withAssignments, count: withAssignments.length, ...getAlertStats() });
   } catch (err) {
     console.error('[getAlerts]', err);
     res.status(500).json({ error: 'Server error.' });

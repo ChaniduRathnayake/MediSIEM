@@ -246,7 +246,7 @@ router.get('/alerts', async (req, res) => {
     track_total_hits: true,
     sort: [{ '@timestamp': { order: 'desc' } }],
     query: { bool: { filter } },
-    _source: ['@timestamp', 'agent', 'rule', 'location'],
+    _source: ['@timestamp', 'agent', 'rule', 'location', 'full_log', 'data', 'decoder'],
   };
 
   try {
@@ -266,7 +266,19 @@ router.get('/alerts', async (req, res) => {
         ruleLevel:       src.rule?.level ?? null,
         ruleDescription: src.rule?.description ?? null,
         ruleGroups:      src.rule?.groups ?? [],
+        ruleFiredTimes:  src.rule?.firedtimes ?? null,
         location:        src.location ?? null,
+        fullLog:         src.full_log ?? null,
+        data:            src.data ?? null,
+        decoder:         src.decoder?.name ?? null,
+        compliance: {
+          hipaa:       src.rule?.hipaa ?? [],
+          pciDss:      src.rule?.pci_dss ?? [],
+          gdpr:        src.rule?.gdpr ?? [],
+          nist80053:   src.rule?.nist_800_53 ?? [],
+          tsc:         src.rule?.tsc ?? [],
+          gpg13:       src.rule?.gpg13 ?? [],
+        },
       };
     });
 

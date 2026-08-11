@@ -94,6 +94,15 @@ export async function getComplianceAgentDetail(
 }
 
 // ── Full alert browser (paginated, filterable) ──────────────────────────────
+export interface WazuhAlertCompliance {
+  hipaa: string[];
+  pciDss: string[];
+  gdpr: string[];
+  nist80053: string[];
+  tsc: string[];
+  gpg13: string[];
+}
+
 export interface WazuhAlertRow {
   id: string;
   timestamp: string | null;
@@ -104,7 +113,12 @@ export interface WazuhAlertRow {
   ruleLevel: number | null;
   ruleDescription: string | null;
   ruleGroups: string[];
+  ruleFiredTimes: number | null;
   location: string | null;
+  fullLog: string | null;
+  data: Record<string, unknown> | null;
+  decoder: string | null;
+  compliance: WazuhAlertCompliance;
 }
 
 export interface AlertSearchResult {

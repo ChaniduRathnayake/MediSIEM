@@ -5,6 +5,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -16,6 +18,8 @@ import deviceRoutes from './routes/devices.js';
 import deviceGroupRoutes from './routes/deviceGroups.js';
 import complianceRoutes from './routes/compliance.js';
 import alertRoutes from './routes/alerts.js';
+import ruleRoutes from './routes/rules.js';
+import passwordPolicyRoutes from './routes/passwordPolicy.js';
 import { startPipeline } from './services/alertPipeline.js';
 
 // ─── MongoDB Connection ────────────────────────────────────────────────────────
@@ -29,14 +33,29 @@ mongoose.connect(MONGO_URI)
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CORS_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'];
+// CORS_ORIGINS env var (comma-separated) lets a real deployment lock this
+// down to its actual frontend origin(s) instead of shipping with the dev
+// defaults baked in.
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
+app.use(helmet());
 app.use(cors({
   origin: CORS_ORIGINS,
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // cap request body size — defense against payload-size DoS
+
+// Light global guard against scripted abuse; the auth routes layer their
+// own stricter limiter (see routes/auth.js) on top of this.
+app.use('/api', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
@@ -47,6 +66,8 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/device-groups', deviceGroupRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/rules', ruleRoutes);
+app.use('/api/password-policy', passwordPolicyRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

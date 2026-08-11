@@ -106,7 +106,12 @@ class FlowFileHandler(FileSystemEventHandler):
         payload["cve_known_exploited"] = False  # wire up a real CVE feed here if/when available
 
         try:
-            res = requests.post(f"{self.caap_url}/predict", json=payload, timeout=5)
+            # SHAP explanation over the full Random Forest genuinely takes
+            # ~20s per call on typical dev hardware — 5s silently dropped
+            # every live prediction on timeout with no visible error (Python
+            # stdout is block-buffered under systemd, so even the printed
+            # failure went unseen). Give it real headroom.
+            res = requests.post(f"{self.caap_url}/predict", json=payload, timeout=30)
             res.raise_for_status()
             enrichment = res.json()
         except Exception as exc:

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import JWT_SECRET from '../config/jwt.js';
 
 // Presence is derived from lastActiveAt, so it only needs to be written this
 // often — not on every single request — to keep the "online" signal fresh
@@ -16,7 +17,7 @@ export const protect = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
 
     const user = await User.findById(decoded.id);
     if (!user) {

@@ -81,7 +81,10 @@ DEFAULT_ACTION = "Monitor"
 # --------------------------------------------------------------------------
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # tighten origins for production (Node.js on :5000)
+# Origins restricted to the Node backend by default — override with a
+# comma-separated AI_SERVER_CORS_ORIGINS if it runs on a different host/port.
+_cors_origins = [o.strip() for o in os.environ.get("AI_SERVER_CORS_ORIGINS", "http://localhost:5000").split(",")]
+CORS(app, resources={r"/*": {"origins": _cors_origins}})
 
 print("[CAAP] Loading models...")
 scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
@@ -447,4 +450,13 @@ def predict():
 
 if __name__ == "__main__":
     # Node.js backend runs on :5000 — Flask AI layer on :5001 (Phase 6, Day 5)
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    # Bound to loopback by default — this is an internal service the Node
+    # backend calls, not meant to be reachable directly. Debug mode is off by
+    # default: Werkzeug's interactive debugger allows arbitrary code
+    # execution from the browser if it's ever reachable, so it must stay
+    # opt-in (FLASK_DEBUG=1) for local development only, never in a real
+    # deployment. Override the bind host with AI_SERVER_HOST if the backend
+    # genuinely runs on a different machine/container.
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    host = os.environ.get("AI_SERVER_HOST", "127.0.0.1")
+    app.run(host=host, port=5001, debug=debug_mode)
