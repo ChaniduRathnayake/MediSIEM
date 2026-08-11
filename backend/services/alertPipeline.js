@@ -84,11 +84,11 @@ async function getEnabledRules() {
   }
 }
 
-function toDisplayAlert(raw, enrichment) {
+async function toDisplayAlert(raw, enrichment) {
   // flow_consumer.py already stamps agent.department (real ML path). The
   // rule.level fallback path doesn't have that on the raw Wazuh doc, so look
   // it up the same way caapService.js does — same clinical inventory either way.
-  const department = raw.agent?.department || lookupDevice(raw.agent || {}).department;
+  const department = raw.agent?.department || (await lookupDevice(raw.agent || {})).department;
 
   // `enrichment` is often just the raw indexed doc minus `id` (the
   // already-enriched fast path), which still carries its OWN raw `agent`
@@ -151,7 +151,7 @@ async function pollOnce() {
         enrichment = result.enrichment;
       }
 
-      const displayAlert = toDisplayAlert(raw, enrichment);
+      const displayAlert = await toDisplayAlert(raw, enrichment);
       displayAlert.matchedRules = evaluateRules(displayAlert, rules);
       buffer.unshift(displayAlert);
       bufferedIds.add(displayAlert.id);

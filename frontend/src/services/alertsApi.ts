@@ -6,6 +6,14 @@ export interface AssignedAnalyst {
   email: string;
 }
 
+export interface AlertClosure {
+  id: string;
+  reason: string;
+  evidence: string;
+  closedBy: { id: string; name: string; email: string };
+  createdAt: string;
+}
+
 export interface EnrichedAlert {
   id: string;
   timestamp: string;
@@ -25,6 +33,9 @@ export interface EnrichedAlert {
   action: 'Immediate' | 'Investigate' | 'Monitor';
   explanation: string;
   assignedTo?: AssignedAnalyst | null;
+  // Present once a SOC analyst (or admin) has closed the case with a reason
+  // + evidence — absent/null means the case is still open.
+  closure?: AlertClosure | null;
   // Populated by alertPipeline.js's rule evaluator — empty/absent means no
   // custom detection rule matched this alert (it may still be a real ML
   // detection via `confidence`).
@@ -67,5 +78,21 @@ export async function apiAssignAlert(
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || 'Failed to assign alert');
+  return json;
+}
+
+export async function apiCloseAlert(
+  token: string,
+  alertId: string,
+  reason: string,
+  evidence: string
+): Promise<{ closure: AlertClosure }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/close`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reason, evidence }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to close case');
   return json;
 }

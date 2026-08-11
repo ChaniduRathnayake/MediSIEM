@@ -5,6 +5,8 @@ import { normalizeAgentStatus, formatOs, inferOsCategory, OS_CATEGORY_LABELS } f
 import type { WazuhAgent, OsCategory } from './wazuhApi';
 import { useDeviceMeta } from './useDeviceMeta';
 import type { DeviceGroup } from './deviceApi';
+import GroupAssignDropdown from './GroupAssignDropdown';
+import MedicalDeviceInventoryPanel from './MedicalDeviceInventoryPanel';
 import AgentDetailsModal from './AgentDetailsModal';
 import CompliancePanel from './CompliancePanel';
 import type { FrameworkTab } from './CompliancePanel';
@@ -28,6 +30,7 @@ import { useLiveAlerts } from '../../hooks/useLiveAlerts';
 import type { EnrichedAlert } from '../../services/alertsApi';
 import StatCard from '../../components/StatCard';
 import AlertsPanel from './AlertsPanel';
+import AdminCasesPanel from './AdminCasesPanel';
 import RulesPanel from './RulesPanel';
 import PasswordPolicyPanel from './PasswordPolicyPanel';
 import PlaybooksPanel from './PlaybooksPanel';
@@ -653,98 +656,6 @@ const OsCategoryBadge: React.FC<{ category: OsCategory }> = ({ category }) => (
   </span>
 );
 
-// ─── Per-device group assignment dropdown ───────────────────────────────────
-const GroupAssignDropdown: React.FC<{
-  agentGroups: string[];
-  allGroups: DeviceGroup[];
-  onToggle: (groupName: string) => void;
-  onCreateAndAssign: (name: string) => Promise<void>;
-}> = ({ agentGroups, allGroups, onToggle, onCreateAndAssign }) => {
-  const [open, setOpen] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [open]);
-
-  const handleCreate = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    setCreating(true);
-    try {
-      await onCreateAndAssign(name);
-      setNewName('');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  return (
-    <div className="relative" ref={ref}>
-      <div className="flex items-center gap-1 flex-wrap">
-        {agentGroups.map((g) => (
-          <span
-            key={g}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs whitespace-nowrap"
-          >
-            <Tag className="w-2.5 h-2.5" /> {g}
-          </span>
-        ))}
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="w-5 h-5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0"
-          title="Assign groups"
-        >
-          <Plus className="w-3 h-3" />
-        </button>
-      </div>
-
-      {open && (
-        <div className="absolute z-40 top-full left-0 mt-1.5 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl p-2">
-          {allGroups.length === 0 ? (
-            <p className="text-xs text-slate-400 dark:text-slate-500 px-2 py-1.5">No groups yet — create one below.</p>
-          ) : (
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
-              {allGroups.map((g) => {
-                const checked = agentGroups.includes(g.name);
-                return (
-                  <label key={g.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-                    <input type="checkbox" checked={checked} onChange={() => onToggle(g.name)} className="accent-cyan-500" />
-                    <span className="text-xs text-slate-200 truncate">{g.name}</span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } }}
-              placeholder="New group…"
-              className="flex-1 min-w-0 px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500/60"
-            />
-            <button
-              onClick={handleCreate}
-              disabled={creating || !newName.trim()}
-              className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-40 transition-colors flex-shrink-0"
-            >
-              {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Manage Device Groups modal ─────────────────────────────────────────────
 const DeviceGroupsModal: React.FC<{
   groups: DeviceGroup[];
@@ -892,6 +803,7 @@ const DevicesPanel: React.FC = () => {
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [osFilter, setOsFilter] = useState<OsCategory | 'all'>('all');
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [deviceSubTab, setDeviceSubTab] = useState<'network' | 'medical'>('network');
 
   const metaByAgent = useMemo(() => new Map(deviceMeta.map((m) => [m.agentId, m])), [deviceMeta]);
 
@@ -929,30 +841,15 @@ const DevicesPanel: React.FC = () => {
     await assignGroups(ag.id, [...groupsFor(ag), group.name], ag.name);
   };
 
-  if (!config) {
-    return (
-      <div className="p-5">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Devices</h2>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Live IoMT / endpoint inventory from Wazuh SIEM</p>
-        </div>
-        <div className="mt-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-10 text-center">
-          <Server className="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">Wazuh SIEM is not connected</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Connect it under Settings → Wazuh SIEM to see live device data here.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-5 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Devices</h2>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-            Live IoMT / endpoint inventory from Wazuh SIEM
-            {lastRefresh ? ` · Updated ${lastRefresh.toLocaleTimeString()}` : ''}
+            {deviceSubTab === 'network'
+              ? `Live IoMT / endpoint inventory from Wazuh SIEM${lastRefresh ? ` · Updated ${lastRefresh.toLocaleTimeString()}` : ''}`
+              : 'Onboarded clinical assets — independent of Wazuh enrollment'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -962,140 +859,174 @@ const DevicesPanel: React.FC = () => {
           >
             <Settings className="w-3.5 h-3.5" /> Manage Groups
           </button>
+          {deviceSubTab === 'network' && (
+            <button
+              onClick={refresh}
+              disabled={!connected || loadingAgents}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingAgents ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit">
+        {([
+          { id: 'network', label: 'Network Devices', icon: <Server className="w-3.5 h-3.5" /> },
+          { id: 'medical', label: 'Medical Device Inventory', icon: <Tag className="w-3.5 h-3.5" /> },
+        ] as { id: 'network' | 'medical'; label: string; icon: React.ReactNode }[]).map((t) => (
           <button
-            onClick={refresh}
-            disabled={!connected || loadingAgents}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            key={t.id}
+            onClick={() => setDeviceSubTab(t.id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              deviceSubTab === t.id
+                ? 'bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-400 shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingAgents ? 'animate-spin' : ''}`} /> Refresh
+            {t.icon}
+            {t.label}
           </button>
+        ))}
+      </div>
+
+      {deviceSubTab === 'medical' ? (
+        <MedicalDeviceInventoryPanel groups={groups} createGroup={createGroup} />
+      ) : !config ? (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-10 text-center">
+          <Server className="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
+          <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">Wazuh SIEM is not connected</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Connect it under Settings → Wazuh SIEM to see live device data here.</p>
         </div>
-      </div>
+      ) : (
+        <>
+          {connectionError && !connected && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" /> {connectionError}
+            </div>
+          )}
 
-      {connectionError && !connected && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {connectionError}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Server className="w-5 h-5 text-cyan-400" />} label="Total Devices" value={String(counts.total)} sub="Registered agents" color="cyan" />
-        <StatCard icon={<CheckCircle className="w-5 h-5 text-emerald-400" />} label="Active" value={String(counts.active)} sub="Online now" color="emerald" />
-        <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Disconnected" value={String(counts.disconnected)} sub="Needs attention" color="red" />
-        <StatCard icon={<Clock className="w-5 h-5 text-amber-400" />} label="Other" value={String(counts.other)} sub="Pending / never connected" color="amber" />
-      </div>
-
-      <ChartCard title="Online vs offline" subtitle="Live device inventory" height={160} empty={counts.total === 0}>
-        <DonutChart data={onlineOfflineData} />
-      </ChartCard>
-
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
-          <Filter className="w-3.5 h-3.5" /> Filter
-        </span>
-        <select
-          value={osFilter}
-          onChange={(e) => setOsFilter(e.target.value as OsCategory | 'all')}
-          className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
-        >
-          <option value="all">All OS types</option>
-          {(Object.keys(OS_CATEGORY_LABELS) as OsCategory[]).map((c) => (
-            <option key={c} value={c}>{OS_CATEGORY_LABELS[c]}</option>
-          ))}
-        </select>
-        <select
-          value={groupFilter}
-          onChange={(e) => setGroupFilter(e.target.value)}
-          className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
-        >
-          <option value="all">All groups</option>
-          <option value="ungrouped">Ungrouped</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.name}>{g.name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
-        {(connecting || loadingAgents) && agents.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-14 text-slate-400 dark:text-slate-500 text-sm">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading devices…
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard icon={<Server className="w-5 h-5 text-cyan-400" />} label="Total Devices" value={String(counts.total)} sub="Registered agents" color="cyan" />
+            <StatCard icon={<CheckCircle className="w-5 h-5 text-emerald-400" />} label="Active" value={String(counts.active)} sub="Online now" color="emerald" />
+            <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Disconnected" value={String(counts.disconnected)} sub="Needs attention" color="red" />
+            <StatCard icon={<Clock className="w-5 h-5 text-amber-400" />} label="Other" value={String(counts.other)} sub="Pending / never connected" color="amber" />
           </div>
-        ) : filteredAgents.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-14">
-            {agents.length === 0 ? 'No devices found.' : 'No devices match the current filters.'}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                  <th className="py-2.5 px-5 text-left">Status</th>
-                  <th className="py-2.5 px-5 text-left">ID</th>
-                  <th className="py-2.5 px-5 text-left">Name</th>
-                  <th className="py-2.5 px-5 text-left">IP</th>
-                  <th className="py-2.5 px-5 text-left">OS</th>
-                  <th className="py-2.5 px-5 text-left">Category</th>
-                  <th className="py-2.5 px-5 text-left">Version</th>
-                  <th className="py-2.5 px-5 text-left">Groups</th>
-                  <th className="py-2.5 px-5 text-left">Last Seen</th>
-                  <th className="py-2.5 px-5 text-right"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAgents.map((ag) => {
-                  const normalized = normalizeAgentStatus(ag.status);
-                  return (
-                  <tr key={ag.id} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 px-5">
-                      <span className="flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[normalized] ?? 'bg-slate-600'}`} />
-                        <span className="text-xs text-slate-500 dark:text-slate-400 capitalize">{normalized.replace('_', ' ')}</span>
-                      </span>
-                    </td>
-                    <td className="py-3 px-5 font-mono text-xs text-slate-400 dark:text-slate-500">{ag.id}</td>
-                    <td className="py-3 px-5 text-sm">
-                      <button
-                        onClick={() => setSelectedAgent(ag)}
-                        className="text-slate-900 dark:text-white font-medium hover:text-cyan-400 transition-colors text-left"
-                      >
-                        {ag.name}
-                      </button>
-                    </td>
-                    <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 font-mono">{ag.ip ?? '—'}</td>
-                    <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
-                    <td className="py-3 px-5"><OsCategoryBadge category={categoryFor(ag)} /></td>
-                    <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 font-mono">{ag.version ?? '—'}</td>
-                    <td className="py-3 px-5">
-                      <GroupAssignDropdown
-                        agentGroups={groupsFor(ag)}
-                        allGroups={groups}
-                        onToggle={(name) => toggleAgentGroup(ag, name)}
-                        onCreateAndAssign={(name) => createAndAssign(ag, name)}
-                      />
-                    </td>
-                    <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                      {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
-                    </td>
-                    <td className="py-3 px-5 text-right">
-                      <button
-                        onClick={() => setSelectedAgent(ag)}
-                        className="text-xs text-cyan-400 hover:text-cyan-300 font-medium whitespace-nowrap"
-                      >
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
-      {selectedAgent && config && (
-        <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />
+          <ChartCard title="Online vs offline" subtitle="Live device inventory" height={160} empty={counts.total === 0}>
+            <DonutChart data={onlineOfflineData} />
+          </ChartCard>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+              <Filter className="w-3.5 h-3.5" /> Filter
+            </span>
+            <select
+              value={osFilter}
+              onChange={(e) => setOsFilter(e.target.value as OsCategory | 'all')}
+              className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
+            >
+              <option value="all">All OS types</option>
+              {(Object.keys(OS_CATEGORY_LABELS) as OsCategory[]).map((c) => (
+                <option key={c} value={c}>{OS_CATEGORY_LABELS[c]}</option>
+              ))}
+            </select>
+            <select
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
+            >
+              <option value="all">All groups</option>
+              <option value="ungrouped">Ungrouped</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.name}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+            {(connecting || loadingAgents) && agents.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 py-14 text-slate-400 dark:text-slate-500 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading devices…
+              </div>
+            ) : filteredAgents.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-14">
+                {agents.length === 0 ? 'No devices found.' : 'No devices match the current filters.'}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <th className="py-2.5 px-5 text-left">Status</th>
+                      <th className="py-2.5 px-5 text-left">ID</th>
+                      <th className="py-2.5 px-5 text-left">Name</th>
+                      <th className="py-2.5 px-5 text-left">IP</th>
+                      <th className="py-2.5 px-5 text-left">OS</th>
+                      <th className="py-2.5 px-5 text-left">Category</th>
+                      <th className="py-2.5 px-5 text-left">Version</th>
+                      <th className="py-2.5 px-5 text-left">Groups</th>
+                      <th className="py-2.5 px-5 text-left">Last Seen</th>
+                      <th className="py-2.5 px-5 text-right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAgents.map((ag) => {
+                      const normalized = normalizeAgentStatus(ag.status);
+                      return (
+                      <tr key={ag.id} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3 px-5">
+                          <span className="flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${deviceStatusDot[normalized] ?? 'bg-slate-600'}`} />
+                            <span className="text-xs text-slate-500 dark:text-slate-400 capitalize">{normalized.replace('_', ' ')}</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-5 font-mono text-xs text-slate-400 dark:text-slate-500">{ag.id}</td>
+                        <td className="py-3 px-5 text-sm">
+                          <button
+                            onClick={() => setSelectedAgent(ag)}
+                            className="text-slate-900 dark:text-white font-medium hover:text-cyan-400 transition-colors text-left"
+                          >
+                            {ag.name}
+                          </button>
+                        </td>
+                        <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 font-mono">{ag.ip ?? '—'}</td>
+                        <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
+                        <td className="py-3 px-5"><OsCategoryBadge category={categoryFor(ag)} /></td>
+                        <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 font-mono">{ag.version ?? '—'}</td>
+                        <td className="py-3 px-5">
+                          <GroupAssignDropdown
+                            agentGroups={groupsFor(ag)}
+                            allGroups={groups}
+                            onToggle={(name) => toggleAgentGroup(ag, name)}
+                            onCreateAndAssign={(name) => createAndAssign(ag, name)}
+                          />
+                        </td>
+                        <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                          {ag.lastKeepAlive ? new Date(ag.lastKeepAlive).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-3 px-5 text-right">
+                          <button
+                            onClick={() => setSelectedAgent(ag)}
+                            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium whitespace-nowrap"
+                          >
+                            Details
+                          </button>
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {selectedAgent && config && (
+            <AgentDetailsModal agent={selectedAgent} config={config} onClose={() => setSelectedAgent(null)} />
+          )}
+        </>
       )}
 
       {showGroupsModal && (
@@ -1251,27 +1182,32 @@ const OverviewTab: React.FC<{
 }) => {
   const { agents, connected: wazuhConnected } = useWazuhContext();
 
-  const criticalCount = alertsSeverityTotals?.CRITICAL ?? liveAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
+  // Closed cases have their own dedicated views (Case Status) — the Overview
+  // tab is a "what's still live" snapshot, same as the Alerts tab, so
+  // anything already closed is excluded from every KPI/chart/table here too.
+  const liveOpenAlerts = useMemo(() => liveAlerts.filter((a) => !a.closure), [liveAlerts]);
+
+  const criticalCount = alertsSeverityTotals?.CRITICAL ?? liveOpenAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
   // Anchored to the newest alert actually in the buffer, not wall-clock now —
   // see latestTimestamp()'s doc comment for why (matches the timeline chart below).
-  const alertsAnchor = latestTimestamp(liveAlerts, (a) => a.timestamp);
-  const last24h = liveAlerts.filter((a) => alertsAnchor - new Date(a.timestamp).getTime() <= 24 * 60 * 60 * 1000).length;
+  const alertsAnchor = latestTimestamp(liveOpenAlerts, (a) => a.timestamp);
+  const last24h = liveOpenAlerts.filter((a) => alertsAnchor - new Date(a.timestamp).getTime() <= 24 * 60 * 60 * 1000).length;
 
   const timeline = useMemo(
-    () => bucketAlertsByHour(liveAlerts, (a) => a.timestamp, (a) => casToSeverity(a.CAS), 24),
-    [liveAlerts]
+    () => bucketAlertsByHour(liveOpenAlerts, (a) => a.timestamp, (a) => casToSeverity(a.CAS), 24),
+    [liveOpenAlerts]
   );
   const severityDist = useMemo(() => {
     if (alertsSeverityTotals) {
       return SEVERITY_ORDER.map((name) => ({ name, value: alertsSeverityTotals[name], color: SEVERITY_COLORS[name] }));
     }
-    return severityCounts(liveAlerts, (a) => casToSeverity(a.CAS));
-  }, [liveAlerts, alertsSeverityTotals]);
+    return severityCounts(liveOpenAlerts, (a) => casToSeverity(a.CAS));
+  }, [liveOpenAlerts, alertsSeverityTotals]);
   const topAlertTypes = useMemo(
-    () => countBy(liveAlerts, (a) => (a.label !== 'Unclassified' ? a.label : a.ruleDescription)),
-    [liveAlerts]
+    () => countBy(liveOpenAlerts, (a) => (a.label !== 'Unclassified' ? a.label : a.ruleDescription)),
+    [liveOpenAlerts]
   );
-  const byDepartment = useMemo(() => countBy(liveAlerts, (a) => a.department), [liveAlerts]);
+  const byDepartment = useMemo(() => countBy(liveOpenAlerts, (a) => a.department), [liveOpenAlerts]);
 
   return (
     <div className="p-5 space-y-6">
@@ -1300,10 +1236,10 @@ const OverviewTab: React.FC<{
 
       {/* Alert volume + severity mix */}
       <div className="grid lg:grid-cols-3 gap-5">
-        <ChartCard title="Alert volume (24h)" subtitle="Stacked by severity, current buffer" height={220} empty={liveAlerts.length === 0} className="lg:col-span-2">
+        <ChartCard title="Alert volume (24h)" subtitle="Stacked by severity, current buffer" height={220} empty={liveOpenAlerts.length === 0} className="lg:col-span-2">
           <AlertsTimelineChart data={timeline} />
         </ChartCard>
-        <ChartCard title="Severity mix" subtitle="Current buffer" height={220} empty={liveAlerts.length === 0}>
+        <ChartCard title="Severity mix" subtitle="Current buffer" height={220} empty={liveOpenAlerts.length === 0}>
           <SeverityDonutChart data={severityDist} />
         </ChartCard>
       </div>
@@ -1357,10 +1293,10 @@ const OverviewTab: React.FC<{
               {alertsError && (
                 <tr><td colSpan={6} className="py-6 text-center text-sm text-red-500 dark:text-red-400">{alertsError}</td></tr>
               )}
-              {!alertsLoading && !alertsError && liveAlerts.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">No alerts yet.</td></tr>
+              {!alertsLoading && !alertsError && liveOpenAlerts.length === 0 && (
+                <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">No open alerts.</td></tr>
               )}
-              {liveAlerts.slice(0, 5).map((a) => (
+              {liveOpenAlerts.slice(0, 5).map((a) => (
                 <AlertRow
                   key={a.id}
                   severity={casToSeverity(a.CAS)}
@@ -1410,6 +1346,7 @@ const AdminDashboard: React.FC = () => {
   const navItems = [
     { label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
     { label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
+    { label: 'Case Status', icon: <CheckCircle className="w-4 h-4" /> },
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
     { label: 'IP Reputation', icon: <Network className="w-4 h-4" /> },
@@ -1649,13 +1586,21 @@ const AdminDashboard: React.FC = () => {
                 severityTotals={alertsSeverityTotals}
               />
             )}
+            {activeNav === 'Case Status' && (
+              <AdminCasesPanel
+                alerts={liveAlerts}
+                loading={alertsLoading}
+                error={alertsError}
+                token={token}
+              />
+            )}
             {activeNav === 'Vulnerabilities' && <VulnerabilitiesPanel />}
             {activeNav === 'Playbooks' && <PlaybooksPanel />}
             {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
             {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
             {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
             {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Detection Rules' && activeNav !== 'Password Policy' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
-             activeNav !== 'Alerts' && activeNav !== 'Vulnerabilities' && activeNav !== 'Playbooks' &&
+             activeNav !== 'Alerts' && activeNav !== 'Case Status' && activeNav !== 'Vulnerabilities' && activeNav !== 'Playbooks' &&
              activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && (
               <OverviewTab
                 userName={user?.name}

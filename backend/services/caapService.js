@@ -71,8 +71,8 @@ function ruleLevelToTrScore(level = 0) {
 /**
  * Build the payload CAAP's /predict endpoint expects from a raw Wazuh alert.
  */
-function buildPredictPayload(alert) {
-  const device = lookupDevice(alert.agent || {});
+async function buildPredictPayload(alert) {
+  const device = await lookupDevice(alert.agent || {});
   const timestamp = alert['@timestamp'] ? new Date(alert['@timestamp']) : new Date();
   const flowFeatures = extractFlowFeatures(alert);
 
@@ -96,7 +96,7 @@ function buildPredictPayload(alert) {
  * or the alert has no flow features to classify meaningfully.
  */
 export async function enrichAlert(alert) {
-  const payload = buildPredictPayload(alert);
+  const payload = await buildPredictPayload(alert);
   const { __hasFlowFeatures, __ruleLevel, ...predictBody } = payload;
 
   try {

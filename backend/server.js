@@ -16,16 +16,30 @@ import wazuhRoutes from './routes/wazuh.js';
 import auditLogRoutes from './routes/auditLog.js';
 import deviceRoutes from './routes/devices.js';
 import deviceGroupRoutes from './routes/deviceGroups.js';
+import medicalDeviceRoutes from './routes/medicalDevices.js';
 import complianceRoutes from './routes/compliance.js';
 import alertRoutes from './routes/alerts.js';
 import ruleRoutes from './routes/rules.js';
 import passwordPolicyRoutes from './routes/passwordPolicy.js';
 import { startPipeline } from './services/alertPipeline.js';
+import MedicalDevice from './models/MedicalDevice.js';
+import SEED_MEDICAL_DEVICES from './config/seedMedicalDevices.js';
 
 // ─── MongoDB Connection ────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/medisiem';
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅  MongoDB connected'))
+  .then(async () => {
+    console.log('✅  MongoDB connected');
+    // First-run only: seed the starter medical device inventory so the CAAP
+    // pipeline and the admin Devices tab have real data out of the box.
+    // Once devices exist, this is a no-op — the inventory then lives in Mongo,
+    // managed from the admin UI (onboard / edit / tag / decommission).
+    const existingCount = await MedicalDevice.countDocuments();
+    if (existingCount === 0) {
+      await MedicalDevice.insertMany(SEED_MEDICAL_DEVICES);
+      console.log(`🌱  Seeded ${SEED_MEDICAL_DEVICES.length} starter medical devices`);
+    }
+  })
   .catch((err) => {
     console.error('❌  MongoDB connection failed:', err.message);
     process.exit(1);
@@ -64,6 +78,7 @@ app.use('/api/wazuh', wazuhRoutes);
 app.use('/api/audit-log', auditLogRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/device-groups', deviceGroupRoutes);
+app.use('/api/medical-devices', medicalDeviceRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/rules', ruleRoutes);
