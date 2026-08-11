@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   ClipboardCheck,
   Tv,
+  Inbox,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import AccountMenu from '../../components/AccountMenu';
@@ -37,6 +38,7 @@ import DevicesReadOnlyPanel from './DevicesReadOnlyPanel';
 import VulnerabilitiesPanel from './VulnerabilitiesPanel';
 import AlertsBrowser from './AlertsBrowser';
 import AlertsPanel from './AlertsPanel';
+import MyAlertsPanel from './MyAlertsPanel';
 import CompliancePanel from './CompliancePanel';
 import type { FrameworkTab } from './CompliancePanel';
 import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
@@ -45,7 +47,7 @@ import { casToSeverity, severityCounts, bucketAlertsByHour, SEVERITY_ORDER, SEVE
 import type { Severity } from '../../utils/chartData';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-type Tab = 'overview' | 'alerts' | 'reports' | 'devices' | 'vulnerabilities' | 'live-alerts' | 'hipaa' | 'gdpr' | 'cis';
+type Tab = 'overview' | 'alerts' | 'my-alerts' | 'reports' | 'devices' | 'vulnerabilities' | 'live-alerts' | 'hipaa' | 'gdpr' | 'cis';
 
 type ReportCategory =
   | 'Threat Intelligence'
@@ -239,6 +241,7 @@ const UserDashboard: React.FC = () => {
   const dismissNotification = (id: string) => setDismissedIds((prev) => new Set(prev).add(id));
 
   const openCount = liveAlerts.filter((a) => a.action === 'Immediate').length;
+  const myOpenCount = liveAlerts.filter((a) => a.assignedTo?.id === user?.id && !a.closure).length;
   const criticalCount = alertsSeverityTotals?.CRITICAL ?? liveAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
   const investigatingCount = liveAlerts.filter((a) => a.action === 'Investigate').length;
   const monitorCount = liveAlerts.filter((a) => a.action === 'Monitor').length;
@@ -258,6 +261,7 @@ const UserDashboard: React.FC = () => {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <Shield className="w-4 h-4" /> },
     { id: 'alerts', label: 'SOC Alerts', icon: <Activity className="w-4 h-4" /> },
+    { id: 'my-alerts', label: 'My Alerts', icon: <Inbox className="w-4 h-4" /> },
     { id: 'live-alerts', label: 'Live Alerts', icon: <Radio className="w-4 h-4" /> },
     { id: 'devices', label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { id: 'vulnerabilities', label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
@@ -326,6 +330,11 @@ const UserDashboard: React.FC = () => {
                 {t.id === 'alerts' && openCount > 0 && (
                   <span className="ml-auto flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-slate-900 dark:text-white rounded-full">
                     {openCount}
+                  </span>
+                )}
+                {t.id === 'my-alerts' && myOpenCount > 0 && (
+                  <span className="ml-auto flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-cyan-500 text-slate-900 dark:text-white rounded-full">
+                    {myOpenCount}
                   </span>
                 )}
               </button>
@@ -577,6 +586,17 @@ const UserDashboard: React.FC = () => {
             canAssign={false}
             totalCount={alertsTotalCount}
             severityTotals={alertsSeverityTotals}
+          />
+        )}
+
+        {/* ── MY ALERTS TAB (assigned-to-me queue, close-with-evidence) ── */}
+        {activeTab === 'my-alerts' && (
+          <MyAlertsPanel
+            alerts={liveAlerts}
+            loading={alertsLoading}
+            error={alertsError}
+            token={token}
+            userId={user?.id}
           />
         )}
 

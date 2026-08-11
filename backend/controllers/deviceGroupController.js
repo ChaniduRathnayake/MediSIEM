@@ -1,5 +1,6 @@
 import DeviceGroup from '../models/DeviceGroup.js';
 import Device from '../models/Device.js';
+import MedicalDevice from '../models/MedicalDevice.js';
 import { logAudit } from '../utils/auditLog.js';
 
 // ─── GET /api/device-groups  (admin only) ──────────────────────────────────────
@@ -7,12 +8,24 @@ export const getAllDeviceGroups = async (req, res) => {
   try {
     const groups = await DeviceGroup.find().sort({ name: 1 });
 
-    // Device counts per group, computed in one aggregation rather than N queries
-    const counts = await Device.aggregate([
-      { $unwind: '$groups' },
-      { $group: { _id: '$groups', count: { $sum: 1 } } },
+    // Device counts per group, computed in one aggregation rather than N queries.
+    // Covers both live Wazuh agents (Device) and the onboarded medical device
+    // inventory (MedicalDevice) — a group's count reflects everything tagged
+    // with it, regardless of which collection the device lives in.
+    const [agentCounts, medicalCounts] = await Promise.all([
+      Device.aggregate([
+        { $unwind: '$groups' },
+        { $group: { _id: '$groups', count: { $sum: 1 } } },
+      ]),
+      MedicalDevice.aggregate([
+        { $unwind: '$groups' },
+        { $group: { _id: '$groups', count: { $sum: 1 } } },
+      ]),
     ]);
-    const countByName = Object.fromEntries(counts.map((c) => [c._id, c.count]));
+    const countByName = {};
+    for (const c of [...agentCounts, ...medicalCounts]) {
+      countByName[c._id] = (countByName[c._id] ?? 0) + c.count;
+    }
 
     const withCounts = groups.map((g) => ({ ...g.toJSON(), deviceCount: countByName[g.name] ?? 0 }));
     return res.status(200).json({ groups: withCounts });
@@ -82,7 +95,10 @@ export const updateDeviceGroup = async (req, res) => {
 
     // Renaming a group must be reflected everywhere it's already assigned
     if (group.name !== beforeName) {
-      await Device.updateMany({ groups: beforeName }, { $set: { 'groups.$[el]': group.name } }, { arrayFilters: [{ el: beforeName }] });
+      await Promise.all([
+        Device.updateMany({ groups: beforeName }, { $set: { 'groups.$[el]': group.name } }, { arrayFilters: [{ el: beforeName }] }),
+        MedicalDevice.updateMany({ groups: beforeName }, { $set: { 'groups.$[el]': group.name } }, { arrayFilters: [{ el: beforeName }] }),
+      ]);
     }
 
     const changes = [];
@@ -120,7 +136,10 @@ export const deleteDeviceGroup = async (req, res) => {
     if (!group) return res.status(404).json({ error: 'Group not found.' });
 
     // Don't leave dangling references on devices that had this group assigned
-    await Device.updateMany({ groups: group.name }, { $pull: { groups: group.name } });
+    await Promise.all([
+      Device.updateMany({ groups: group.name }, { $pull: { groups: group.name } }),
+      MedicalDevice.updateMany({ groups: group.name }, { $pull: { groups: group.name } }),
+    ]);
 
     await logAudit({
       action: 'delete_device_group',

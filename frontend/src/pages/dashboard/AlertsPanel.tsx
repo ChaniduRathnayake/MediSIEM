@@ -115,6 +115,12 @@ const AlertsPanel: React.FC<{
   const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, AssignedAnalyst | null>>({});
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
+  // Closed cases have their own dedicated views (My Alerts / Case Status) —
+  // this dashboard is the "what's still live" monitoring view, so anything
+  // already closed (reason + evidence recorded) is excluded everywhere below:
+  // table rows, filters, stat cards, and charts alike.
+  const openAlerts = useMemo(() => alerts.filter((a) => !a.closure), [alerts]);
+
   useEffect(() => {
     // GET /api/users is admin-only — SOC analysts get a read-only assigned
     // badge instead of the picker (see canAssign below), so skip the fetch
@@ -142,12 +148,12 @@ const AlertsPanel: React.FC<{
   };
 
   const departments = useMemo(
-    () => Array.from(new Set(alerts.map((a) => a.department))).sort(),
-    [alerts]
+    () => Array.from(new Set(openAlerts.map((a) => a.department))).sort(),
+    [openAlerts]
   );
 
   const filtered = useMemo(() => {
-    const list = alerts
+    const list = openAlerts
       .filter((a) => severityFilter === 'all' || casToSeverity(a.CAS) === severityFilter)
       .filter((a) => departmentFilter === 'all' || a.department === departmentFilter)
       .filter((a) => actionFilter === 'all' || a.action === actionFilter)
@@ -160,35 +166,35 @@ const AlertsPanel: React.FC<{
     return sortBy === 'time'
       ? list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       : list.sort((a, b) => b.CAS - a.CAS);
-  }, [alerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy]);
+  }, [openAlerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy]);
 
   const stats = useMemo(() => {
-    const critical = severityTotals?.CRITICAL ?? alerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
-    const immediate = alerts.filter((a) => a.action === 'Immediate').length;
-    const avgCas = alerts.length ? alerts.reduce((sum, a) => sum + a.CAS, 0) / alerts.length : 0;
-    return { total: totalCount ?? alerts.length, critical, immediate, avgCas };
-  }, [alerts, totalCount, severityTotals]);
+    const critical = severityTotals?.CRITICAL ?? openAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
+    const immediate = openAlerts.filter((a) => a.action === 'Immediate').length;
+    const avgCas = openAlerts.length ? openAlerts.reduce((sum, a) => sum + a.CAS, 0) / openAlerts.length : 0;
+    return { total: totalCount ?? openAlerts.length, critical, immediate, avgCas };
+  }, [openAlerts, totalCount, severityTotals]);
 
   const detectionCounts = useMemo(
     () => ({
-      all: alerts.length,
-      ml: alerts.filter(isMlOnly).length,
-      rules: alerts.filter(isRulesOnly).length,
-      combined: alerts.filter(isCombinedDetection).length,
+      all: openAlerts.length,
+      ml: openAlerts.filter(isMlOnly).length,
+      rules: openAlerts.filter(isRulesOnly).length,
+      combined: openAlerts.filter(isCombinedDetection).length,
     }),
-    [alerts]
+    [openAlerts]
   );
 
   const timeline = useMemo(
-    () => bucketAlertsByHour(alerts, (a) => a.timestamp, (a) => casToSeverity(a.CAS), 24),
-    [alerts]
+    () => bucketAlertsByHour(openAlerts, (a) => a.timestamp, (a) => casToSeverity(a.CAS), 24),
+    [openAlerts]
   );
   const severityDist = useMemo(() => {
     if (severityTotals) {
       return SEVERITY_ORDER.map((name) => ({ name, value: severityTotals[name], color: SEVERITY_COLORS[name] }));
     }
-    return severityCounts(alerts, (a) => casToSeverity(a.CAS));
-  }, [alerts, severityTotals]);
+    return severityCounts(openAlerts, (a) => casToSeverity(a.CAS));
+  }, [openAlerts, severityTotals]);
 
   const actionColor: Record<EnrichedAlert['action'], string> = {
     Immediate: 'text-red-500 dark:text-red-400 bg-red-500/10 border-red-500/30',
@@ -272,7 +278,7 @@ const AlertsPanel: React.FC<{
             satisfy both, so the count is the only visible proof anything
             changed. */}
         {detectionFilter !== 'all' && (
-          <span className="text-xs text-slate-500">{filtered.length} of {alerts.length} alerts match</span>
+          <span className="text-xs text-slate-500">{filtered.length} of {openAlerts.length} alerts match</span>
         )}
       </div>
 
@@ -324,7 +330,7 @@ const AlertsPanel: React.FC<{
         </select>
 
         {(severityFilter !== 'all' || departmentFilter !== 'all' || actionFilter !== 'all' || detectionFilter !== 'all') && (
-          <span className="text-xs text-slate-500">{filtered.length} of {alerts.length} shown</span>
+          <span className="text-xs text-slate-500">{filtered.length} of {openAlerts.length} shown</span>
         )}
       </div>
 
@@ -333,13 +339,13 @@ const AlertsPanel: React.FC<{
           <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
           </div>
-        ) : error && alerts.length === 0 ? (
+        ) : error && openAlerts.length === 0 ? (
           <div className="flex items-center gap-2 px-5 py-6 text-red-500 dark:text-red-400 text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
           </div>
         ) : filtered.length === 0 ? (
           <p className="text-sm text-slate-500 text-center py-14">
-            {alerts.length === 0 ? 'No alerts yet — waiting for the pipeline to index the first one.' : 'No alerts match the current filters.'}
+            {openAlerts.length === 0 ? 'No open alerts — everything in the current buffer has been closed.' : 'No alerts match the current filters.'}
           </p>
         ) : (
           <div className="overflow-x-auto">

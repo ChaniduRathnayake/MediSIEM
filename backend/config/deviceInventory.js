@@ -3,29 +3,53 @@
 // Maps a Wazuh agent (by name or IP) to clinical metadata the CAAP model needs
 // for the Clinical Criticality (CC) dimension: device_type + department.
 //
-// TODO: replace this with your real hospital asset inventory — ideally pulled
-// from a CMDB/asset table in Mongo rather than hardcoded here. This file is a
-// working stand-in so the pipeline runs end-to-end today.
-
-const DEVICE_INVENTORY = {
-  // key: Wazuh agent.name or agent.ip (lowercase), value: clinical metadata
-  'icu-vent-04': { device_type: 'ICU Ventilator', department: 'ICU' },
-  'inf-pump-12': { device_type: 'Infusion Pump', department: 'ICU' },
-  'cardiac-mon-7': { device_type: 'Cardiac Monitor', department: 'Cardiology' },
-  'ct-mri-01': { device_type: 'CT/MRI System', department: 'Radiology' },
-  'workstation-er': { device_type: 'Workstation', department: 'Emergency' },
-  'nurse-station-3': { device_type: 'Workstation', department: 'General Ward' },
-};
+// Backed by the `MedicalDevice` Mongo collection (managed from the admin
+// Devices tab — onboard/edit/tag/decommission), not hardcoded. Since
+// lookupDevice() is called once per alert on the polling pipeline, results
+// are cached in memory for a short TTL rather than hitting Mongo per-alert;
+// call invalidateDeviceInventoryCache() after any write so mutations are
+// picked up on the very next lookup instead of waiting out the TTL.
+import MedicalDevice from '../models/MedicalDevice.js';
 
 const DEFAULT_DEVICE = { device_type: 'Unknown Device', department: 'General' };
+const CACHE_TTL_MS = 60_000;
+
+let cache = null; // Map<key, { device_type, department }>
+let cacheLoadedAt = 0;
+let loadingPromise = null;
+
+async function loadCache() {
+  const devices = await MedicalDevice.find().select('key deviceType department').lean();
+  const map = new Map();
+  for (const d of devices) {
+    map.set(d.key, { device_type: d.deviceType, department: d.department });
+  }
+  cache = map;
+  cacheLoadedAt = Date.now();
+  return map;
+}
+
+export function invalidateDeviceInventoryCache() {
+  cache = null;
+  loadingPromise = null;
+}
 
 /**
  * Look up clinical metadata for a Wazuh agent.
  * @param {{name?: string, ip?: string}} agent
  */
-export function lookupDevice(agent = {}) {
+export async function lookupDevice(agent = {}) {
   const key = (agent.name || agent.ip || '').toLowerCase();
-  return DEVICE_INVENTORY[key] || DEFAULT_DEVICE;
-}
 
-export default DEVICE_INVENTORY;
+  if (!cache || Date.now() - cacheLoadedAt > CACHE_TTL_MS) {
+    if (!loadingPromise) loadingPromise = loadCache().finally(() => { loadingPromise = null; });
+    try {
+      await loadingPromise;
+    } catch (err) {
+      console.error('[deviceInventory] failed to load medical device inventory:', err.message);
+      return cache?.get(key) || DEFAULT_DEVICE;
+    }
+  }
+
+  return cache.get(key) || DEFAULT_DEVICE;
+}
