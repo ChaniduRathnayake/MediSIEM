@@ -18,22 +18,25 @@ import {
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
-  Tag, Filter, ChevronUp, ChevronsUpDown, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv,
+  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { apiGetAllUsers, apiCreateUser, apiUpdateUser, apiDeleteUser, apiGetAuditLog } from '../../services/api';
-import type { User as MediUser, AuditLogEntry } from '../../types';
+import { apiGetAllUsers, apiCreateUser, apiUpdateUser, apiDeleteUser } from '../../services/api';
+import type { User as MediUser, UserRole } from '../../types';
 import AccountMenu from '../../components/AccountMenu';
 import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
 import { useLiveAlerts } from '../../hooks/useLiveAlerts';
 import type { EnrichedAlert } from '../../services/alertsApi';
 import StatCard from '../../components/StatCard';
+import SeverityBadge from '../../components/SeverityBadge';
 import AlertsPanel from './AlertsPanel';
 import AdminCasesPanel from './AdminCasesPanel';
 import RulesPanel from './RulesPanel';
 import PasswordPolicyPanel from './PasswordPolicyPanel';
 import PlaybooksPanel from './PlaybooksPanel';
+import DetectionPerformancePanel from './DetectionPerformancePanel';
+import AuditLogPanel from './AuditLogPanel';
 import PasswordChecklist from '../../components/PasswordChecklist';
 import { apiGetPasswordPolicy } from '../../services/passwordPolicyApi';
 import type { PasswordPolicy } from '../../services/passwordPolicyApi';
@@ -57,21 +60,15 @@ const AlertRow: React.FC<{
   time: string;
   status: 'Open' | 'Investigating' | 'Resolved';
 }> = ({ severity, device, event, cas, time, status }) => {
-  const sevColor: Record<Severity, string> = {
-    CRITICAL: 'text-red-400 bg-red-500/10 border-red-500/30',
-    HIGH: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
-    MEDIUM: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-    LOW: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
-  };
   const statusColor: Record<string, string> = {
-    Open: 'text-red-400',
-    Investigating: 'text-amber-400',
-    Resolved: 'text-emerald-400',
+    Open: 'text-red-500 dark:text-red-400',
+    Investigating: 'text-amber-600 dark:text-amber-400',
+    Resolved: 'text-emerald-600 dark:text-emerald-400',
   };
   return (
-    <tr className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
+    <tr className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
       <td className="py-3 px-4">
-        <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sevColor[severity]}`}>{severity}</span>
+        <SeverityBadge severity={severity} />
       </td>
       <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300 font-mono">{device}</td>
       <td className="py-3 px-4 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">{event}</td>
@@ -95,7 +92,11 @@ const AlertRow: React.FC<{
 };
 
 // ─── Users Panel ────────────────────────────────────────────────────────────
-const roleLabel = (role: string) => (role === 'admin' ? 'Admin' : 'SOC Analyst');
+// Kept in sync with backend/controllers/userController.js's ROLE_LABEL and
+// services/api.ts's MOCK_ROLE_LABEL — all three exist only because Node and
+// Vite don't share a module graph, not because the labels are meant to diverge.
+const ROLE_LABELS: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
+const roleLabel = (role: string) => ROLE_LABELS[role as UserRole] ?? role;
 
 const UserFormModal: React.FC<{
   mode: 'create' | 'edit';
@@ -108,7 +109,7 @@ const UserFormModal: React.FC<{
     name: initial?.name ?? '',
     email: initial?.email ?? '',
     password: '',
-    role: (initial?.role ?? 'user') as 'admin' | 'user',
+    role: (initial?.role ?? 'user') as UserRole,
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -228,7 +229,7 @@ const UserFormModal: React.FC<{
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Role</label>
             <div className="grid grid-cols-2 gap-2">
-              {(['user', 'admin'] as const).map((r) => (
+              {(['user', 'biomed', 'auditor', 'admin'] as UserRole[]).map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -243,6 +244,15 @@ const UserFormModal: React.FC<{
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-slate-400 dark:text-slate-600 mt-1.5">
+              {form.role === 'biomed'
+                ? 'Read access everywhere SOC analysts have it, plus write access to the medical device inventory.'
+                : form.role === 'auditor'
+                ? 'Read-only — compliance views and the audit log, no case assignment or write access.'
+                : form.role === 'user'
+                ? 'SOC analyst — triages and closes alert cases.'
+                : 'Full access, including user management and settings.'}
+            </p>
           </div>
 
           <button
@@ -471,162 +481,6 @@ const UsersPanel: React.FC<{ token: string | null; currentUserId?: string }> = (
           onDeleted={(id) => setUsers((prev) => prev.filter((u) => u.id !== id))}
         />
       )}
-    </div>
-  );
-};
-
-// ─── Audit Log Panel ────────────────────────────────────────────────────────────
-const auditActionLabel = (action: AuditLogEntry['action']) => {
-  switch (action) {
-    case 'create_user': return 'Created user';
-    case 'update_user': return 'Updated user';
-    case 'delete_user': return 'Deleted user';
-    case 'create_device_group': return 'Created group';
-    case 'update_device_group': return 'Updated group';
-    case 'delete_device_group': return 'Deleted group';
-    case 'update_device_groups': return 'Changed device groups';
-    case 'update_device_os_category': return 'Changed OS category';
-    default: return 'Updated';
-  }
-};
-
-const auditActionBadge = (action: AuditLogEntry['action']) => {
-  switch (action) {
-    case 'create_user':
-    case 'create_device_group':
-      return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
-    case 'delete_user':
-    case 'delete_device_group':
-      return 'text-red-400 bg-red-500/10 border-red-500/30';
-    case 'update_device_groups':
-    case 'update_device_os_category':
-    case 'update_device_group':
-      return 'text-violet-400 bg-violet-500/10 border-violet-500/30';
-    default:
-      return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
-  }
-};
-
-type AuditSortKey = 'action' | 'actor' | 'target' | 'when';
-
-const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [sortKey, setSortKey] = useState<AuditSortKey>('when');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    if (!token) {
-      setError('Your session has expired. Please sign in again.');
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    apiGetAuditLog(token)
-      .then((data) => setLogs(data.logs))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load audit log.'))
-      .finally(() => setLoading(false));
-  }, [token]);
-
-  const toggleSort = (key: AuditSortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(key === 'when' ? 'desc' : 'asc'); // newest-first by default; A→Z for text columns
-    }
-  };
-
-  const sortedLogs = useMemo(() => {
-    const list = [...logs];
-    list.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'action':
-          cmp = auditActionLabel(a.action).localeCompare(auditActionLabel(b.action));
-          break;
-        case 'actor':
-          cmp = (a.actor.name || a.actor.email || '').localeCompare(b.actor.name || b.actor.email || '');
-          break;
-        case 'target':
-          cmp = (a.target.name || a.target.email || '').localeCompare(b.target.name || b.target.email || '');
-          break;
-        case 'when':
-          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-          break;
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return list;
-  }, [logs, sortKey, sortDir]);
-
-  const SortHeader: React.FC<{ label: string; sortk: AuditSortKey }> = ({ label, sortk }) => (
-    <th className="py-2.5 px-5 text-left">
-      <button
-        onClick={() => toggleSort(sortk)}
-        className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider hover:text-slate-700 dark:text-slate-300 transition-colors"
-      >
-        {label}
-        {sortKey === sortk ? (
-          sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-        ) : (
-          <ChevronsUpDown className="w-3 h-3 opacity-30" />
-        )}
-      </button>
-    </th>
-  );
-
-  return (
-    <div className="p-5 space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Audit Log</h2>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">What admins have done — user accounts, device groups, and OS categorization</p>
-      </div>
-
-      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-14 text-slate-400 dark:text-slate-500 text-sm">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading audit log…
-          </div>
-        ) : error ? (
-          <div className="flex items-center gap-2 px-5 py-6 text-red-400 text-sm">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
-          </div>
-        ) : logs.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-14">No admin activity recorded yet.</p>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                <SortHeader label="Action" sortk="action" />
-                <SortHeader label="Admin" sortk="actor" />
-                <SortHeader label="Target" sortk="target" />
-                <th className="py-2.5 px-5 text-left">Details</th>
-                <SortHeader label="When" sortk="when" />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedLogs.map((log) => (
-                <tr key={log.id} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-5">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${auditActionBadge(log.action)}`}>
-                      {auditActionLabel(log.action)}
-                    </span>
-                  </td>
-                  <td className="py-3 px-5 text-sm text-slate-900 dark:text-white">{log.actor.name || log.actor.email || '—'}</td>
-                  <td className="py-3 px-5 text-sm text-slate-500 dark:text-slate-400">{log.target.name || log.target.email || '—'}</td>
-                  <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500">{log.details}</td>
-                  <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                    {new Date(log.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   );
 };
@@ -908,10 +762,10 @@ const DevicesPanel: React.FC = () => {
           )}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={<Server className="w-5 h-5 text-cyan-400" />} label="Total Devices" value={String(counts.total)} sub="Registered agents" color="cyan" />
-            <StatCard icon={<CheckCircle className="w-5 h-5 text-emerald-400" />} label="Active" value={String(counts.active)} sub="Online now" color="emerald" />
-            <StatCard icon={<AlertTriangle className="w-5 h-5 text-red-400" />} label="Disconnected" value={String(counts.disconnected)} sub="Needs attention" color="red" />
-            <StatCard icon={<Clock className="w-5 h-5 text-amber-400" />} label="Other" value={String(counts.other)} sub="Pending / never connected" color="amber" />
+            <StatCard icon={<Server />} label="Total Devices" value={String(counts.total)} sub="Registered agents" color="slate" />
+            <StatCard icon={<CheckCircle />} label="Active" value={String(counts.active)} sub="Online now" color="emerald" />
+            <StatCard icon={<AlertTriangle />} label="Disconnected" value={String(counts.disconnected)} sub="Needs attention" color="red" />
+            <StatCard icon={<Clock />} label="Other" value={String(counts.other)} sub="Pending / never connected" color="amber" />
           </div>
 
           <ChartCard title="Online vs offline" subtitle="Live device inventory" height={160} empty={counts.total === 0}>
@@ -1213,22 +1067,22 @@ const OverviewTab: React.FC<{
     <div className="p-5 space-y-6">
       {/* KPI tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="Critical Alerts" value={String(criticalCount)} sub="CAS ≥ 8 · current buffer" color="red" />
+        <StatCard icon={<AlertTriangle />} label="Critical Alerts" value={String(criticalCount)} sub="CAS ≥ 8 · current buffer" color="red" />
         <StatCard
-          icon={<Activity className="w-5 h-5" />}
+          icon={<Activity />}
           label="Monitored Devices"
           value={wazuhConnected ? String(agents.length) : '—'}
           sub={wazuhConnected ? 'IoMT / endpoint agents' : 'Connect Wazuh SIEM'}
-          color="cyan"
+          color="slate"
         />
         <StatCard
-          icon={<Users className="w-5 h-5" />}
+          icon={<Users />}
           label="Logged In Now"
           value={presenceSummary ? String(presenceSummary.admins.online + presenceSummary.analysts.online) : '—'}
           sub={presenceSummary ? `${presenceSummary.admins.online} admin · ${presenceSummary.analysts.online} analyst` : 'Loading…'}
-          color="violet"
+          color="slate"
         />
-        <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Alerts (24h)" value={String(last24h)} sub="In current buffer" color="emerald" />
+        <StatCard icon={<TrendingUp />} label="Alerts (24h)" value={String(last24h)} sub="In current buffer" color="slate" />
       </div>
 
       {/* Team Presence */}
@@ -1350,6 +1204,7 @@ const AdminDashboard: React.FC = () => {
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
     { label: 'IP Reputation', icon: <Network className="w-4 h-4" /> },
+    { label: 'Detection Performance', icon: <Gauge className="w-4 h-4" /> },
     { label: 'Playbooks', icon: <Zap className="w-4 h-4" /> },
   ];
 
@@ -1385,11 +1240,11 @@ const AdminDashboard: React.FC = () => {
           {/* Logo */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                <Shield className="w-4 h-4 text-slate-900 dark:text-white" strokeWidth={2.5} />
+              <div className="w-7 h-7 bg-slate-900 dark:bg-white rounded-md flex items-center justify-center">
+                <Shield className="w-4 h-4 text-cyan-400 dark:text-slate-900" strokeWidth={2.5} />
               </div>
-              <span className="font-bold text-sm text-slate-900 dark:text-white">
-                Medi<span className="text-cyan-400">SIEM</span>
+              <span className="font-bold text-[15px] text-slate-900 dark:text-white tracking-tight">
+                MediSIEM
               </span>
             </div>
             <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
@@ -1398,11 +1253,9 @@ const AdminDashboard: React.FC = () => {
           </div>
 
           {/* Role Badge */}
-          <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
-              <Shield className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Admin Console</span>
-            </div>
+          <div className="flex items-center gap-1.5 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Admin Console</span>
           </div>
 
           {/* Nav */}
@@ -1411,10 +1264,10 @@ const AdminDashboard: React.FC = () => {
               <button
                 key={item.label}
                 onClick={() => setActiveNav(item.label)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                className={`relative w-full flex items-center gap-3 pl-3.5 pr-3 py-2 rounded-md text-[13px] font-medium transition-colors text-left ${
                   activeNav === item.label
-                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-white before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-cyan-500'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40'
                 }`}
               >
                 {item.icon}
@@ -1429,10 +1282,10 @@ const AdminDashboard: React.FC = () => {
                 setComplianceOpen(next);
                 if (next && !isComplianceActive) setActiveNav('HIPAA');
               }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+              className={`relative w-full flex items-center gap-3 pl-3.5 pr-3 py-2 rounded-md text-[13px] font-medium transition-colors text-left ${
                 isComplianceActive
-                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-white before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-cyan-500'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40'
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
@@ -1446,10 +1299,10 @@ const AdminDashboard: React.FC = () => {
                   <button
                     key={item.label}
                     onClick={() => setActiveNav(item.label)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors text-left ${
                       activeNav === item.label
-                        ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                        ? 'text-cyan-600 dark:text-cyan-400'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     {item.icon}
@@ -1466,10 +1319,10 @@ const AdminDashboard: React.FC = () => {
                 setSettingsOpen(next);
                 if (next && !isSettingsActive) setActiveNav('Users');
               }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+              className={`relative w-full flex items-center gap-3 pl-3.5 pr-3 py-2 rounded-md text-[13px] font-medium transition-colors text-left ${
                 isSettingsActive
-                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-white before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-cyan-500'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40'
               }`}
             >
               <Settings className="w-4 h-4" />
@@ -1483,10 +1336,10 @@ const AdminDashboard: React.FC = () => {
                   <button
                     key={item.label}
                     onClick={() => setActiveNav(item.label)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors text-left ${
                       activeNav === item.label
-                        ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                        ? 'text-cyan-600 dark:text-cyan-400'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     {item.icon}
@@ -1498,14 +1351,14 @@ const AdminDashboard: React.FC = () => {
           </nav>
 
           {/* User */}
-          <div className="px-4 py-4 border-t border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-orange-500 flex items-center justify-center text-xs font-bold text-slate-900 dark:text-white flex-shrink-0">
+          <div className="px-4 py-3.5 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-slate-800 dark:bg-slate-700 flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
                 {user?.name?.[0]?.toUpperCase()}
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-900 dark:text-white truncate">{user?.name}</div>
-                <div className="text-xs text-slate-400 dark:text-slate-500 truncate">{user?.email}</div>
+                <div className="text-[13px] font-medium text-slate-900 dark:text-white truncate">{user?.name}</div>
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email}</div>
               </div>
             </div>
           </div>
@@ -1525,31 +1378,33 @@ const AdminDashboard: React.FC = () => {
                 <Menu className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-sm font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
-                <p className="text-xs text-slate-400 dark:text-slate-500 hidden sm:block">R26-CS-008 · MediSIEM Platform</p>
+                <h1 className="text-[13px] font-semibold text-slate-900 dark:text-white">Admin Dashboard</h1>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:block">R26-CS-008 · MediSIEM Platform</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                <span className="text-xs text-emerald-400 font-medium hidden sm:block">System Active</span>
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">System active</span>
               </div>
               <button
                 onClick={() => window.open('/wallboard', '_blank', 'noopener,noreferrer')}
                 title="Open SOC wallboard in a new tab"
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-medium transition-colors"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 text-[12px] font-medium transition-colors"
               >
                 <Tv className="w-3.5 h-3.5" /> Wallboard
               </button>
-              <SoundToggle />
-              <ThemeToggle />
-              <NotificationBell onViewAll={() => setActiveNav('Wazuh SIEM')} />
-              <div className="relative pl-3 border-l border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-1">
+                <SoundToggle />
+                <ThemeToggle />
+                <NotificationBell onViewAll={() => setActiveNav('Wazuh SIEM')} />
+              </div>
+              <div className="relative pl-4 border-l border-slate-200 dark:border-slate-800">
                 <button
                   onClick={() => setShowAccountMenu(!showAccountMenu)}
                   className="flex items-center gap-2"
                 >
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-red-400 to-orange-500 flex items-center justify-center text-xs font-bold text-slate-900 dark:text-white">
+                  <div className="w-7 h-7 rounded-full bg-slate-800 dark:bg-slate-700 flex items-center justify-center text-[11px] font-bold text-white">
                     {user?.name?.[0]?.toUpperCase()}
                   </div>
                   <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform ${showAccountMenu ? 'rotate-180' : ''}`} />
@@ -1595,12 +1450,13 @@ const AdminDashboard: React.FC = () => {
               />
             )}
             {activeNav === 'Vulnerabilities' && <VulnerabilitiesPanel />}
+            {activeNav === 'Detection Performance' && <DetectionPerformancePanel />}
             {activeNav === 'Playbooks' && <PlaybooksPanel />}
             {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
             {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
             {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
             {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Detection Rules' && activeNav !== 'Password Policy' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
-             activeNav !== 'Alerts' && activeNav !== 'Case Status' && activeNav !== 'Vulnerabilities' && activeNav !== 'Playbooks' &&
+             activeNav !== 'Alerts' && activeNav !== 'Case Status' && activeNav !== 'Vulnerabilities' && activeNav !== 'Playbooks' && activeNav !== 'Detection Performance' &&
              activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && (
               <OverviewTab
                 userName={user?.name}

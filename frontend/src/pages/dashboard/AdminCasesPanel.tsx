@@ -8,13 +8,16 @@
 // for admin oversight. Admins can also close a case directly from here (the
 // backend allows admin to close any alert, assigned or not — analysts are
 // restricted to their own assignments).
-import React, { useMemo, useState } from 'react';
-import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Loader2, AlertCircle, CheckCircle2, Clock, Siren, Download } from 'lucide-react';
 import type { EnrichedAlert, AlertClosure } from '../../services/alertsApi';
 import { apiCloseAlert } from '../../services/alertsApi';
+import type { AlertVerdict } from '../../services/alertsApi';
 import AlertDetailsModal from './AlertDetailsModal';
 import CloseAlertModal from './CloseAlertModal';
 import CaseTable from './CaseTable';
+import { downloadCsv } from '../../utils/csv';
+import { casToSeverity } from '../../utils/chartData';
 
 const AdminCasesPanel: React.FC<{
   alerts: EnrichedAlert[];
@@ -36,23 +39,81 @@ const AdminCasesPanel: React.FC<{
   const closureOf = (a: EnrichedAlert): AlertClosure | null =>
     a.id in closureOverrides ? closureOverrides[a.id] : (a.closure ?? null);
 
+  // The `escalated` flag on `alerts` is only ever correct as of the moment
+  // GET /api/alerts last ran — alerts pushed live over Socket.IO never carry
+  // it at all (alertPipeline.js doesn't compute it), and it never updates on
+  // its own as an already-loaded alert ages past the 10-minute threshold
+  // during a long-running session. Recomputing it here, ticking every 30s,
+  // means a case actually flips to escalated in front of whoever's watching
+  // instead of only ever reflecting whatever was true at the last page load.
+  const ESCALATION_THRESHOLD_MS = 10 * 60 * 1000; // mirrors backend/routes/alerts.js
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isEscalated = (a: EnrichedAlert): boolean =>
+    casToSeverity(a.CAS) === 'CRITICAL' &&
+    !a.assignedTo &&
+    now - new Date(a.timestamp).getTime() >= ESCALATION_THRESHOLD_MS;
+
   const openCases = useMemo(
-    () => alerts.filter((a) => !closureOf(a)).sort((a, b) => b.CAS - a.CAS),
+    () =>
+      alerts
+        .filter((a) => !closureOf(a))
+        .map((a) => ({ ...a, escalated: isEscalated(a) }))
+        // Escalated cases surface above everything else regardless of CAS,
+        // since "has anyone even looked at this yet" matters more here than
+        // the raw score.
+        .sort((a, b) => Number(!!b.escalated) - Number(!!a.escalated) || b.CAS - a.CAS),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [alerts, closureOverrides]
+    [alerts, closureOverrides, now]
   );
+  const escalatedCount = useMemo(() => openCases.filter((a) => a.escalated).length, [openCases]);
+
+  // Client-side export — every column here is already loaded for the table
+  // above, so there's no reason to round-trip the backend for a second copy
+  // of the same data. Gives compliance/audit reviewers something to attach
+  // to a report instead of screenshotting the table.
+  const handleExportClosedCasesCsv = () => {
+    const headers = [
+      'Alert ID', 'Timestamp', 'Severity', 'CAS', 'Device', 'Device Type', 'Department',
+      'Event', 'Action', 'Closed By', 'Closed By Email', 'Closed At', 'Reason', 'Evidence',
+    ];
+    const rows = closedCases.map((a) => {
+      const closure = closureOf(a);
+      return [
+        a.id,
+        a.timestamp,
+        casToSeverity(a.CAS),
+        a.CAS.toFixed(1),
+        a.agent,
+        a.deviceType ?? '',
+        a.department,
+        a.label !== 'Unclassified' ? a.label : a.ruleDescription,
+        a.action,
+        closure?.closedBy.name ?? '',
+        closure?.closedBy.email ?? '',
+        closure?.createdAt ?? '',
+        closure?.reason ?? '',
+        closure?.evidence ?? '',
+      ];
+    });
+    downloadCsv(`medisiem-closed-cases-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+  };
   const closedCases = useMemo(
     () => alerts.filter((a) => !!closureOf(a)).sort((a, b) => b.CAS - a.CAS),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [alerts, closureOverrides]
   );
 
-  const handleSubmitClose = async (reason: string, evidence: string) => {
+  const handleSubmitClose = async (reason: string, evidence: string, verdict: AlertVerdict) => {
     if (!token || !closingAlert) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const { closure } = await apiCloseAlert(token, closingAlert.id, reason, evidence);
+      const { closure } = await apiCloseAlert(token, closingAlert.id, reason, evidence, verdict);
       setClosureOverrides((prev) => ({ ...prev, [closingAlert.id]: closure }));
       setClosingAlert(null);
     } catch (err) {
@@ -89,6 +150,20 @@ const AdminCasesPanel: React.FC<{
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Case Status</h2>
           <p className="text-xs text-slate-500 mt-0.5">Every alert across all analysts</p>
         </div>
+        <div className="flex items-center gap-2.5">
+          {escalatedCount > 0 && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/10 border border-red-600/30 text-red-500 dark:text-red-400 text-xs font-semibold">
+              <Siren className="w-3.5 h-3.5" /> {escalatedCount} escalated
+            </span>
+          )}
+          {statusTab === 'closed' && closedCases.length > 0 && (
+            <button
+              onClick={handleExportClosedCasesCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          )}
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit">
           {([
             { id: 'open', label: 'Open Cases', count: openCases.length, icon: <Clock className="w-3.5 h-3.5" /> },
@@ -107,6 +182,7 @@ const AdminCasesPanel: React.FC<{
               {t.label} ({t.count})
             </button>
           ))}
+        </div>
         </div>
       </div>
 

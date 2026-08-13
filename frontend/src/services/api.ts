@@ -1,4 +1,6 @@
-import type { LoginPayload, User, AuditLogEntry } from '../types';
+import type { LoginPayload, User, UserRole, AuditLogEntry } from '../types';
+
+const MOCK_ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
 
 /**
  * Base URL for the backend API.
@@ -140,7 +142,7 @@ export async function apiGetAllUsers(token: string): Promise<{ users: User[] }> 
 
 export async function apiCreateUser(
   token: string,
-  payload: { name: string; email: string; password: string; role: 'admin' | 'user' }
+  payload: { name: string; email: string; password: string; role: UserRole }
 ): Promise<{ user: User }> {
   try {
     return await request('/users', {
@@ -165,7 +167,7 @@ export async function apiCreateUser(
       };
       mockUsers.push(newUser);
       const { password: _, ...user } = newUser;
-      pushMockAudit(token, 'create_user', { id: user.id, name: user.name, email: user.email }, `Created as ${user.role === 'admin' ? 'Admin' : 'SOC Analyst'}`);
+      pushMockAudit(token, 'create_user', { id: user.id, name: user.name, email: user.email }, `Created as ${MOCK_ROLE_LABEL[user.role] ?? user.role}`);
       return { user };
     }
     throw err;
@@ -175,7 +177,7 @@ export async function apiCreateUser(
 export async function apiUpdateUser(
   token: string,
   id: string,
-  payload: { name?: string; email?: string; password?: string; currentPassword?: string; role?: 'admin' | 'user' }
+  payload: { name?: string; email?: string; password?: string; currentPassword?: string; role?: UserRole }
 ): Promise<{ user: User }> {
   try {
     return await request(`/users/${id}`, {
@@ -257,11 +259,15 @@ export interface PresenceRosterEntry {
 export interface PresenceSummary {
   admins: PresenceBucket;
   analysts: PresenceBucket;
+  biomed: PresenceBucket;
+  auditors: PresenceBucket;
   thresholdMs: number;
-  // Only populated for admin callers — SOC analysts get counts only.
+  // Only populated for admin callers — everyone else gets counts only.
   roster?: {
     admins: PresenceRosterEntry[];
     analysts: PresenceRosterEntry[];
+    biomed: PresenceRosterEntry[];
+    auditors: PresenceRosterEntry[];
   };
 }
 
@@ -276,6 +282,8 @@ export async function apiGetPresenceSummary(token: string): Promise<PresenceSumm
       // the signed-in mock user as the only "online" member of their role.
       const admins = mockUsers.filter((u) => u.role === 'admin');
       const analysts = mockUsers.filter((u) => u.role === 'user');
+      const biomed = mockUsers.filter((u) => u.role === 'biomed');
+      const auditors = mockUsers.filter((u) => u.role === 'auditor');
       const actor = decodeMockToken(token);
       const toRoster = (list: typeof mockUsers): PresenceRosterEntry[] =>
         list.map((u) => ({
@@ -285,11 +293,16 @@ export async function apiGetPresenceSummary(token: string): Promise<PresenceSumm
           online: actor?.id === u.id,
           lastActiveAt: actor?.id === u.id ? new Date().toISOString() : null,
         }));
+      const bucketOf = (list: typeof mockUsers) => ({ online: list.some((u) => u.id === actor?.id) ? 1 : 0, total: list.length });
       return {
-        admins: { online: admins.some((u) => u.id === actor?.id) ? 1 : 0, total: admins.length },
-        analysts: { online: analysts.some((u) => u.id === actor?.id) ? 1 : 0, total: analysts.length },
+        admins: bucketOf(admins),
+        analysts: bucketOf(analysts),
+        biomed: bucketOf(biomed),
+        auditors: bucketOf(auditors),
         thresholdMs: 2 * 60 * 1000,
-        roster: actor?.role === 'admin' ? { admins: toRoster(admins), analysts: toRoster(analysts) } : undefined,
+        roster: actor?.role === 'admin'
+          ? { admins: toRoster(admins), analysts: toRoster(analysts), biomed: toRoster(biomed), auditors: toRoster(auditors) }
+          : undefined,
       };
     }
     throw err;

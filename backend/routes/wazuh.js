@@ -7,8 +7,16 @@
 import express from 'express';
 import https   from 'https';
 import http    from 'http';
+import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Every route below only ever checked the caller-supplied Wazuh credentials
+// (x-wazuh-*) — a valid MediSIEM session was never required, so anyone who
+// had (or guessed) Wazuh creds could hit these without ever signing into
+// this app. A MediSIEM login is now required in addition, same as every
+// other route in this backend.
+router.use(protect);
 
 // ── Extract Wazuh config from custom request headers ─────────────────────────
 function getConfig(req) {

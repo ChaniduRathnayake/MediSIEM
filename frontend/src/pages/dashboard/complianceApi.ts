@@ -40,8 +40,16 @@ export interface ComplianceAgentDetail {
 const PROXY = '/api/compliance';
 
 function configHeaders(cfg: WazuhConfig): Record<string, string> {
+  // Same storage key AuthContext.tsx uses — these routes only ever accepted
+  // the caller-supplied Indexer credentials, with no MediSIEM login required
+  // at all, so anyone who had (or guessed) Indexer creds could hit them
+  // without ever signing into this app. Read directly from storage rather
+  // than threading a token through every exported function here, since none
+  // of them currently take one and this file has a lot of call sites.
+  const token = localStorage.getItem('medisiem_token') ?? '';
   return {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
     'x-indexer-host': cfg.indexerHost ?? '',
     'x-indexer-port': cfg.indexerPort ?? '',
     'x-indexer-user': cfg.indexerUsername ?? '',

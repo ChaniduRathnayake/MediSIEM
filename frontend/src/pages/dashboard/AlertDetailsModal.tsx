@@ -121,11 +121,26 @@ const MlAlertBody: React.FC<{ alert: EnrichedAlert }> = ({ alert }) => {
             ['Source IP', alert.src_ip ?? '— not captured for this alert —'],
             ['Destination', 'not tracked — this pipeline classifies per-device behavior, not connection pairs'],
             ['Device', alert.agent],
+            ['Device type', alert.deviceType ?? '— not onboarded in the medical device inventory —'],
+            ['Device criticality', alert.deviceCriticality ?? '—'],
             ['Department', alert.department],
             ['Cluster', alert.cluster],
           ]}
         />
       </div>
+
+      {alert.mitre && alert.mitre.id.length > 0 && (
+        <div>
+          <SectionTitle icon={<Tag className="w-3.5 h-3.5" />}>MITRE ATT&amp;CK mapping</SectionTitle>
+          <KeyValueGrid
+            rows={[
+              ['Technique ID', alert.mitre.id.join(', ')],
+              ['Technique', alert.mitre.technique.join(', ') || '—'],
+              ['Tactic', alert.mitre.tactic.join(', ') || '—'],
+            ]}
+          />
+        </div>
+      )}
 
       <div>
         <SectionTitle icon={<Brain className="w-3.5 h-3.5" />}>Why it's classified this way</SectionTitle>

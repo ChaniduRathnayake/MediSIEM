@@ -97,6 +97,50 @@ IF_THRESHOLD = joblib.load(os.path.join(MODEL_DIR, "if_threshold.pkl"))
 print(f"[CAAP] Models loaded. {len(FEATURE_COLUMNS)} features, IF threshold={IF_THRESHOLD}")
 print(f"[CAAP] Feature columns: {FEATURE_COLUMNS}")
 
+# --------------------------------------------------------------------------
+# Optional per-device-type Isolation Forest baselines
+# --------------------------------------------------------------------------
+# A single global IF model judges a ventilator's normal traffic and a nurse
+# workstation's normal traffic against the same anomaly boundary, which is
+# exactly the false-positive source you'd expect. This is the OPT-IN loader
+# for coarser, device-class-specific baselines: it looks for extra .pkl
+# files but changes nothing about scoring behavior unless you actually drop
+# one in — every existing deployment keeps using the single global
+# iso_forest exactly as before.
+#
+# To add one: train an IsolationForest on IF_FEATURES for just that device
+# class's normal traffic (same feature order/scaling as isolation_forest.pkl
+# — reuse train.py filtered to that device_type, or fit directly against
+# `scaler`-transformed rows), then joblib.dump() it as:
+#   models/isolation_forest_by_device/<device_type>.pkl
+# (device_type matched exactly against the string deviceInventory.js /
+# CC_LOOKUP use, e.g. "ICU Ventilator.pkl") — no restart-time registration
+# needed beyond dropping the file in; it's picked up at the next server start.
+IF_BY_DEVICE_DIR = os.path.join(MODEL_DIR, "isolation_forest_by_device")
+iso_forest_by_device = {}
+if os.path.isdir(IF_BY_DEVICE_DIR):
+    for fname in os.listdir(IF_BY_DEVICE_DIR):
+        if not fname.endswith(".pkl"):
+            continue
+        device_type = fname[:-len(".pkl")]
+        try:
+            model = joblib.load(os.path.join(IF_BY_DEVICE_DIR, fname))
+            expected_n = getattr(model, "n_features_in_", None)
+            if expected_n is not None and expected_n != len(IF_FEATURES):
+                print(f"[CAAP][WARNING] isolation_forest_by_device/{fname} expects {expected_n} features, "
+                      f"IF_FEATURES has {len(IF_FEATURES)} — ignoring this file, falling back to the global model for \"{device_type}\".")
+                continue
+            iso_forest_by_device[device_type] = model
+        except Exception as exc:
+            print(f"[CAAP][WARNING] failed to load isolation_forest_by_device/{fname}: {exc}")
+    if iso_forest_by_device:
+        print(f"[CAAP] Loaded {len(iso_forest_by_device)} per-device-type IF baseline(s): {sorted(iso_forest_by_device)}")
+
+
+def get_iso_forest_for(device_type: str):
+    """Per-device-type IF model if one's been dropped in for this device_type, else the global one."""
+    return iso_forest_by_device.get(device_type, iso_forest)
+
 # Diagnostic: how many features does each model actually expect?
 _if_n = getattr(iso_forest, "n_features_in_", None)
 _km_n = getattr(kmeans, "n_features_in_", None)
@@ -406,9 +450,13 @@ def predict():
         tr_score = rf_to_tr_score(confidence)
 
         # --- 3. Isolation Forest — anomaly detection (TS) -----------------
+        # Per-device-type baseline if one's been trained for this
+        # device_type (see get_iso_forest_for() above), else the global
+        # model — identical to prior behavior when none are present.
         X_if = pd.DataFrame([{c: payload.get(c, 0.0) for c in IF_FEATURES}], columns=IF_FEATURES)
         X_if_scaled = scaler.transform(X)[:, [FEATURE_COLUMNS.index(c) for c in IF_FEATURES]]
-        anomaly_score = float(iso_forest.decision_function(X_if_scaled)[0])
+        device_iso_forest = get_iso_forest_for(payload.get("device_type", ""))
+        anomaly_score = float(device_iso_forest.decision_function(X_if_scaled)[0])
         hour_of_day = int(payload.get("hour_of_day", 12))
         ts_score = if_to_ts_score(anomaly_score, hour_of_day)
 

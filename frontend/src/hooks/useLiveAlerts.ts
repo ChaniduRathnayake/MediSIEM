@@ -21,6 +21,16 @@ const MAX_ALERTS = 200;
 // stale demo buffer would fire dozens of toasts at once on every restart.
 const FRESH_ALERT_WINDOW_MS = 2 * 60 * 1000;
 
+// More than this many CRITICAL toasts within STORM_WINDOW_MS coalesces into
+// a single "N critical alerts" toast (one sound cue on entry, silent
+// updates after) instead of stacking a fresh toast — and playing a fresh
+// beep — per alert. A real incident (or a demo attack scenario) can easily
+// fire a dozen CRITICAL alerts in a few seconds; without this, that's a
+// dozen overlapping beeps and a toast stack nobody can actually read.
+const STORM_WINDOW_MS = 15 * 1000;
+const STORM_THRESHOLD = 3;
+const STORM_TOAST_KEY = 'critical-alert-storm';
+
 function dedupeById(alerts: EnrichedAlert[]): EnrichedAlert[] {
   const seen = new Set<string>();
   return alerts.filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
@@ -40,6 +50,16 @@ export function useLiveAlerts(token: string | null) {
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const { showToast } = useToast();
+  // Rolling timestamps of CRITICAL toasts shown in the current storm window
+  // — see STORM_WINDOW_MS/STORM_THRESHOLD above. Ref, not state: purely an
+  // internal rate-limiting counter, never needs to trigger a re-render.
+  const criticalToastTimestampsRef = useRef<number[]>([]);
+  // Guards the toast/beep side effect specifically (separate from the list's
+  // own dedupe below) — needs to live outside setAlerts's updater function,
+  // since React 18 StrictMode invokes updater functions twice in dev to
+  // surface impure ones, which would otherwise double the toast and beep for
+  // every single critical alert.
+  const toastedAlertIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!token) {
@@ -74,20 +94,43 @@ export function useLiveAlerts(token: string | null) {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     socket.on('alert:new', (alert: EnrichedAlert) => {
-      setAlerts((prev) => {
-        if (prev.some((a) => a.id === alert.id)) return prev;
+      // Pure — just derives next state from prev, safe to invoke twice
+      // (StrictMode does exactly that in dev to catch impure updaters).
+      setAlerts((prev) => (prev.some((a) => a.id === alert.id) ? prev : [alert, ...prev].slice(0, MAX_ALERTS)));
 
-        const age = Date.now() - new Date(alert.timestamp).getTime();
-        if (age >= 0 && age < FRESH_ALERT_WINDOW_MS && casToSeverity(alert.CAS) === 'CRITICAL') {
+      // Toast/beep side effects live outside the updater above and behind
+      // their own id-based guard, so they run exactly once per alert no
+      // matter how many times React invokes the (pure) updater.
+      if (toastedAlertIdsRef.current.has(alert.id)) return;
+      toastedAlertIdsRef.current.add(alert.id);
+
+      const age = Date.now() - new Date(alert.timestamp).getTime();
+      if (age >= 0 && age < FRESH_ALERT_WINDOW_MS && casToSeverity(alert.CAS) === 'CRITICAL') {
+        const now = Date.now();
+        const recent = criticalToastTimestampsRef.current.filter((t) => now - t < STORM_WINDOW_MS);
+        recent.push(now);
+        criticalToastTimestampsRef.current = recent;
+
+        if (recent.length <= STORM_THRESHOLD) {
           showToast({
             title: 'Critical alert',
             message: `${alert.label !== 'Unclassified' ? alert.label : alert.ruleDescription} — ${alert.agent} (CAS ${alert.CAS.toFixed(1)})`,
             severity: 'critical',
           });
+        } else {
+          // Past the threshold for this window — coalesce into one toast
+          // that updates its count instead of stacking another, with the
+          // beep only on the transition into storm mode (recent.length
+          // === STORM_THRESHOLD + 1), not on every alert after it.
+          showToast({
+            key: STORM_TOAST_KEY,
+            title: 'Critical alert storm',
+            message: `${recent.length} critical alerts in the last ${Math.round(STORM_WINDOW_MS / 1000)}s — open the Alerts tab rather than reading each one`,
+            severity: 'critical',
+            silent: recent.length > STORM_THRESHOLD + 1,
+          });
         }
-
-        return [alert, ...prev].slice(0, MAX_ALERTS);
-      });
+      }
     });
     socket.on('alerts:stats', (next: AlertStats) => setStats(next));
 

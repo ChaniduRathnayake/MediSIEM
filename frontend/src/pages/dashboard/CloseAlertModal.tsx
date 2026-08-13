@@ -4,24 +4,33 @@
 // and what they found (evidence) — both required, so closures always leave a
 // real audit trail behind instead of a bare "resolved" toggle.
 import React, { useState } from 'react';
-import { X, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { X, CheckCircle2, Loader2, AlertCircle, ShieldCheck, ShieldX, ShieldQuestion, HelpCircle } from 'lucide-react';
+import type { AlertVerdict } from '../../services/alertsApi';
+
+const VERDICT_OPTIONS: { value: AlertVerdict; label: string; icon: React.ReactNode; activeClass: string }[] = [
+  { value: 'true_positive', label: 'True positive', icon: <ShieldCheck className="w-3.5 h-3.5" />, activeClass: 'bg-red-600 text-white border-red-600' },
+  { value: 'false_positive', label: 'False positive', icon: <ShieldX className="w-3.5 h-3.5" />, activeClass: 'bg-emerald-600 text-white border-emerald-600' },
+  { value: 'benign', label: 'Benign', icon: <ShieldQuestion className="w-3.5 h-3.5" />, activeClass: 'bg-slate-600 text-white border-slate-600' },
+  { value: 'uncertain', label: 'Uncertain', icon: <HelpCircle className="w-3.5 h-3.5" />, activeClass: 'bg-amber-500 text-white border-amber-500' },
+];
 
 const CloseAlertModal: React.FC<{
   alertTitle: string;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (reason: string, evidence: string) => void;
+  onSubmit: (reason: string, evidence: string, verdict: AlertVerdict) => void;
 }> = ({ alertTitle, submitting, error, onClose, onSubmit }) => {
   const [reason, setReason] = useState('');
   const [evidence, setEvidence] = useState('');
+  const [verdict, setVerdict] = useState<AlertVerdict | null>(null);
 
-  const canSubmit = reason.trim().length > 0 && evidence.trim().length > 0 && !submitting;
+  const canSubmit = reason.trim().length > 0 && evidence.trim().length > 0 && !!verdict && !submitting;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
-    onSubmit(reason.trim(), evidence.trim());
+    if (!canSubmit || !verdict) return;
+    onSubmit(reason.trim(), evidence.trim(), verdict);
   };
 
   return (
@@ -41,6 +50,31 @@ const CloseAlertModal: React.FC<{
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">
+              Verdict <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {VERDICT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setVerdict(opt.value)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    verdict === opt.value
+                      ? opt.activeClass
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {opt.icon} {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+              Was this a real threat? This is the only ground truth MediSIEM captures about its own detection accuracy — it feeds the Detection Performance panel.
+            </p>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">
               Reason <span className="text-red-500">*</span>

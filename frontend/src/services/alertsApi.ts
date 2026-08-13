@@ -6,10 +6,18 @@ export interface AssignedAnalyst {
   email: string;
 }
 
+// The analyst's own judgment of whether this was a real detection — the
+// one piece of ground truth this system captures about its own accuracy,
+// as opposed to the device-criticality proxy the live Detection
+// Performance metrics use. Optional: closures made before this field
+// existed have none.
+export type AlertVerdict = 'true_positive' | 'false_positive' | 'benign' | 'uncertain';
+
 export interface AlertClosure {
   id: string;
   reason: string;
   evidence: string;
+  verdict?: AlertVerdict | null;
   closedBy: { id: string; name: string; email: string };
   createdAt: string;
 }
@@ -19,8 +27,17 @@ export interface EnrichedAlert {
   timestamp: string;
   agent: string;
   department: string;
+  // Resolved from the admin-managed MedicalDevice inventory (same lookup CAS
+  // scoring uses) — absent/'Unknown Device' when the source agent isn't
+  // onboarded there yet.
+  deviceType?: string;
+  // 'critical' | 'high' | 'medium' | 'low' — drives the "life-critical
+  // device" badge independent of whatever CAS the alert scored.
+  deviceCriticality?: string;
   ruleDescription: string;
   ruleLevel: number | null;
+  // Present when Wazuh's ruleset tags this rule with a MITRE ATT&CK mapping.
+  mitre?: { id: string[]; tactic: string[]; technique: string[] } | null;
   label: string;
   confidence: number | null;
   TR_score: number;
@@ -33,6 +50,9 @@ export interface EnrichedAlert {
   action: 'Immediate' | 'Investigate' | 'Monitor';
   explanation: string;
   assignedTo?: AssignedAnalyst | null;
+  // true when this is CAS-CRITICAL, still unassigned/open, and has sat that
+  // way for 10+ minutes — see ESCALATION_THRESHOLD_MS in routes/alerts.js.
+  escalated?: boolean;
   // Present once a SOC analyst (or admin) has closed the case with a reason
   // + evidence — absent/null means the case is still open.
   closure?: AlertClosure | null;
@@ -85,12 +105,13 @@ export async function apiCloseAlert(
   token: string,
   alertId: string,
   reason: string,
-  evidence: string
+  evidence: string,
+  verdict?: AlertVerdict
 ): Promise<{ closure: AlertClosure }> {
   const res = await fetch(`${BASE_URL}/alerts/${alertId}/close`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ reason, evidence }),
+    body: JSON.stringify({ reason, evidence, verdict }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || 'Failed to close case');

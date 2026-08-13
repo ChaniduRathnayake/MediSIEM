@@ -21,9 +21,37 @@ import complianceRoutes from './routes/compliance.js';
 import alertRoutes from './routes/alerts.js';
 import ruleRoutes from './routes/rules.js';
 import passwordPolicyRoutes from './routes/passwordPolicy.js';
+import threatIntelRoutes from './routes/threatIntel.js';
+import detectionPerformanceRoutes from './routes/detectionPerformance.js';
 import { startPipeline } from './services/alertPipeline.js';
+import { initCveIntel } from './services/cveIntelService.js';
 import MedicalDevice from './models/MedicalDevice.js';
+import DetectionRule from './models/DetectionRule.js';
 import SEED_MEDICAL_DEVICES from './config/seedMedicalDevices.js';
+
+// First-run only, same idempotent pattern as the medical device seed below —
+// gives every fresh install one working example of the deviceCriticality/CAS
+// fields in action instead of an empty rules list. Admins can edit/disable it
+// like any other rule from the Rules tab; this only ever creates it once.
+const LIFE_CRITICAL_RULE_NAME = 'Life-critical device — elevated risk';
+async function seedLifeCriticalRule() {
+  const exists = await DetectionRule.findOne({ name: LIFE_CRITICAL_RULE_NAME });
+  if (exists) return;
+  await DetectionRule.create({
+    name: LIFE_CRITICAL_RULE_NAME,
+    description:
+      'Flags alerts against a device tagged "critical" in the medical device inventory (ICU ventilators, ' +
+      'infusion pumps, defibrillators, ...) once CAS reaches HIGH or above — surfaces device criticality ' +
+      'as its own escalation signal, independent of whatever CAS alone would have triggered.',
+    enabled: true,
+    conditions: [
+      { field: 'deviceCriticality', operator: 'equals', value: 'critical' },
+      { field: 'CAS', operator: 'gte', value: 6 },
+    ],
+    createdBy: { id: 'system', name: 'MediSIEM (seeded)' },
+  });
+  console.log(`🌱  Seeded default detection rule: "${LIFE_CRITICAL_RULE_NAME}"`);
+}
 
 // ─── MongoDB Connection ────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/medisiem';
@@ -39,6 +67,7 @@ mongoose.connect(MONGO_URI)
       await MedicalDevice.insertMany(SEED_MEDICAL_DEVICES);
       console.log(`🌱  Seeded ${SEED_MEDICAL_DEVICES.length} starter medical devices`);
     }
+    await seedLifeCriticalRule();
   })
   .catch((err) => {
     console.error('❌  MongoDB connection failed:', err.message);
@@ -83,6 +112,8 @@ app.use('/api/compliance', complianceRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/password-policy', passwordPolicyRoutes);
+app.use('/api/threat-intel', threatIntelRoutes);
+app.use('/api/detection-performance', detectionPerformanceRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -115,4 +146,7 @@ httpServer.listen(PORT, () => {
   console.log(`✅  MediSIEM API running on http://localhost:${PORT}`);
   // Start polling the Indexer → CAAP enrichment (pass-through) → live push.
   startPipeline(io);
+  // Best-effort CISA KEV fetch for real Active-Exploitation scoring — never
+  // blocks startup, degrades to the MITRE-technique heuristic if unreachable.
+  initCveIntel();
 });

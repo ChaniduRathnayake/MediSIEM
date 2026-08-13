@@ -9,6 +9,7 @@ import React, { useMemo, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import type { EnrichedAlert, AlertClosure } from '../../services/alertsApi';
 import { apiCloseAlert } from '../../services/alertsApi';
+import type { AlertVerdict } from '../../services/alertsApi';
 import AlertDetailsModal from './AlertDetailsModal';
 import CloseAlertModal from './CloseAlertModal';
 import CaseTable from './CaseTable';
@@ -49,12 +50,12 @@ const MyAlertsPanel: React.FC<{
     [mine, closureOverrides]
   );
 
-  const handleSubmitClose = async (reason: string, evidence: string) => {
+  const handleSubmitClose = async (reason: string, evidence: string, verdict: AlertVerdict) => {
     if (!token || !closingAlert) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const { closure } = await apiCloseAlert(token, closingAlert.id, reason, evidence);
+      const { closure } = await apiCloseAlert(token, closingAlert.id, reason, evidence, verdict);
       setClosureOverrides((prev) => ({ ...prev, [closingAlert.id]: closure }));
       setClosingAlert(null);
     } catch (err) {
