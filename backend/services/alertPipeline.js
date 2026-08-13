@@ -33,7 +33,7 @@ let pollHandle = null;
 let totalCount = 0;
 const severityTotals = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
 
-function casToSeverity(cas) {
+export function casToSeverity(cas) {
   if (cas >= 8) return 'CRITICAL';
   if (cas >= 6) return 'HIGH';
   if (cas >= 4) return 'MEDIUM';
@@ -44,7 +44,7 @@ function casToSeverity(cas) {
 // Fixed field/operator whitelist — no scripting, no eval — evaluated against
 // the same flattened alert shape toDisplayAlert() produces below. All
 // conditions in a rule must match (AND only, see DetectionRule.js).
-function conditionMatches(alert, { field, operator, value }) {
+export function conditionMatches(alert, { field, operator, value }) {
   const actual = alert[field];
   if (actual === undefined || actual === null) return false;
 
@@ -85,10 +85,15 @@ async function getEnabledRules() {
 }
 
 async function toDisplayAlert(raw, enrichment) {
-  // flow_consumer.py already stamps agent.department (real ML path). The
-  // rule.level fallback path doesn't have that on the raw Wazuh doc, so look
-  // it up the same way caapService.js does — same clinical inventory either way.
-  const department = raw.agent?.department || (await lookupDevice(raw.agent || {})).department;
+  // flow_consumer.py already stamps agent.department (real ML path) AND
+  // reuses agent.name to carry the device TYPE, not a hostname (see its
+  // _handle_row(): `"agent": {"name": device["device_type"], ...}`). The
+  // rule.level fallback path (raw Wazuh HIDS alerts) has neither, so resolve
+  // both from the same clinical inventory caapService.js scores against —
+  // one lookup, reused for department/deviceType/criticality below.
+  const deviceMeta = await lookupDevice(raw.agent || {});
+  const department = raw.agent?.department || deviceMeta.department;
+  const deviceType = raw.agent?.department ? (raw.agent?.name || deviceMeta.device_type) : deviceMeta.device_type;
 
   // `enrichment` is often just the raw indexed doc minus `id` (the
   // already-enriched fast path), which still carries its OWN raw `agent`
@@ -102,8 +107,19 @@ async function toDisplayAlert(raw, enrichment) {
     timestamp: raw['@timestamp'],
     agent: raw.agent?.name || raw.agent?.ip || 'unknown',
     department,
+    deviceType,
+    // From the admin-managed MedicalDevice inventory ('critical'/'high'/
+    // 'medium'/'low') — lets rules and the UI escalate purely on "this is a
+    // life-critical device" independent of whatever CAS came out as.
+    deviceCriticality: deviceMeta.criticality,
     ruleDescription: raw.rule?.description || 'Unknown event',
     ruleLevel: raw.rule?.level ?? null,
+    // Wazuh tags many rules with the MITRE ATT&CK technique they correspond
+    // to — surfaced as-is (id/tactic/technique arrays) when present, null
+    // when this rule has no MITRE mapping.
+    mitre: raw.rule?.mitre
+      ? { id: raw.rule.mitre.id || [], tactic: raw.rule.mitre.tactic || [], technique: raw.rule.mitre.technique || [] }
+      : null,
   };
 }
 

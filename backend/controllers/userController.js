@@ -2,6 +2,9 @@ import User from '../models/User.js';
 import { logAudit } from '../utils/auditLog.js';
 import { getPasswordPolicy, validatePassword } from '../utils/passwordPolicy.js';
 
+const VALID_ROLES = ['admin', 'user', 'biomed', 'auditor'];
+const ROLE_LABEL = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
+
 // ─── GET /api/users  (admin only) ─────────────────────────────────────────────
 export const getAllUsers = async (req, res) => {
   try {
@@ -43,8 +46,8 @@ export const updateUser = async (req, res) => {
       return res.status(403).json({ error: 'Access denied.' });
     }
 
-    if (req.body.role !== undefined && !['admin', 'user'].includes(req.body.role)) {
-      return res.status(400).json({ error: 'Role must be "admin" or "user".' });
+    if (req.body.role !== undefined && !VALID_ROLES.includes(req.body.role)) {
+      return res.status(400).json({ error: `Role must be one of: ${VALID_ROLES.join(', ')}.` });
     }
 
     const allowedFields = ['name', 'email', 'password'];
@@ -123,8 +126,8 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ error: 'Name, email and password are required.' });
     }
 
-    if (role && !['admin', 'user'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be "admin" or "user".' });
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Role must be one of: ${VALID_ROLES.join(', ')}.` });
     }
 
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
@@ -147,7 +150,7 @@ export const createUser = async (req, res) => {
       action: 'create_user',
       actor: { id: req.user.id, name: req.user.name, email: req.user.email },
       target: { id: newUser._id.toString(), name: newUser.name, email: newUser.email },
-      details: `Created as ${newUser.role === 'admin' ? 'Admin' : 'SOC Analyst'}`,
+      details: `Created as ${ROLE_LABEL[newUser.role] ?? newUser.role}`,
     });
 
     return res.status(201).json({ user: newUser });
@@ -166,9 +169,16 @@ export const createUser = async (req, res) => {
 // interval plus a missed beat, tight enough to read as "right now".
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 
+// role -> response bucket key. 'admins'/'analysts' are the original two keys
+// existing consumers (PresenceWidget, Wallboard's "Analysts Online" stat)
+// already read — kept exactly as-is so nothing there breaks. 'biomed'/
+// 'auditors' are new, additive keys; an unrecognized future role falls back
+// to 'analysts' rather than silently vanishing from every count.
+const ROLE_BUCKET = { admin: 'admins', user: 'analysts', biomed: 'biomed', auditor: 'auditors' };
+
 // ─── GET /api/users/presence  (any authenticated user — read-only insight) ────
 // Everyone gets the counts (that's what the Overview stat cards need). Only
-// admins get the actual roster of who's online — SOC analysts see numbers,
+// admins get the actual roster of who's online — everyone else sees numbers,
 // not their colleagues' identities.
 export const getPresenceSummary = async (req, res) => {
   try {
@@ -178,18 +188,20 @@ export const getPresenceSummary = async (req, res) => {
     const summary = {
       admins: { online: 0, total: 0 },
       analysts: { online: 0, total: 0 },
+      biomed: { online: 0, total: 0 },
+      auditors: { online: 0, total: 0 },
     };
-    const roster = { admins: [], analysts: [] };
+    const roster = { admins: [], analysts: [], biomed: [], auditors: [] };
 
     for (const u of users) {
-      const isAdmin = u.role === 'admin';
-      const bucket = isAdmin ? summary.admins : summary.analysts;
+      const bucketKey = ROLE_BUCKET[u.role] ?? 'analysts';
+      const bucket = summary[bucketKey];
       bucket.total += 1;
       const online = !!(u.lastActiveAt && u.lastActiveAt >= cutoff);
       if (online) bucket.online += 1;
 
       if (req.user.role === 'admin') {
-        (isAdmin ? roster.admins : roster.analysts).push({
+        roster[bucketKey].push({
           id: u._id.toString(),
           name: u.name,
           email: u.email,
@@ -209,6 +221,8 @@ export const getPresenceSummary = async (req, res) => {
       response.roster = {
         admins: roster.admins.sort(byRecency),
         analysts: roster.analysts.sort(byRecency),
+        biomed: roster.biomed.sort(byRecency),
+        auditors: roster.auditors.sort(byRecency),
       };
     }
 
@@ -235,7 +249,7 @@ export const deleteUser = async (req, res) => {
       action: 'delete_user',
       actor: { id: req.user.id, name: req.user.name, email: req.user.email },
       target: { id: user._id.toString(), name: user.name, email: user.email },
-      details: `Deleted ${user.role === 'admin' ? 'Admin' : 'SOC Analyst'} account`,
+      details: `Deleted ${ROLE_LABEL[user.role] ?? user.role} account`,
     });
 
     return res.status(200).json({ message: 'User deleted successfully.' });

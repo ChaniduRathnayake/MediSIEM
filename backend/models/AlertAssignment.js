@@ -20,6 +20,18 @@ const AlertAssignmentSchema = new Schema(
       id: String,
       name: String,
     },
+    // A lean snapshot of the alert's own data at assignment time — not the
+    // full EnrichedAlert (skips e.g. the 45-field flow vector), just enough
+    // to render a row. Alerts themselves live in alertPipeline.js's
+    // in-memory buffer (capped at BUFFER_SIZE), not MongoDB; without this,
+    // an assignment record outlives the alert it points to, but the UI has
+    // nothing left to join it against once the alert ages out of the
+    // buffer — the case just silently vanishes from every list that's
+    // supposed to be the durable "who's working what" record. Mixed rather
+    // than a strict sub-schema since it needs to track whatever fields
+    // alertPipeline.js's toDisplayAlert() happens to produce without a
+    // second schema to keep in sync by hand.
+    alertSnapshot: { type: Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

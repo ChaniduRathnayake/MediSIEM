@@ -7,17 +7,10 @@
 // (every case across all analysts) so the two "open cases / closed cases"
 // sections look and behave identically everywhere they appear.
 import React, { useState } from 'react';
-import { Inbox, CheckCircle2, Maximize2, ChevronRight, ChevronDown } from 'lucide-react';
+import { Inbox, CheckCircle2, Maximize2, ChevronRight, ChevronDown, Siren } from 'lucide-react';
 import type { EnrichedAlert, AlertClosure } from '../../services/alertsApi';
 import { casToSeverity } from '../../utils/chartData';
-import type { Severity } from '../../utils/chartData';
-
-const sevColor: Record<Severity, string> = {
-  CRITICAL: 'text-red-500 dark:text-red-400 bg-red-500/10 border-red-500/30',
-  HIGH: 'text-orange-500 dark:text-orange-400 bg-orange-500/10 border-orange-500/30',
-  MEDIUM: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30',
-  LOW: 'text-blue-500 dark:text-blue-400 bg-blue-500/10 border-blue-500/30',
-};
+import SeverityBadge from '../../components/SeverityBadge';
 
 const CaseTable: React.FC<{
   variant: 'open' | 'closed';
@@ -73,14 +66,24 @@ const CaseTable: React.FC<{
                   }`}
                 >
                   <td className="py-3 px-4">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sevColor[severity]}`}>{severity}</span>
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <SeverityBadge severity={severity} />
+                      {variant === 'open' && a.escalated && (
+                        <span
+                          title="CAS-critical, still unassigned, open 10+ minutes"
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide animate-pulse"
+                        >
+                          <Siren className="w-2.5 h-2.5" /> Escalated
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300 font-mono">{a.agent}</td>
                   <td className="py-3 px-4 text-sm text-slate-500 dark:text-slate-400">{a.department}</td>
                   <td className="py-3 px-4 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">
                     {a.label !== 'Unclassified' ? a.label : a.ruleDescription}
                   </td>
-                  <td className="py-3 px-4 text-xs font-mono text-slate-500 dark:text-slate-400">{a.CAS.toFixed(1)}</td>
+                  <td className="py-3 px-4 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">{a.CAS.toFixed(1)}</td>
                   {showAssignedTo && (
                     <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400">
                       {a.assignedTo?.name ?? <span className="text-slate-400 dark:text-slate-600">Unassigned</span>}
@@ -97,17 +100,17 @@ const CaseTable: React.FC<{
                       : new Date(a.timestamp).toLocaleString()}
                   </td>
                   <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <button
                         onClick={() => onDetails(a)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
+                        className="flex items-center gap-1 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
                       >
                         <Maximize2 className="w-3 h-3" /> Details
                       </button>
                       {variant === 'open' && onCloseCase && (
                         <button
                           onClick={() => onCloseCase(a)}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
                         >
                           <CheckCircle2 className="w-3 h-3" /> Close case
                         </button>

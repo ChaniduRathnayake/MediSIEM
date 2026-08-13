@@ -22,7 +22,9 @@ import StatCard from '../../components/StatCard';
 import ChartCard from '../../components/charts/ChartCard';
 import AlertsTimelineChart from '../../components/charts/AlertsTimelineChart';
 import SeverityDonutChart from '../../components/charts/SeverityDonutChart';
+import SoundToggle from '../../components/SoundToggle';
 import { casToSeverity, bucketAlertsByHour, latestTimestamp, SEVERITY_ORDER, SEVERITY_COLORS } from '../../utils/chartData';
+import { LifeCriticalBadge, MitreBadge, isLifeCriticalDevice } from '../../components/AlertBadges';
 
 const SEVERITY_ROW_CLASS: Record<string, string> = {
   CRITICAL: 'border-red-500/30 bg-red-500/5',
@@ -85,6 +87,7 @@ const WallboardContent: React.FC = () => {
               <><WifiOff className="w-3.5 h-3.5 text-red-400" /> <span className="text-red-400">Reconnecting…</span></>
             )}
           </div>
+          <SoundToggle className="!text-slate-400 hover:!text-white hover:!bg-slate-800" />
           <div className="text-right">
             <p className="text-lg font-mono font-bold tabular-nums leading-none">{now.toLocaleTimeString()}</p>
             <p className="text-[11px] text-slate-500 mt-0.5">{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
@@ -159,6 +162,12 @@ const WallboardContent: React.FC = () => {
                     <span className="text-[11px] text-slate-400 truncate">{a.agent}</span>
                     <span className="text-[10px] text-slate-500 flex-shrink-0 ml-2">{new Date(a.timestamp).toLocaleTimeString()}</span>
                   </div>
+                  {(isLifeCriticalDevice(a) || a.mitre?.id?.length) && (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      {isLifeCriticalDevice(a) && <LifeCriticalBadge />}
+                      <MitreBadge mitre={a.mitre} />
+                    </div>
+                  )}
                 </div>
               );
             })}

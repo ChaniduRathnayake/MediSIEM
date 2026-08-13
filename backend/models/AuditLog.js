@@ -10,6 +10,7 @@ const AuditLogSchema = new Schema(
         'create_user', 'update_user', 'delete_user',
         'create_device_group', 'update_device_group', 'delete_device_group',
         'update_device_groups', 'update_device_os_category',
+        'assign_alert', 'unassign_alert', 'close_alert',
       ],
     },
     actor: {

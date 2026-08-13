@@ -1,8 +1,13 @@
+// 'user' = SOC analyst (original/default role, unchanged meaning). 'biomed'
+// = biomedical engineer (device inventory access). 'auditor' = compliance/
+// audit-log read access. See backend/models/User.js for the same enum.
+export type UserRole = 'admin' | 'user' | 'biomed' | 'auditor';
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'user';
+  role: UserRole;
   createdAt?: string;
 }
 
@@ -23,7 +28,8 @@ export interface AuditLogEntry {
   action:
     | 'create_user' | 'update_user' | 'delete_user'
     | 'create_device_group' | 'update_device_group' | 'delete_device_group'
-    | 'update_device_groups' | 'update_device_os_category';
+    | 'update_device_groups' | 'update_device_os_category'
+    | 'assign_alert' | 'unassign_alert' | 'close_alert';
   actor: { id: string; name?: string; email?: string };
   target: { id?: string; name?: string; email?: string };
   details: string;

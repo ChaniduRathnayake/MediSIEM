@@ -5,7 +5,7 @@ import mongoose, { Schema } from 'mongoose';
 // evaluated against every alert as it flows through alertPipeline.js. Kept
 // deliberately simple — no OR logic, no nested groups, no scripting — so
 // evaluation stays a fixed whitelist switch, not an injection surface.
-const CONDITION_FIELDS = ['ruleDescription', 'ruleLevel', 'agent', 'department', 'CAS', 'label', 'action', 'cluster'];
+const CONDITION_FIELDS = ['ruleDescription', 'ruleLevel', 'agent', 'department', 'CAS', 'label', 'action', 'cluster', 'deviceType', 'deviceCriticality'];
 const CONDITION_OPERATORS = ['contains', 'equals', 'gte', 'lte', 'gt', 'lt'];
 
 const ConditionSchema = new Schema(

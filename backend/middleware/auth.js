@@ -49,3 +49,16 @@ export const adminOnly = (req, res, next) => {
   }
   next();
 };
+
+// ─── allowRoles: restrict route to any of the given roles ─────────────────────
+// Generalization of adminOnly for the biomed/auditor roles — e.g.
+// allowRoles('admin', 'biomed') on the medical device write routes, or
+// allowRoles('admin', 'auditor') on the audit log. Always list 'admin'
+// explicitly where it should still have access; this never implicitly
+// grants it.
+export const allowRoles = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user?.role)) {
+    return res.status(403).json({ error: `Access denied. Requires one of: ${roles.join(', ')}.` });
+  }
+  next();
+};

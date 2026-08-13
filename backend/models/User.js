@@ -25,9 +25,17 @@ const UserSchema = new Schema(
       minlength: [8, 'Password must be at least 8 characters'],
       select: false, // never returned in queries by default
     },
+    // 'user' means SOC analyst (kept as-is for backward compatibility with
+    // every existing account/check written against it — see auth.js/
+    // alerts.js's assignment restriction). 'biomed' (biomedical engineer)
+    // and 'auditor' (compliance/audit reviewer) are read-mostly roles added
+    // alongside it: neither can be assigned SOC cases (see alerts.js's
+    // `analyst.role !== 'user'` check, left untouched), each just gets a
+    // different slice of read (and, for biomed, device-inventory write)
+    // access — see middleware/auth.js's allowRoles() and its call sites.
     role: {
       type: String,
-      enum: ['admin', 'user'],
+      enum: ['admin', 'user', 'biomed', 'auditor'],
       default: 'user',
     },
     // Updated (throttled) on every authenticated request — powers the

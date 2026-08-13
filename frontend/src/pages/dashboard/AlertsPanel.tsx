@@ -19,6 +19,8 @@ import SeverityDonutChart from '../../components/charts/SeverityDonutChart';
 import AlertDetailsModal from './AlertDetailsModal';
 import { casToSeverity, severityCounts, bucketAlertsByHour, SEVERITY_ORDER, SEVERITY_COLORS } from '../../utils/chartData';
 import type { Severity } from '../../utils/chartData';
+import { LifeCriticalBadge, MitreBadge, isLifeCriticalDevice } from '../../components/AlertBadges';
+import SeverityBadge from '../../components/SeverityBadge';
 
 // ─── Department badge ──────────────────────────────────────────────────────────
 const DEPARTMENT_DOT: Record<string, string> = {
@@ -31,8 +33,8 @@ const DEPARTMENT_DOT: Record<string, string> = {
 };
 
 const DepartmentBadge: React.FC<{ department: string }> = ({ department }) => (
-  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-    <span className={`w-1.5 h-1.5 rounded-full ${DEPARTMENT_DOT[department] ?? 'bg-slate-600'}`} />
+  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${DEPARTMENT_DOT[department] ?? 'bg-slate-600'}`} />
     <span className="text-xs text-slate-600 dark:text-slate-300">{department}</span>
   </span>
 );
@@ -63,24 +65,33 @@ const isRulesOnly = (a: EnrichedAlert) => isRuleDetection(a) && !isMlDetection(a
 const isCombinedDetection = (a: EnrichedAlert) => isMlDetection(a) && isRuleDetection(a);
 
 // ─── Detection source badges ────────────────────────────────────────────────────
+// Capped at one rule badge + an overflow count instead of one pill per
+// matched rule — an alert that trips three rules doesn't need three
+// same-weight chips fighting for attention in a table cell; the count
+// still says "three rules fired", and the full list is one click away in
+// the row's own expanded detail (which already lists every matched rule).
 const DetectionBadges: React.FC<{ alert: EnrichedAlert }> = ({ alert }) => {
   const ml = isMlDetection(alert);
   const rules = alert.matchedRules ?? [];
-  if (!ml && rules.length === 0) {
-    return <span className="text-xs text-slate-400 dark:text-slate-600">—</span>;
+  if (!ml && rules.length === 0 && !alert.mitre?.id?.length) {
+    return <span className="text-xs text-slate-300 dark:text-slate-700">—</span>;
   }
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {ml && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[10px] font-medium whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-violet-600 dark:text-violet-400 text-[10px] font-semibold whitespace-nowrap" title="Real RF/Isolation Forest/K-Means classification">
           <Brain className="w-2.5 h-2.5" /> ML
         </span>
       )}
-      {rules.map((r) => (
-        <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium whitespace-nowrap" title={r.name}>
-          <ShieldAlert className="w-2.5 h-2.5" /> {r.name}
+      {rules.length > 0 && (
+        <span
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400 text-[10px] font-semibold whitespace-nowrap"
+          title={rules.map((r) => r.name).join(', ')}
+        >
+          <ShieldAlert className="w-2.5 h-2.5" /> {rules[0].name}{rules.length > 1 && ` +${rules.length - 1}`}
         </span>
-      ))}
+      )}
+      <MitreBadge mitre={alert.mitre} />
     </div>
   );
 };
@@ -196,10 +207,12 @@ const AlertsPanel: React.FC<{
     return severityCounts(openAlerts, (a) => casToSeverity(a.CAS));
   }, [openAlerts, severityTotals]);
 
+  // Same weight-drops-with-urgency logic as SeverityBadge: Immediate is the
+  // one that should stop the eye, Monitor should barely register.
   const actionColor: Record<EnrichedAlert['action'], string> = {
-    Immediate: 'text-red-500 dark:text-red-400 bg-red-500/10 border-red-500/30',
-    Investigate: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30',
-    Monitor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+    Immediate: 'bg-red-600 text-white font-bold',
+    Investigate: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-semibold',
+    Monitor: 'text-emerald-600 dark:text-emerald-500 font-medium',
   };
 
   return (
@@ -218,10 +231,10 @@ const AlertsPanel: React.FC<{
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Bell className="w-5 h-5" />} label="Total Alerts" value={String(stats.total)} sub={totalCount !== undefined ? 'All-time' : 'In current buffer'} color="cyan" />
-        <StatCard icon={<AlertTriangle className="w-5 h-5" />} label="Critical" value={String(stats.critical)} sub="CAS ≥ 8" color="red" />
-        <StatCard icon={<Zap className="w-5 h-5" />} label="Immediate Action" value={String(stats.immediate)} sub="Needs response now" color="amber" />
-        <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Average CAS" value={stats.avgCas.toFixed(1)} sub="Across all alerts" color="violet" />
+        <StatCard icon={<Bell />} label="Total Alerts" value={String(stats.total)} sub={totalCount !== undefined ? 'All-time' : 'In current buffer'} color="slate" />
+        <StatCard icon={<AlertTriangle />} label="Critical" value={String(stats.critical)} sub="CAS ≥ 8" color="red" />
+        <StatCard icon={<Zap />} label="Immediate Action" value={String(stats.immediate)} sub="Needs response now" color="red" />
+        <StatCard icon={<BarChart3 />} label="Average CAS" value={stats.avgCas.toFixed(1)} sub="Across all alerts" color="slate" />
       </div>
 
       {/* Chart header — makes this a real SIEM alerts page, not just a table */}
@@ -368,12 +381,6 @@ const AlertsPanel: React.FC<{
               <tbody>
                 {filtered.map((a) => {
                   const severity = casToSeverity(a.CAS);
-                  const sevColor: Record<Severity, string> = {
-                    CRITICAL: 'text-red-500 dark:text-red-400 bg-red-500/10 border-red-500/30',
-                    HIGH: 'text-orange-500 dark:text-orange-400 bg-orange-500/10 border-orange-500/30',
-                    MEDIUM: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30',
-                    LOW: 'text-blue-500 dark:text-blue-400 bg-blue-500/10 border-blue-500/30',
-                  };
                   const isExpanded = expandedId === a.id;
                   const assignedTo = assignedToFor(a);
                   return (
@@ -383,9 +390,14 @@ const AlertsPanel: React.FC<{
                         className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
                       >
                         <td className="py-3 px-4">
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${sevColor[severity]}`}>{severity}</span>
+                          <SeverityBadge severity={severity} />
                         </td>
-                        <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300 font-mono">{a.agent}</td>
+                        <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300 font-mono">
+                          <span className="flex items-center gap-1.5 flex-wrap">
+                            {a.agent}
+                            {isLifeCriticalDevice(a) && <LifeCriticalBadge />}
+                          </span>
+                        </td>
                         <td className="py-3 px-4"><DepartmentBadge department={a.department} /></td>
                         <td className="py-3 px-4 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">
                           {a.label !== 'Unclassified' ? a.label : a.ruleDescription}
@@ -393,27 +405,27 @@ const AlertsPanel: React.FC<{
                         <td className="py-3 px-4 text-xs text-slate-500 capitalize">{a.cluster}</td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 w-16">
+                            <div className="flex-1 bg-slate-200 dark:bg-slate-800 rounded-full h-1 w-14">
                               <div
-                                className={`h-1.5 rounded-full ${a.CAS >= 8 ? 'bg-red-500' : a.CAS >= 6 ? 'bg-orange-500' : a.CAS >= 4 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                className={`h-1 rounded-full ${a.CAS >= 8 ? 'bg-red-500' : a.CAS >= 6 ? 'bg-orange-500' : a.CAS >= 4 ? 'bg-amber-500' : 'bg-blue-500'}`}
                                 style={{ width: `${(a.CAS / 10) * 100}%` }}
                               />
                             </div>
-                            <span className="text-xs font-mono text-slate-500 dark:text-slate-400">{a.CAS.toFixed(1)}</span>
+                            <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">{a.CAS.toFixed(1)}</span>
                           </div>
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${actionColor[a.action]}`}>{a.action}</span>
+                          <span className={`inline-flex text-[11px] px-1.5 py-0.5 rounded ${actionColor[a.action]}`}>{a.action}</span>
                         </td>
                         <td className="py-3 px-4"><DetectionBadges alert={a} /></td>
-                        <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">{new Date(a.timestamp).toLocaleTimeString()}</td>
+                        <td className="py-3 px-4 text-xs text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap">{new Date(a.timestamp).toLocaleTimeString()}</td>
                         {canAssign && (
                           <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={assignedTo?.id ?? ''}
                               disabled={assigningId === a.id}
                               onChange={(e) => handleAssign(a.id, e.target.value)}
-                              className={`px-2 py-1 bg-slate-100 dark:bg-slate-800 border rounded-lg text-xs focus:outline-none focus:border-cyan-500/60 disabled:opacity-50 ${
+                              className={`px-2 py-1 bg-slate-100 dark:bg-slate-800 border rounded-md text-xs focus:outline-none focus:border-cyan-500/60 disabled:opacity-50 ${
                                 assignedTo ? 'border-cyan-500/30 text-cyan-600 dark:text-cyan-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'
                               }`}
                             >
@@ -427,7 +439,7 @@ const AlertsPanel: React.FC<{
                         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => setDetailsAlert(a)}
-                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
+                            className="flex items-center gap-1 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
                           >
                             <Maximize2 className="w-3 h-3" /> Details
                           </button>
@@ -456,6 +468,12 @@ const AlertsPanel: React.FC<{
                             </p>
                             {a.ruleLevel !== null && (
                               <p className="text-xs text-slate-500 mt-1">Wazuh rule.level: {a.ruleLevel}</p>
+                            )}
+                            {a.deviceType && (
+                              <p className="text-xs text-slate-500 mt-1">
+                                Device type: {a.deviceType}
+                                {a.deviceCriticality && ` · inventory criticality: ${a.deviceCriticality}`}
+                              </p>
                             )}
                           </td>
                         </tr>

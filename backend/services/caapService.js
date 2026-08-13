@@ -24,8 +24,15 @@
 // CAS field, and it logs a loud warning every time that happens.
 
 import { lookupDevice } from '../config/deviceInventory.js';
+import { assessExploitation } from './cveIntelService.js';
 
 const { CAAP_AI_URL = 'http://localhost:5001' } = process.env;
+
+// device criticality (MedicalDevice.criticality, admin-managed) -> a CC score
+// on the same 1-10 scale as app.py's CC_LOOKUP (see its comment: doubled from
+// the plan's 1-5 table). Used only when we have no live model response to
+// pull a real CC_score from — i.e. the CAAP AI server is unreachable.
+export const CRITICALITY_TO_CC = { critical: 10, high: 7, medium: 4, low: 2 };
 
 // The 45 flow feature names the model expects, in the CIC IoMT-2024 schema —
 // keep in sync with FEATURE_COLUMNS in ai_server/models/feature_cols.pkl
@@ -59,13 +66,18 @@ function extractFlowFeatures(alert) {
   return found > 0 ? features : null;
 }
 
-/** Wazuh rule.level (0–15) → a 1–5 TR score, used when we have no flow features. */
-function ruleLevelToTrScore(level = 0) {
-  if (level >= 12) return 5;
-  if (level >= 9) return 4;
-  if (level >= 6) return 3;
-  if (level >= 3) return 2;
-  return 1;
+/**
+ * Wazuh rule.level (0–15) → a TR score on the SAME 1-10 scale app.py's
+ * rf_to_tr_score() produces (see app.py:48 — CC/TR/TS/AE/TC were all
+ * rescaled 1-10, doubled from the plan's original 1-5 table, so CAS reaches
+ * a real 10 ceiling). Used when we have no flow features to classify.
+ */
+export function ruleLevelToTrScore(level = 0) {
+  if (level >= 12) return 10;
+  if (level >= 9) return 8;
+  if (level >= 6) return 6;
+  if (level >= 3) return 4;
+  return 2;
 }
 
 /**
@@ -75,6 +87,10 @@ async function buildPredictPayload(alert) {
   const device = await lookupDevice(alert.agent || {});
   const timestamp = alert['@timestamp'] ? new Date(alert['@timestamp']) : new Date();
   const flowFeatures = extractFlowFeatures(alert);
+  // Real "actively exploited" signal (CISA KEV) when the alert references a
+  // CVE, falling back to "does this rule carry a MITRE technique" only when
+  // there's no CVE to check against — see cveIntelService.js.
+  const exploitation = assessExploitation(alert);
 
   const baseFeatures = flowFeatures || Object.fromEntries(FLOW_FEATURE_KEYS.map((k) => [k, 0.0]));
 
@@ -83,10 +99,14 @@ async function buildPredictPayload(alert) {
     device_type: device.device_type,
     department: device.department,
     hour_of_day: timestamp.getHours(),
-    cve_known_exploited: Boolean(alert.rule?.mitre?.id?.length),
-    // stash a marker so we know downstream whether RF output is trustworthy
+    cve_known_exploited: exploitation.exploited,
+    // stash markers so we know downstream whether RF output is trustworthy,
+    // and have a real device-criticality/exploitation basis on hand if the
+    // AI server turns out to be unreachable and we have to fall back below.
     __hasFlowFeatures: Boolean(flowFeatures),
     __ruleLevel: alert.rule?.level ?? 0,
+    __criticality: device.criticality,
+    __exploitationBasis: exploitation.basis,
   };
 }
 
@@ -97,7 +117,7 @@ async function buildPredictPayload(alert) {
  */
 export async function enrichAlert(alert) {
   const payload = await buildPredictPayload(alert);
-  const { __hasFlowFeatures, __ruleLevel, ...predictBody } = payload;
+  const { __hasFlowFeatures, __ruleLevel, __criticality, __exploitationBasis, ...predictBody } = payload;
 
   try {
     const res = await fetch(`${CAAP_AI_URL}/predict`, {
@@ -131,8 +151,29 @@ export async function enrichAlert(alert) {
     return { ok: true, enrichment: prediction };
   } catch (err) {
     // CAAP server unreachable — degrade gracefully with a rule.level-only score
-    // rather than dropping the alert.
+    // rather than dropping the alert. Every dimension below is still a real
+    // signal (device inventory criticality, CISA KEV/MITRE exploitation
+    // check, rule.level) — just not the RF/IsolationForest/K-Means output.
     const tr = ruleLevelToTrScore(__ruleLevel);
+    const tsScore = 3; // no Isolation Forest anomaly signal available offline
+    const ccScore = CRITICALITY_TO_CC[__criticality] ?? 4;
+    const aeScore = payload.cve_known_exploited ? 10 : 2;
+    // Unlike TS (needs live Isolation Forest inference we don't have here),
+    // TC only ever needed a clock — matching app.py's lookup_tc() exactly
+    // (night shift = higher weight, fewer staff on duty) rather than a
+    // hardcoded placeholder that was inconsistent with the "reachable but
+    // no flow features" branch above, which gets a real TC_score from the
+    // live model. Uses the alert's own timestamp, same as buildPredictPayload().
+    const alertHour = (alert['@timestamp'] ? new Date(alert['@timestamp']) : new Date()).getHours();
+    const tcScore = (alertHour < 6 || alertHour >= 22) ? 8 : 4;
+    // Same weighted formula as the "reachable but no flow features" branch
+    // above (and app.py's compute_cas) — CAS must be the weighted blend of
+    // all five dimensions, not just TR alone, or device-agnostic low-level
+    // alerts and genuinely device-critical ones score identically and never
+    // cross the CRITICAL threshold (this previously assigned `CAS: tr`
+    // directly, silently capping every AI-outage alert at MEDIUM at best).
+    const cas =
+      0.25 * tr + 0.3 * ccScore + 0.25 * tsScore + 0.1 * aeScore + 0.1 * tcScore;
     return {
       ok: false,
       error: err.message,
@@ -140,14 +181,16 @@ export async function enrichAlert(alert) {
         label: alert.rule?.description || 'Unclassified',
         confidence: null,
         TR_score: tr,
-        TS_score: 3,
-        CC_score: 3,
-        AE_score: 1,
-        TC_score: 1,
+        TS_score: tsScore,
+        CC_score: ccScore,
+        AE_score: aeScore,
+        TC_score: tcScore,
         cluster: 'unknown',
-        CAS: tr, // best-effort estimate only
-        action: tr >= 4 ? 'Investigate' : 'Monitor',
-        explanation: `CAAP AI server unreachable (${err.message}) — showing rule.level fallback only, NOT a real ML classification.`,
+        CAS: Math.round(cas * 10) / 10,
+        action: cas >= 8 ? 'Immediate' : cas >= 5 ? 'Investigate' : 'Monitor',
+        explanation:
+          `CAAP AI server unreachable (${err.message}) — showing a rule.level + device-criticality ` +
+          `fallback (exploitation basis: ${__exploitationBasis}), NOT a real ML classification.`,
       },
     };
   }
