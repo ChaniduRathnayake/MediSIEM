@@ -4,13 +4,15 @@ const MOCK_ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', user: 'SOC A
 
 /**
  * Base URL for the backend API.
- * In development, the backend runs at http://localhost:5001.
+ * In development, the Express backend runs at http://localhost:5000
+ * (see backend/server.js's PORT default / backend/.env.example) — port 5001
+ * is the separate Python CAAP AI server, not this one.
  * Change this to your deployed backend URL in production.
  *
  * For demo/preview purposes (no backend running), the service
  * falls back to a local mock implementation below.
  */
-export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 // ─── Mock Data (used when backend is unavailable) ─────────────────────────────
 const MOCK_USERS: (User & { password: string })[] = [
@@ -96,9 +98,24 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
-export async function apiLogin(payload: LoginPayload): Promise<{ token: string; user: User }> {
+// When the account has two-factor enabled, the backend returns a short-lived
+// mfaToken instead of a real session — see AuthContext.login()/verifyMfa().
+// mfaRequired is a literal discriminant on both branches (rather than an
+// optional/absent field) so TypeScript can narrow the union cleanly.
+export type LoginResult =
+  | { mfaRequired: false; token: string; user: User }
+  | { mfaRequired: true; mfaToken: string };
+
+export async function apiLogin(payload: LoginPayload): Promise<LoginResult> {
   try {
-    return await request('/auth/login', { method: 'POST', body: JSON.stringify(payload) });
+    const result = await request<{ token?: string; user?: User; mfaRequired?: boolean; mfaToken?: string }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+    if (result.mfaRequired && result.mfaToken) {
+      return { mfaRequired: true, mfaToken: result.mfaToken };
+    }
+    return { mfaRequired: false, token: result.token!, user: result.user! };
   } catch (err: unknown) {
     if (err instanceof Error && err.message === '__USE_MOCK__') {
       // Mock fallback
@@ -107,7 +124,7 @@ export async function apiLogin(payload: LoginPayload): Promise<{ token: string; 
       );
       if (!found) throw new Error('Invalid credentials.');
       const { password: _, ...user } = found;
-      return { token: mockToken(user), user };
+      return { mfaRequired: false, token: mockToken(user), user };
     }
     throw err;
   }

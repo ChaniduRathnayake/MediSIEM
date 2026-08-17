@@ -1,28 +1,10 @@
-"""
-=============================================================
-  CAAP IoMT IDS — TESTING / INFERENCE SCRIPT v6
-  Loads saved models and evaluates on all test pcap CSVs.
-  Also simulates the Flask POST /predict response.
-
-  ► Requires models/ to be populated by train.py first.
-  ► Requires data/test/*.pcap.csv  (individual attack files)
-
-  Labels are derived from filenames — same mapping as train.py.
-  CAS scoring uses real Dst Port + Protocol from each packet row.
-
-  ── v6 CHANGE ─────────────────────────────────────────────────────────────
-  Isolation Forest (loaded from models/isolation_forest.pkl) was trained by
-  train.py v6 on Benign-only rows (one-class anomaly detection), not the
-  full mixed training set. This script now reports IF's benign-vs-attack
-  separation explicitly (False Positive Rate / Attack Detection Rate) so
-  that its behaviour as an independent normal-traffic baseline is visible,
-  in addition to the existing RF classification metrics.
-  ─────────────────────────────────────────────────────────────────────────
-
-  Author : R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
-  Usage  : python test.py
-=============================================================
-"""
+# Loads saved models (from train.py) and evaluates on all data/test/*.pcap.csv
+# files, also simulating the Flask POST /predict response. Labels derived from
+# filenames, same mapping as train.py. Reports Isolation Forest's benign-vs-
+# attack separation (FPR/detection rate) explicitly since it's trained one-class
+# on Benign-only rows, alongside the usual RF classification metrics.
+# Author: R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
+# Usage: python test.py
 
 import os, sys, re, json, glob, warnings, datetime
 import joblib
@@ -38,7 +20,9 @@ warnings.filterwarnings("ignore")
 TEST_DIR   = "data/test"
 MODEL_DIR  = "models"
 
-CLUSTER_LABELS = {0: "active", 1: "idle"}
+# See train.py's CLUSTER_LABELS comment — verified against the fitted
+# kmeans.pkl centroids, must match src/app.py exactly. Previously inverted.
+CLUSTER_LABELS = {0: "idle", 1: "active"}
 
 # IP protocol number → string (for CAS engine lookup)
 PROTO_MAP = {6: "tcp", 17: "udp", 1: "icmp", 2: "igmp"}

@@ -1,16 +1,11 @@
-// frontend/src/pages/dashboard/CompliancePanel.tsx
-// "Compliances" tab: HIPAA / GDPR / CIS alignment per device.
-//
-// CIS is a real Wazuh SCA benchmark scan (pass/fail/invalid per check).
-// HIPAA/GDPR are derived from alert history: Wazuh's ruleset tags rules with
-// the regulatory controls they map to (rule.hipaa / rule.gdpr), so "violated"
-// means an alert fired against a control in the selected window, and
-// "compliant" means no alert fired against it — NOT a certified audit. The
-// UI says so explicitly wherever these numbers are shown.
+// "Compliances" tab: HIPAA/GDPR/CIS alignment per device. CIS is a real Wazuh
+// SCA benchmark scan; HIPAA/GDPR are derived from alert history (Wazuh's
+// ruleset tags rules with the controls they map to) — not a certified audit,
+// and the UI says so explicitly wherever these numbers are shown.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ShieldCheck, Globe, ClipboardCheck, Loader2, AlertCircle, Info, X,
-  CheckCircle, XCircle, AlertTriangle, Search, MinusCircle,
+  CheckCircle, XCircle, AlertTriangle, Search, MinusCircle, Download, Printer,
 } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
 import {
@@ -21,6 +16,7 @@ import {
   hasIndexerConfig, getComplianceSummary, getComplianceAgentDetail,
   ComplianceFramework, ComplianceSummary, ComplianceAgentDetail,
 } from './complianceApi';
+import { downloadCsv } from '../../utils/csv';
 
 export type FrameworkTab = 'hipaa' | 'gdpr' | 'cis';
 
@@ -164,7 +160,7 @@ const ComplianceDetailModal: React.FC<{
               {framework === 'cis' ? 'CIS benchmark check results' : `Alert exposure over the last ${days} days`}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -392,6 +388,42 @@ const CompliancePanel: React.FC<{ framework: FrameworkTab }> = ({ framework }) =
     [alertSummary]
   );
 
+  // Same rows the summary table renders — built from data already loaded
+  // client-side, same "everything's already in memory" precondition
+  // AdminCasesPanel's CSV export relies on (see utils/csv.ts).
+  const handleExportCsv = () => {
+    const label = FRAMEWORK_META[framework].label;
+    const headers = framework === 'cis'
+      ? ['Status', 'Name', 'OS', 'CIS score (%)', 'Passed', 'Failed']
+      : ['Status', 'Name', 'OS', `${label} controls flagged`];
+    const rows = agents.map((ag) => {
+      const normalized = normalizeAgentStatus(ag.status);
+      if (framework === 'cis') {
+        const sca = scaByAgent.get(ag.id);
+        return [normalized, ag.name, formatOs(ag.os), sca?.score ?? '', sca?.pass ?? '', sca?.fail ?? ''];
+      }
+      const alertRow = alertByAgent.get(ag.id);
+      const violated = alertRow?.violatedControls.length ?? 0;
+      return [normalized, ag.name, formatOs(ag.os), violated];
+    });
+    const suffix = framework === 'cis' ? '' : `-${days}d`;
+    downloadCsv(`medisiem-${framework}-compliance${suffix}-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+  };
+
+  // "Save as PDF" is the browser's own print dialog (AdminDashboard's
+  // sidebar/header are hidden at print time via the .no-print rule in
+  // index.css) — force light mode for the print snapshot first, since
+  // Tailwind's dark: utilities would otherwise render white-on-white text
+  // against a printed page (window.print() blocks until the dialog closes,
+  // so restoring the class right after is safe).
+  const handlePrint = () => {
+    const root = document.documentElement;
+    const wasDark = root.classList.contains('dark');
+    if (wasDark) root.classList.remove('dark');
+    window.print();
+    if (wasDark) root.classList.add('dark');
+  };
+
   if (!config) {
     return (
       <div className="p-5">
@@ -421,21 +453,41 @@ const CompliancePanel: React.FC<{ framework: FrameworkTab }> = ({ framework }) =
           </h2>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{FRAMEWORK_META[framework].description}</p>
         </div>
-        {framework !== 'cis' && (
-          <div className="flex items-center gap-1.5">
-            {[7, 30, 90].map((d) => (
+        <div className="no-print flex items-center gap-1.5 flex-wrap">
+          {framework !== 'cis' && (
+            <div className="flex items-center gap-1.5">
+              {[7, 30, 90].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDays(d)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    days === d ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          )}
+          {agents.length > 0 && (
+            <div className="flex items-center gap-1.5 pl-1.5 ml-1 border-l border-slate-200 dark:border-slate-800">
               <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  days === d ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
-                }`}
+                onClick={handleExportCsv}
+                title="Export the summary table as CSV"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors"
               >
-                {d}d
+                <Download className="w-3.5 h-3.5" /> CSV
               </button>
-            ))}
-          </div>
-        )}
+              <button
+                onClick={handlePrint}
+                title="Save this report as a PDF via your browser's print dialog"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors"
+              >
+                <Printer className="w-3.5 h-3.5" /> Save as PDF
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {needsIndexer ? (
@@ -475,7 +527,6 @@ const CompliancePanel: React.FC<{ framework: FrameworkTab }> = ({ framework }) =
                   const normalized = normalizeAgentStatus(ag.status);
                   const sca = scaByAgent.get(ag.id);
                   const alertRow = alertByAgent.get(ag.id);
-                  const observed = alertSummary?.observedControls.length ?? 0;
                   const violated = alertRow?.violatedControls.length ?? 0;
 
                   return (
@@ -504,11 +555,11 @@ const CompliancePanel: React.FC<{ framework: FrameworkTab }> = ({ framework }) =
                           )
                         ) : violated === 0 ? (
                           <span className="flex items-center gap-1.5 text-emerald-400">
-                            <CheckCircle className="w-3.5 h-3.5" /> No violations {observed > 0 ? `(0 of ${observed})` : ''}
+                            <CheckCircle className="w-3.5 h-3.5" /> No violations
                           </span>
                         ) : (
                           <span className="flex items-center gap-1.5 text-red-400">
-                            <AlertTriangle className="w-3.5 h-3.5" /> {violated} of {observed} controls flagged
+                            <AlertTriangle className="w-3.5 h-3.5" /> {violated} control{violated === 1 ? '' : 's'} flagged
                           </span>
                         )}
                       </td>

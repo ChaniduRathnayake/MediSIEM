@@ -1,12 +1,5 @@
-/**
- * In-memory user store (replace with a real DB like MongoDB/PostgreSQL).
- * Passwords are bcrypt hashed – plain-text equivalents shown in comments.
- *
- * Default credentials
- * ─────────────────────────────────────────────────
- *  Admin  →  admin@medisiem.com   / Admin@1234
- *  User   →  user@medisiem.com    / User@1234
- */
+// In-memory user store — passwords bcrypt hashed, plain-text shown in comments.
+// Default credentials: admin@medisiem.com/Admin@1234, user@medisiem.com/User@1234
 import bcrypt from 'bcryptjs';
 
 const hashSync = (pw) => bcrypt.hashSync(pw, 10);

@@ -1,9 +1,12 @@
 import { BASE_URL } from './api';
 
-export type RuleField = 'ruleDescription' | 'ruleLevel' | 'agent' | 'department' | 'CAS' | 'label' | 'action' | 'cluster';
+// Matches backend/models/DetectionRule.js's CONDITION_FIELDS exactly — that
+// model is the source of truth (Mongoose enum validation rejects anything
+// else), and the AI rule-drafting assistant is allowed to use the full list.
+export type RuleField = 'ruleDescription' | 'ruleLevel' | 'agent' | 'department' | 'CAS' | 'label' | 'action' | 'cluster' | 'deviceType' | 'deviceCriticality';
 export type RuleOperator = 'contains' | 'equals' | 'gte' | 'lte' | 'gt' | 'lt';
 
-export const RULE_FIELDS: RuleField[] = ['ruleDescription', 'ruleLevel', 'agent', 'department', 'CAS', 'label', 'action', 'cluster'];
+export const RULE_FIELDS: RuleField[] = ['ruleDescription', 'ruleLevel', 'agent', 'department', 'CAS', 'label', 'action', 'cluster', 'deviceType', 'deviceCriticality'];
 export const RULE_OPERATORS: RuleOperator[] = ['contains', 'equals', 'gte', 'lte', 'gt', 'lt'];
 
 // Fields that only make sense with numeric comparison operators — the
@@ -55,3 +58,12 @@ export const apiDeleteRule = (token: string, id: string) =>
 
 export const apiSeedSampleRules = (token: string) =>
   request<{ inserted: number; skipped: number }>('/rules/seed-samples', token, { method: 'POST' });
+
+// ─── AI-drafted rule (backend/services/aiAssistantService.js) ─────────────────────
+export interface AiRuleDraft {
+  name: string;
+  description: string;
+  conditions: RuleCondition[];
+}
+export const apiDraftRule = (token: string, prompt: string) =>
+  request<{ draft: AiRuleDraft }>('/rules/draft', token, { method: 'POST', body: JSON.stringify({ prompt }) });

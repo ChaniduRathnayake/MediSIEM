@@ -1,33 +1,10 @@
-"""
-=============================================================
-  CAAP — Clinical Alert Score (CAS) Engine  v2.0
-  Formula: CAS = 0.25·TR + 0.30·CC + 0.25·TS + 0.10·AE + 0.10·TC
-
-  Clinical Criticality (CC) SOURCE — OFFICIAL DOCUMENTS:
-  ─────────────────────────────────────────────────────────
-  [1] U.S. FDA. 21 CFR Part 860 — Medical Device Classification
-      Procedures (up to date as of 05/06/2026). eCFR.
-      § 860.3 Definitions:
-        • Class III = "life-supporting or life-sustaining … substantial
-          importance in preventing impairment of human health"  → CC 5
-        • Class II  = special controls required, moderate risk         → CC 3–4
-        • Class I   = general controls sufficient, lowest risk         → CC 1–2
-
-  [2] U.S. FDA. (2023). Cybersecurity in Medical Devices: Quality System
-      Considerations and Content of Premarket Submissions (Final Guidance,
-      September 27 2023 — webinar transcript November 2 2023).
-      FDA CDRH. https://www.fda.gov/media/173984/download
-      § General Principle: "cybersecurity documentation is expected to
-        scale with cybersecurity risks of the device" — i.e. risk-based,
-        device-class-aware scoring is required.
-
-  CC scores (1–5) are derived ENTIRELY from these two official sources.
-  No synthetic data is added to the CIC IoMT 2024 dataset.
-  All CC values are computed at inference time via port/protocol lookup.
-
-  Author : R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
-=============================================================
-"""
+# Clinical Alert Score (CAS) engine. Formula: CAS = 2 x (0.25*TR + 0.30*CC +
+# 0.25*TS + 0.10*AE + 0.10*TC), dimension inputs 1-5, doubled to the 0-10 range
+# the rest of the system uses (CAS >= 8 = Immediate).
+# CC (1-5) is derived from FDA 21 CFR Part 860 device-class definitions (Class
+# III=5, II=3-4, I=1-2) and FDA's 2023 medical-device-cybersecurity guidance
+# (risk-based, class-aware scoring) via port/protocol lookup at inference time.
+# Author: R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
 
 # ── DIMENSION WEIGHTS ─────────────────────────────────────────────────────────
 WEIGHTS = {
@@ -110,6 +87,7 @@ DEVICE_PROFILES = {
     (4044, "tcp"):  {"device_name": "Therapeutic Hypothermia System",     "fda_class": "III", "cc": 5, "patient_dep": 1, "dept": "ICU / Cardiac Surgery",     "notes": "FDA Class III — temperature management post-cardiac arrest"},
     (4059, "tcp"):  {"device_name": "Blood Bank / Transfusion Management","fda_class": "III", "cc": 5, "patient_dep": 1, "dept": "Blood Bank / Haematology",  "notes": "FDA Class III — ABO incompatibility error = fatal transfusion reaction"},
     (4060, "tcp"):  {"device_name": "Oncology Infusion Management",       "fda_class": "III", "cc": 5, "patient_dep": 1, "dept": "Oncology",                  "notes": "FDA Class III — chemotherapy overdose is lethal"},
+    (4033, "tcp"):  {"device_name": "Cochlear Implant Programmer",        "fda_class": "III", "cc": 5, "patient_dep": 1, "dept": "ENT / Audiology",           "notes": "FDA Class III implant; reprogramming affects hearing function"},
 
     # ── FDA Class II — High Clinical Impact ── CC = 4 ────────────────────────
     (4002, "tcp"):  {"device_name": "Bedside Patient Monitor (Multiparameter)","fda_class":"II","cc":4,"patient_dep": 1, "dept": "ICU / General Ward",        "notes": "FDA Class II; alarm failure conceals life-threatening deterioration"},
@@ -124,7 +102,6 @@ DEVICE_PROFILES = {
     (4023, "tcp"):  {"device_name": "Automated Drug Dispensing Cabinet",  "fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "Pharmacy / ICU",            "notes": "FDA Class II; wrong drug dispensed = medication error"},
     (4025, "tcp"):  {"device_name": "Vital Signs Telemetry Transmitter",  "fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "General Ward / Step-Down",  "notes": "FDA Class II; wireless vital signs — missed alarm"},
     (4028, "tcp"):  {"device_name": "Nurse Call / Emergency Alert System","fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "All Wards",                  "notes": "FDA Class II; disruption delays emergency response"},
-    (4033, "tcp"):  {"device_name": "Cochlear Implant Programmer",        "fda_class": "III", "cc": 4, "patient_dep": 1, "dept": "ENT / Audiology",           "notes": "FDA Class III implant; reprogramming affects hearing function"},
     (4036, "tcp"):  {"device_name": "EEG Monitor / Seizure Detection",    "fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "Neurology / ICU",           "notes": "FDA Class II; seizure detection failure in ICU is life-threatening"},
     (4038, "tcp"):  {"device_name": "Central Patient Monitoring Station", "fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "ICU / Step-Down",           "notes": "FDA Class II; central hub — single point of failure for ward monitoring"},
     (4039, "tcp"):  {"device_name": "Clinical Alarm Management System",   "fda_class": "II",  "cc": 4, "patient_dep": 1, "dept": "ICU / All Wards",           "notes": "FDA Class II; disruption silences critical alerts"},

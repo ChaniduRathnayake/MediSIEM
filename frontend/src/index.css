@@ -96,3 +96,24 @@ html.dark {
   background-size: 400% 100%;
   animation: shimmer 1.8s linear infinite;
 }
+
+/* Compact row density for high-alert-volume shifts (AlertsPanel.tsx) — more
+   rows on screen at once, at the cost of some breathing room. A plain class
+   toggle on the table's wrapper rather than conditional Tailwind classes on
+   every <td>/<th>, since this table has ~10 of them and they'd otherwise
+   all need their own compact/comfortable variant threaded through. */
+.density-compact td,
+.density-compact th {
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+/* "Save as PDF" for report-style panels (e.g. Compliance) is just the
+   browser's print dialog with the dashboard chrome hidden — see
+   AdminDashboard.tsx's <aside>/<header>, and any panel-local
+   filter/action row that shouldn't end up on the printed page. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

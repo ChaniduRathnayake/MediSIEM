@@ -1,17 +1,8 @@
-// frontend/src/utils/csv.ts
-// Minimal client-side CSV export — no backend round-trip needed since every
-// caller already has the rows loaded (closed cases, compliance rollups,
-// ...). RFC 4180 quoting: wrap a field in double quotes and double up any
-// embedded quote whenever it contains a comma, quote, or newline — reason/
-// evidence text on a closed case is free-form and routinely contains all
-// three, so getting this right matters more here than in a typical export.
-// Fields starting with =, +, -, @, tab, or CR are interpreted as formulas by
-// Excel/LibreOffice/Google Sheets on open — a real, well-documented
-// vulnerability class ("CSV injection") whenever a field can contain text
-// from a lower-privileged source. Reason/evidence here are free-form text
-// written by whichever SOC analyst closed the case, opened later by an
-// admin/auditor, so every field is defused the same way: a leading `'`
-// forces spreadsheet apps to render it as literal text.
+// Minimal client-side CSV export — every caller already has the rows loaded.
+// RFC 4180 quoting for fields containing a comma/quote/newline. Fields
+// starting with =, +, -, @, tab, or CR are defused with a leading `'` against
+// CSV injection (Excel/Sheets treat them as formulas otherwise), since
+// reason/evidence text is free-form and analyst-written.
 const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
 
 function escapeCsvField(value: unknown): string {

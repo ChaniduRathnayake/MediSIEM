@@ -1,8 +1,5 @@
-// backend/routes/wazuh.js
-// Proxies calls to Wazuh REST API using the raw JWT auth pattern:
-//   curl -k -u wazuh-wui:'MyS3cr37P450r.*-' \
-//     https://192.168.52.129:55000/security/user/authenticate?raw=true
-// The ?raw=true flag returns a plain JWT string (not JSON).
+// Proxies calls to the Wazuh REST API. Auth uses ?raw=true on
+// /security/user/authenticate, which returns a plain JWT string, not JSON.
 
 import express from 'express';
 import https   from 'https';

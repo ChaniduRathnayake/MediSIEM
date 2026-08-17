@@ -1,13 +1,8 @@
-"""
-eval_utils.py — shared loading/scoring helpers for 05_evaluation.ipynb (Phase 9).
-
-Deliberately NOT importing train.py (it's a top-level script that re-trains and
-overwrites models/ as a side effect of import) or test.py — this module only
-LOADS the already-trained artifacts in models/ and reuses the same evaluation
-conventions train.py established (filename→label mapping, purity/IF-accuracy
-definitions), copied here as small pure functions so evaluation never risks
-mutating the production model files.
-"""
+# Shared loading/scoring helpers for 05_evaluation.ipynb. Deliberately not
+# importing train.py (re-trains and overwrites models/ as an import side
+# effect) — only loads already-trained artifacts, with the same eval
+# conventions (filename->label mapping, purity/IF-accuracy) copied here as
+# pure functions so evaluation can't mutate the production model files.
 import glob
 import os
 import re
@@ -105,8 +100,24 @@ def load_iomt_test_set() -> pd.DataFrame:
 def prepare_features(df: pd.DataFrame, feature_cols: list, scaler) -> np.ndarray:
     """Select the exact trained feature columns (order matters), coerce numeric,
     and apply the ALREADY-FITTED scaler (never refit — refitting here would
-    silently invalidate every saved model's decision boundary)."""
-    X_raw = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).values.astype(np.float64)
+    silently invalidate every saved model's decision boundary).
+
+    train.py/test.py drop any row with a non-numeric feature value instead of
+    fillna(0.0)-ing it; this function can't safely do the same, because its
+    one caller (hospital_scenarios.py's build_scenario()) aligns this
+    function's output back to the input `df` by positional index — dropping
+    rows here without also filtering the caller's `rows`/`tiers`/`shifts` in
+    lockstep would silently misalign ground-truth labels against predictions,
+    which is worse than a zero-filled outlier. Surfacing the count instead so
+    a divergence from train.py's dropna() is visible rather than silent.
+    """
+    coerced = df[feature_cols].apply(pd.to_numeric, errors="coerce")
+    n_bad = int(coerced.isna().sum().sum())
+    if n_bad:
+        print(f"[prepare_features] WARNING: {n_bad} non-numeric feature value(s) across "
+              f"{int(coerced.isna().any(axis=1).sum())} row(s) coerced to 0.0 instead of dropped "
+              f"(train.py/test.py would drop these rows) — evaluation metrics may be skewed.")
+    X_raw = coerced.fillna(0.0).values.astype(np.float64)
     return scaler.transform(X_raw)
 
 

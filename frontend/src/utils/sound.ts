@@ -1,13 +1,6 @@
-// Short two-tone alert beep via the Web Audio API — no binary asset to
-// source, license, or bundle. A single shared AudioContext is reused (and
-// lazily created on first use, since browsers block audio until a user
-// gesture has happened somewhere on the page — true for the admin/user
-// dashboards, where login is itself a gesture, but NOT for the wallboard:
-// that's a kiosk tab meant to be opened cold on a wall-mounted monitor with
-// nobody there to click anything, so the context can be created already
-// "unlocked" from a prior page yet still sit permanently `suspended` here.
-// Resume it opportunistically on ANY interaction the page does get, so a
-// single stray click/keypress is enough to unlock every beep after it.
+// Alert beep via the Web Audio API. Browsers block audio until a user gesture happens —
+// true at login, but not for the wallboard kiosk tab — so resume opportunistically on any
+// interaction, so a single stray click/keypress unlocks every beep after it.
 let ctx: AudioContext | null = null;
 let unlockListenersAttached = false;
 
@@ -60,7 +53,18 @@ export function playAlertSound(): void {
     beep(audioCtx, 880, now, 0.12, 0.15);
     beep(audioCtx, 1174.66, now + 0.12, 0.16, 0.15);
   } catch {
-    // Autoplay/policy restrictions or an unsupported browser — a missed
-    // beep is never worth surfacing as an error to the user.
+    // A missed beep is never worth surfacing as an error.
+  }
+}
+
+// A lower, quieter tone for HIGH (not CRITICAL) alerts — distinct by ear from playAlertSound().
+export function playSecondaryAlertSound(): void {
+  const audioCtx = getContext();
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') attemptResume();
+  try {
+    beep(audioCtx, 587.33, audioCtx.currentTime, 0.14, 0.09);
+  } catch {
+    // See playAlertSound()'s catch.
   }
 }

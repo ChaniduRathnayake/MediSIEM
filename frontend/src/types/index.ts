@@ -8,6 +8,14 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  mfaEnabled?: boolean;
+  // True when Settings → Integrations' "Require two-factor authentication
+  // for admin accounts" is on and this admin hasn't enrolled yet — the
+  // dashboard shows a persistent (non-blocking) prompt until they do.
+  mfaSetupRequired?: boolean;
+  // Set by an admin from the Users tab (non-admin targets only) — forces
+  // mfaSetupRequired true until this user enrolls.
+  mfaRequiredByAdmin?: boolean;
   createdAt?: string;
 }
 
@@ -29,7 +37,12 @@ export interface AuditLogEntry {
     | 'create_user' | 'update_user' | 'delete_user'
     | 'create_device_group' | 'update_device_group' | 'delete_device_group'
     | 'update_device_groups' | 'update_device_os_category'
-    | 'assign_alert' | 'unassign_alert' | 'close_alert';
+    | 'assign_alert' | 'unassign_alert' | 'close_alert'
+    | 'onboard_medical_device' | 'update_medical_device'
+    | 'update_medical_device_groups' | 'delete_medical_device'
+    | 'update_settings' | 'enable_mfa' | 'disable_mfa' | 'reset_password'
+    | 'add_alert_note' | 'snooze_alert' | 'unsnooze_alert'
+    | 'require_mfa' | 'unrequire_mfa' | 'admin_reset_mfa';
   actor: { id: string; name?: string; email?: string };
   target: { id?: string; name?: string; email?: string };
   details: string;

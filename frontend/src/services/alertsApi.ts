@@ -36,6 +36,11 @@ export interface EnrichedAlert {
   deviceCriticality?: string;
   ruleDescription: string;
   ruleLevel: number | null;
+  // Repeats of the same rule+device+source within a short window are folded
+  // into the original occurrence instead of appearing as separate rows —
+  // see DEDUP_WINDOW_MS in backend/services/alertPipeline.js. 1 (or absent,
+  // for alerts from before this existed) means no repeats were folded in.
+  duplicateCount?: number;
   // Present when Wazuh's ruleset tags this rule with a MITRE ATT&CK mapping.
   mitre?: { id: string[]; tactic: string[]; technique: string[] } | null;
   label: string;
@@ -48,7 +53,16 @@ export interface EnrichedAlert {
   cluster: string;
   CAS: number;
   action: 'Immediate' | 'Investigate' | 'Monitor';
+  // Plain-text SHAP summary — always present when there's a real RF
+  // classification behind this alert; a rule.level/AI-unreachable fallback
+  // (see caapService.js) sets it to a disclaimer sentence instead.
   explanation: string;
+  // Structured form of the same explanation (feature/value/direction, top-3
+  // by |value|) — present only alongside a real SHAP result; the two
+  // fallback paths in caapService.js that have no real SHAP explicitly
+  // strip this field, so its absence means "render the plain-text
+  // explanation above", not "still loading".
+  shap_top_features?: { feature: string; value: number; direction: 'increases' | 'decreases' }[];
   assignedTo?: AssignedAnalyst | null;
   // true when this is CAS-CRITICAL, still unassigned/open, and has sat that
   // way for 10+ minutes — see ESCALATION_THRESHOLD_MS in routes/alerts.js.
@@ -63,10 +77,35 @@ export interface EnrichedAlert {
   // Only present for alerts scored from a real captured network flow
   // (ml-pipeline/flow_consumer.py) — absent for replayed/simulated rows.
   src_ip?: string;
+  // AbuseIPDB's 0-100 "confidence of abuse" score for src_ip (see
+  // backend/services/ipReputationService.js) — already factored into
+  // AE_score, surfaced here too so the analyst can see the raw signal
+  // instead of just its effect on a composite number. Absent when there's
+  // no src_ip, no AbuseIPDB key configured, or the IP is a private range.
+  ipReputationScore?: number | null;
   // The full 45-column CICIoT2023 feature vector this alert was scored from —
   // same fields ai_server/src/app.py's FEATURE_COLUMNS lists. Not typed field
   // by field since it's a pass-through of whatever the model actually used.
   flow?: Record<string, number | string>;
+  // Present while the case is snoozed (hidden from the active queue) — see
+  // PATCH /api/alerts/:id/snooze. Absent/null once snoozedUntil passes or
+  // it's explicitly unsnoozed.
+  snoozed?: AlertSnoozeInfo | null;
+}
+
+export interface AlertSnoozeInfo {
+  snoozedUntil: string;
+  reason: string;
+  snoozedBy: { id: string; name: string; email: string };
+}
+
+export interface AlertNote {
+  id: string;
+  alertId: string;
+  author: { id: string; name: string; email: string };
+  text: string;
+  mentions: string[];
+  createdAt: string;
 }
 
 export interface AlertStats {
@@ -101,6 +140,32 @@ export async function apiAssignAlert(
   return json;
 }
 
+// Server-streamed CSV (see backend/routes/alerts.js's training-feedback-export
+// route) rather than client-built via utils/csv.ts, since the rows come from
+// AlertClosure documents the browser never loads in bulk — returns a Blob for
+// the caller to trigger a download from, same as any other authenticated file
+// fetch (the endpoint needs the bearer token, so a plain <a href> won't work).
+export async function apiExportTrainingFeedback(token: string): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}/alerts/training-feedback-export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(json.error || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
+export async function apiTriageAlert(token: string, alertId: string): Promise<{ explanation: string }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/triage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'AI triage assistant request failed');
+  return json;
+}
+
 export async function apiCloseAlert(
   token: string,
   alertId: string,
@@ -115,5 +180,148 @@ export async function apiCloseAlert(
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || 'Failed to close case');
+  return json;
+}
+
+export async function apiGetAlertNotes(token: string, alertId: string): Promise<{ notes: AlertNote[] }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/notes`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to load notes');
+  return json;
+}
+
+export async function apiAddAlertNote(token: string, alertId: string, text: string): Promise<{ note: AlertNote }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to add note');
+  return json;
+}
+
+// Pass minutes: null to unsnooze.
+export async function apiSnoozeAlert(
+  token: string,
+  alertId: string,
+  minutes: number | null,
+  reason?: string
+): Promise<{ snoozed: AlertSnoozeInfo | null }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/snooze`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ minutes, reason }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to snooze alert');
+  return json;
+}
+
+export interface MyAlertStats {
+  totalClosed: number;
+  closedThisWeek: number;
+  verdictCounts: { true_positive: number; false_positive: number; benign: number; uncertain: number; unset: number };
+  avgResolutionMinutes: number | null;
+}
+
+export async function apiGetMyStats(token: string): Promise<MyAlertStats> {
+  const res = await fetch(`${BASE_URL}/alerts/my-stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to load stats');
+  return json;
+}
+
+// A closed case as returned by the permanent AlertClosure record — same
+// shape GET /my-history reconstructs from alertSnapshot, distinct from
+// EnrichedAlert since a case this old may have long since aged out of the
+// live buffer (see routes/alerts.js's reconstruction logic on GET /).
+export interface MyHistoryClosure extends AlertClosure {
+  alertId: string;
+  alertSnapshot: {
+    timestamp: string;
+    agent: string;
+    department: string;
+    ruleDescription: string;
+    label: string;
+    CAS: number;
+  } | null;
+}
+
+export interface MyCaseHistoryOptions {
+  search?: string;
+  from?: string; // ISO date
+  to?: string; // ISO date
+  limit?: number;
+}
+
+// ─── AI assistant (backend/services/aiAssistantService.js) ────────────────────
+export interface CloseDraft {
+  verdict: AlertVerdict;
+  reason: string;
+  evidence: string;
+}
+
+export async function apiDraftCloseReason(token: string, alertId: string): Promise<{ draft: CloseDraft }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/draft-close`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'AI assistant request failed');
+  return json;
+}
+
+export async function apiSummarizeNotes(token: string, alertId: string): Promise<{ summary: string }> {
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}/summarize-notes`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'AI assistant request failed');
+  return json;
+}
+
+// Same shape as AlertsPanel's internal AlertsPanelFilters — the AI maps
+// free text onto exactly those dimensions, so the result can be fed
+// straight into applyFilters().
+export interface ParsedAlertQuery {
+  severityFilter: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'all';
+  departmentFilter: string;
+  actionFilter: 'Immediate' | 'Investigate' | 'Monitor' | 'all';
+  detectionFilter: 'all' | 'ml' | 'rules' | 'combined';
+  sortBy: 'cas' | 'time';
+  search: string;
+}
+
+export async function apiParseAlertQuery(token: string, prompt: string, departments: string[]): Promise<{ filters: ParsedAlertQuery }> {
+  const res = await fetch(`${BASE_URL}/alerts/parse-query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ prompt, departments }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'AI assistant request failed');
+  return json;
+}
+
+export async function apiGetMyCaseHistory(token: string, opts: MyCaseHistoryOptions | string): Promise<{ closures: MyHistoryClosure[] }> {
+  // Accepts a bare search string too — every existing call site (the
+  // Closed Cases search box in MyAlertsPanel.tsx) passes just a string.
+  const o: MyCaseHistoryOptions = typeof opts === 'string' ? { search: opts } : opts;
+  const params = new URLSearchParams();
+  if (o.search) params.set('search', o.search);
+  if (o.from) params.set('from', o.from);
+  if (o.to) params.set('to', o.to);
+  if (o.limit) params.set('limit', String(o.limit));
+  const res = await fetch(`${BASE_URL}/alerts/my-history?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to search case history');
   return json;
 }

@@ -1,29 +1,10 @@
-"""
-flow_consumer.py — the real CAAP live-enrichment loop.
-
-Watches CICFlowMeter's live flow-output CSV(s) for new rows, sends each one
-to the CAAP Flask AI server (real Random Forest + Isolation Forest + K-Means,
-no rule-based shortcuts), and indexes the enriched result into the OpenSearch
-/ Elasticsearch "caap-alerts" index — exactly the target your work plan's
-Phase 7 already specifies. The Node backend you already have polls that same
-index and pushes to the dashboard over Socket.IO.
-
-Why no column renaming: train.py/test.py build feature_cols.pkl directly from
-whatever numeric columns exist in your pcap CSVs (CICFlowMeter's own headers,
-whitespace-stripped). As long as the CICFlowMeter version here matches what
-built your dataset, the live column names already line up — app.py's
-to_feature_frame() does payload.get(col, 0.0) per column, so extra/missing
-keys are handled gracefully. Verify alignment once at startup by comparing
-the printed columns below against Flask's own startup log
-("[CAAP] Feature columns: ...").
-
-Requires:
-    pip install pandas requests watchdog
-
-Usage:
-    python flow_consumer.py --flow-dir ./cicflowmeter_output --caap-url http://localhost:5001 \
-        --indexer-url https://localhost:9200 --indexer-user admin --indexer-pass changeme
-"""
+# The live CAAP enrichment loop: watches CICFlowMeter's flow-output CSVs for
+# new rows, sends each to the CAAP Flask AI server (real RF + IF + K-Means),
+# and indexes the result into OpenSearch's "caap-alerts" index — the Node
+# backend polls that index and pushes to the dashboard over Socket.IO.
+# Requires: pip install pandas requests watchdog
+# Usage: python flow_consumer.py --flow-dir ./cicflowmeter_output --caap-url http://localhost:5001 \
+#     --indexer-url https://localhost:9200 --indexer-user admin --indexer-pass changeme
 
 import argparse
 import json

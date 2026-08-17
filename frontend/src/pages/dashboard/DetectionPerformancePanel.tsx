@@ -1,17 +1,15 @@
-// frontend/src/pages/dashboard/DetectionPerformancePanel.tsx
-// Live analog of the offline evaluation in ai_server/src/hospital_scenarios.py
-// (alert_ranking_accuracy / mean_time_to_critical / false_positive_rate_top_n)
-// — same rank-based definitions, computed against the current live alert
-// buffer via GET /api/detection-performance instead of the labeled synthetic
-// scenario dataset. See detectionMetrics.js for the exact methodology.
+// Live analog of the offline evaluation in hospital_scenarios.py, computed
+// against the live alert buffer via GET /api/detection-performance — see
+// backend/services/detectionMetrics.js for the exact methodology.
 import React, { useEffect, useState } from 'react';
-import { Gauge, Target, Clock, ShieldAlert, Info, Loader2, AlertCircle, ShieldCheck, ShieldX, Users } from 'lucide-react';
+import { Gauge, Target, Clock, ShieldAlert, Info, Loader2, AlertCircle, ShieldCheck, ShieldX, Users, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import StatCard from '../../components/StatCard';
 import {
-  apiGetDetectionPerformance, apiGetKevStatus,
-  DetectionPerformance, KevStatus,
+  apiGetDetectionPerformance, apiGetKevStatus, apiGetDriftReport,
+  DetectionPerformance, KevStatus, DriftReport,
 } from '../../services/detectionPerformanceApi';
+import { apiExportTrainingFeedback } from '../../services/alertsApi';
 
 const REFRESH_MS = 20_000;
 
@@ -79,19 +77,23 @@ const DetectionPerformancePanel: React.FC = () => {
   const { token } = useAuth();
   const [data, setData] = useState<DetectionPerformance | null>(null);
   const [kev, setKev] = useState<KevStatus | null>(null);
+  const [drift, setDrift] = useState<{ filename: string; report: DriftReport } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
 
     const load = () => {
-      Promise.all([apiGetDetectionPerformance(token), apiGetKevStatus(token)])
-        .then(([perf, kevStatus]) => {
+      Promise.all([apiGetDetectionPerformance(token), apiGetKevStatus(token), apiGetDriftReport(token)])
+        .then(([perf, kevStatus, driftReport]) => {
           if (cancelled) return;
           setData(perf);
           setKev(kevStatus);
+          setDrift(driftReport);
           setError('');
         })
         .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load detection performance.'); })
@@ -102,6 +104,27 @@ const DetectionPerformancePanel: React.FC = () => {
     const interval = setInterval(load, REFRESH_MS);
     return () => { cancelled = true; clearInterval(interval); };
   }, [token]);
+
+  const handleExportTrainingFeedback = async () => {
+    if (!token) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const blob = await apiExportTrainingFeedback(token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `medisiem-training-feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const ara10Caap = data?.caap.alertRankingAccuracy?.['10'] ?? null;
   const ara10Rule = data?.ruleLevelOnly.alertRankingAccuracy?.['10'] ?? null;
@@ -119,10 +142,72 @@ const DetectionPerformancePanel: React.FC = () => {
             <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">ai_server/src/hospital_scenarios.py</code>
           </p>
         </div>
-        {loading && <Loader2 className="w-4 h-4 text-slate-400 dark:text-slate-600 animate-spin" />}
+        <div className="flex items-center gap-3">
+          {loading && <Loader2 className="w-4 h-4 text-slate-400 dark:text-slate-600 animate-spin" />}
+          <button
+            onClick={handleExportTrainingFeedback}
+            disabled={exporting}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Download closed, verdict-tagged cases as a labeled CSV, in the shape ai_server/train.py expects under data/train/"
+          >
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Export training feedback
+          </button>
+        </div>
       </div>
 
+      {exportError && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {exportError}
+        </div>
+      )}
+
       <KevStatusChip status={kev} />
+
+      {drift && (
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+              Feature drift (latest check)
+            </h3>
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+              {new Date(drift.report.generated_at).toLocaleString()} · baseline trained{' '}
+              {drift.report.baseline_trained_at ? new Date(drift.report.baseline_trained_at).toLocaleDateString() : 'unknown'}
+            </span>
+          </div>
+          {drift.report.status === 'insufficient_rows' ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+              Only {drift.report.input_rows} live row(s) captured — below the {drift.report.min_rows_required} needed to trust a drift signal. Capture more traffic and re-run{' '}
+              <code className="font-mono text-[11px]">check_drift.py</code>.
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 flex items-center gap-3">
+                <span className={`text-2xl font-bold tabular-nums ${(drift.report.drift_rate ?? 0) >= 0.2 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  {((drift.report.drift_rate ?? 0) * 100).toFixed(0)}%
+                </span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  of features flagged drifted ({drift.report.drifted_features?.length ?? 0} of {Object.keys(drift.report.features ?? {}).length}), against {drift.report.input_rows.toLocaleString()} live rows
+                </span>
+              </div>
+              {drift.report.drifted_features && drift.report.drifted_features.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {drift.report.drifted_features.map((f) => (
+                    <span key={f} className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <p className="text-[11px] text-slate-400 dark:text-slate-600 mt-3">
+            Generated by <code className="font-mono">ai_server/check_drift.py</code> — a script you run manually against captured
+            live traffic, not a live feed; run it again to refresh this card.
+          </p>
+        </div>
+      )}
 
       {data && data.analystFeedback.totalJudged > 0 && (
         <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5">

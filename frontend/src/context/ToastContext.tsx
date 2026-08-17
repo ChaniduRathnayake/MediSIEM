@@ -1,19 +1,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
-import { playAlertSound } from '../utils/sound';
+import { playAlertSound, playSecondaryAlertSound } from '../utils/sound';
 
 export interface ToastInput {
   title: string;
   message: string;
-  severity?: 'critical' | 'info';
-  // Stable id — a second showToast() call with the same key updates that
-  // toast in place (and refreshes its auto-dismiss timer) instead of
-  // stacking a new one. Used to coalesce an alert storm into one toast
-  // that updates its count rather than flooding the stack.
+  // 'high' is CRITICAL's quieter sibling — softer sound cue, amber not red.
+  severity?: 'critical' | 'high' | 'info';
+  // A second showToast() call with the same key updates that toast in place instead of stacking.
   key?: string;
-  // Skip the alert sound even if severity is 'critical' — for a coalesced
-  // update to an already-announced storm toast, not a brand-new event.
-  silent?: boolean;
+  silent?: boolean; // skip the sound — for a coalesced update, not a brand-new event
 }
 
 interface Toast extends ToastInput {
@@ -55,10 +51,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Per-id dismiss timer handles, so a keyed update (see ToastInput.key)
-  // reschedules its own dismissal instead of leaving an earlier, shorter
-  // timeout from the FIRST time that id was shown to fire and yank the
-  // toast away mid-storm while it's still actively being updated.
+  // Per-id timers so a keyed update reschedules its own dismissal instead of an earlier one firing mid-storm.
   const dismissTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const showToast = useCallback((toast: ToastInput) => {
@@ -72,7 +65,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return [{ ...toast, id }, ...prev].slice(0, 5);
     });
-    if (soundEnabledRef.current && toast.severity === 'critical' && !toast.silent) playAlertSound();
+    if (soundEnabledRef.current && !toast.silent) {
+      if (toast.severity === 'critical') playAlertSound();
+      else if (toast.severity === 'high') playSecondaryAlertSound();
+    }
 
     if (dismissTimers.current[id]) clearTimeout(dismissTimers.current[id]);
     dismissTimers.current[id] = setTimeout(() => {
@@ -94,10 +90,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-xl shadow-2xl border backdrop-blur-md animate-fade-up ${
               t.severity === 'critical'
                 ? 'bg-red-50/95 dark:bg-red-950/90 border-red-300 dark:border-red-500/40'
+                : t.severity === 'high'
+                ? 'bg-amber-50/95 dark:bg-amber-950/90 border-amber-300 dark:border-amber-500/40'
                 : 'bg-white/95 dark:bg-slate-900/90 border-slate-200 dark:border-slate-700'
             }`}
           >
-            <AlertTriangle className={`w-4.5 h-4.5 flex-shrink-0 mt-0.5 ${t.severity === 'critical' ? 'text-red-500 dark:text-red-400' : 'text-cyan-500 dark:text-cyan-400'}`} />
+            <AlertTriangle className={`w-4.5 h-4.5 flex-shrink-0 mt-0.5 ${t.severity === 'critical' ? 'text-red-500 dark:text-red-400' : t.severity === 'high' ? 'text-amber-500 dark:text-amber-400' : 'text-cyan-500 dark:text-cyan-400'}`} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 dark:text-white">{t.title}</p>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 truncate">{t.message}</p>

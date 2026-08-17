@@ -1,13 +1,8 @@
-// frontend/src/pages/dashboard/AlertsBrowser.tsx
 // Full alert history, paginated, filterable by agent id/ip/severity. Sourced
-// from the Wazuh Indexer (backend/routes/compliance.js's /alerts route), not
-// the manager's /manager/logs — that's just a raw ossec.log tail with no
-// structured agent/rule fields, which is why an older version of this tab
-// could never actually show which agent an alert came from.
-//
-// Purely read-only (a search/browse view, no mutating actions), so it's
-// shared as-is between the Admin's "Wazuh SIEM" tab and the SOC analyst's
-// read-only "Live Alerts" tab.
+// from the Wazuh Indexer (compliance.js's /alerts route) for structured
+// agent/rule fields the manager's raw log tail doesn't have. Purely
+// read-only, shared as-is between the Admin's "Wazuh SIEM" tab and the SOC
+// analyst's "Live Alerts" tab.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, AlertCircle, AlertTriangle, Server, Network, Info, MapPin, Tag, Terminal, Repeat, ShieldCheck, Maximize2 } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
@@ -18,6 +13,13 @@ import SeverityDonutChart from '../../components/charts/SeverityDonutChart';
 import { levelToSeverity, severityCounts } from '../../utils/chartData';
 import type { Severity } from '../../utils/chartData';
 import AlertDetailsModal from './AlertDetailsModal';
+import SavedViewsBar from '../../components/SavedViewsBar';
+
+interface AlertsBrowserFilters {
+  agentIdFilter: string;
+  agentIpFilter: string;
+  severityFilter: string;
+}
 
 // Maps a severity name back to this page's threshold-based filter value —
 // the inverse of levelToSeverity()'s own thresholds.
@@ -62,6 +64,13 @@ const AlertsBrowser: React.FC = () => {
 
   // Any filter change resets to page 1
   useEffect(() => { setPage(1); }, [agentIdFilter, agentIpFilter, severityFilter]);
+
+  const currentFilters: AlertsBrowserFilters = { agentIdFilter, agentIpFilter, severityFilter };
+  const applyFilters = (f: AlertsBrowserFilters) => {
+    setAgentIdFilter(f.agentIdFilter);
+    setAgentIpFilter(f.agentIpFilter);
+    setSeverityFilter(f.severityFilter);
+  };
 
   useEffect(() => {
     if (!config || !indexerReady) return;
@@ -155,6 +164,7 @@ const AlertsBrowser: React.FC = () => {
             Clear filters
           </button>
         )}
+        <SavedViewsBar storageKey="medisiem_alerts_browser_views" currentFilters={currentFilters} onApply={applyFilters} />
       </div>
 
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">

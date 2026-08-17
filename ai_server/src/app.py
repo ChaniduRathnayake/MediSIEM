@@ -1,19 +1,9 @@
-"""
-CAAP AI Server — Phase 6
-=========================
-Flask server exposing POST /predict.
-
-Loads the three trained models (Random Forest, Isolation Forest, K-Means) plus
-the fitted StandardScaler, runs a single flow through all three, computes the
-5-dimension Clinical Alert Score (CAS), maps it to an action, and returns a
-SHAP-based explanation.
-
-Run:
-    python src/app.py
-
-Test:
-    curl -X POST http://localhost:5001/predict -H "Content-Type: application/json" -d @sample_row.json
-"""
+# Flask server exposing POST /predict — loads the three trained models
+# (Random Forest, Isolation Forest, K-Means) + the fitted StandardScaler, runs
+# a flow through all three, computes the 5-dimension Clinical Alert Score
+# (CAS), maps it to an action, and returns a SHAP-based explanation.
+# Run: python src/app.py
+# Test: curl -X POST http://localhost:5001/predict -H "Content-Type: application/json" -d @sample_row.json
 
 import os
 import json
@@ -42,7 +32,7 @@ KMEANS_FEATURES = ["flow_bytes_s", "flow_packets_s", "flow_iat_mean", "fwd_pkt_l
 # NOTE: empirical testing (Phase 5) showed k=2 gives better cluster separation
 # than the originally planned k=3 — "routine" was dropped. If you re-trained
 # with k=3, add "routine" back in here and in kmeans.pkl.
-CLUSTER_LABELS = {0: "idle", 1: "active"}  # confirm actual index<->label mapping from training
+CLUSTER_LABELS = {0: "idle", 1: "active"}  # verified against models/kmeans.pkl's actual fitted centroids — see train.py's comment
 
 # Clinical Criticality (CC) lookup — rule-based, no ML (Phase 2, Day 4)
 # Rescaled 1-10 (doubled from the plan's 1-5 table) so CAS ceiling reaches 10,
@@ -92,10 +82,35 @@ rf_model = joblib.load(os.path.join(MODEL_DIR, "random_forest.pkl"))
 iso_forest = joblib.load(os.path.join(MODEL_DIR, "isolation_forest.pkl"))
 kmeans = joblib.load(os.path.join(MODEL_DIR, "kmeans.pkl"))
 label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
+# NOTE on sequence-awareness: ml-pipeline/live_feature_extractor.py also
+# captures a `recent_flow_count` column (rolling count of a device's own
+# recent flows — see that module's docstring) on every row it writes, as a
+# pragmatic step toward catching slow multi-stage activity. It is NOT in
+# FEATURE_COLUMNS below yet — a saved scikit-learn model needs the exact
+# feature set it was fit on, so this column only becomes part of what /predict
+# actually scores once train.py is re-run with it present in data/train/*.csv.
+# Until then it rides along harmlessly: to_feature_frame() below only reads
+# columns listed in FEATURE_COLUMNS, so extra payload keys are ignored.
 FEATURE_COLUMNS = joblib.load(os.path.join(MODEL_DIR, "feature_cols.pkl"))
 IF_THRESHOLD = joblib.load(os.path.join(MODEL_DIR, "if_threshold.pkl"))
 print(f"[CAAP] Models loaded. {len(FEATURE_COLUMNS)} features, IF threshold={IF_THRESHOLD}")
 print(f"[CAAP] Feature columns: {FEATURE_COLUMNS}")
+
+# Written by train.py's Step 9b — training timestamp, per-model accuracy,
+# feature-column hash, and the per-feature mean/std baseline check_drift.py
+# compares live traffic against. Optional: models trained before this existed
+# have no model_meta.json, so every consumer below treats its absence as
+# "version unknown" rather than failing to start.
+MODEL_META_PATH = os.path.join(MODEL_DIR, "model_meta.json")
+try:
+    with open(MODEL_META_PATH, "r", encoding="utf-8") as f:
+        MODEL_META = json.load(f)
+    MODEL_VERSION = MODEL_META.get("trained_at", "unknown")
+    print(f"[CAAP] model_meta.json loaded — trained_at={MODEL_VERSION}")
+except FileNotFoundError:
+    MODEL_META = None
+    MODEL_VERSION = "unknown (no model_meta.json — retrain with train.py to generate one)"
+    print("[CAAP][WARNING] models/model_meta.json not found — /health and /predict will report an unknown model_version.")
 
 # --------------------------------------------------------------------------
 # Optional per-device-type Isolation Forest baselines
@@ -175,7 +190,19 @@ shap_explainer = shap.TreeExplainer(rf_model)
 # --------------------------------------------------------------------------
 
 def to_feature_frame(payload: dict) -> pd.DataFrame:
-    """Pull the 44 model features out of the incoming JSON, in training order."""
+    """Pull the 44 model features out of the incoming JSON, in training order.
+
+    Unlike train.py's dropna() on a missing feature, a live /predict request
+    can't simply be discarded — it has to return *some* score. Missing
+    columns are zero-filled (an out-of-distribution input for that feature,
+    not a neutral one) rather than rejected, so this is flagged loudly rather
+    than left silent — see verify_feature_cols.py for the equivalent offline
+    check against a whole batch.
+    """
+    missing = [col for col in FEATURE_COLUMNS if col not in payload]
+    if missing:
+        print(f"[to_feature_frame] WARNING: {len(missing)} feature column(s) missing from /predict "
+              f"payload, zero-filled instead of the model's trained distribution: {missing}")
     row = {col: payload.get(col, 0.0) for col in FEATURE_COLUMNS}
     return pd.DataFrame([row], columns=FEATURE_COLUMNS)
 
@@ -199,7 +226,23 @@ def if_to_ts_score(anomaly_score: float, hour_of_day: int) -> float:
     return 2.0
 
 
-def lookup_cc(device_type: str) -> float:
+
+# Mirrors backend/services/caapService.js's CRITICALITY_TO_CC exactly — that's
+# the mapping the offline (CAAP-unreachable) fallback path already uses from
+# the real, admin-configured MedicalDevice.criticality field. Preferring it
+# here too means the live model path no longer has *less* signal than its own
+# degraded fallback: previously device_criticality was computed in Node but
+# stripped out of the /predict payload, so any device_type not in the tiny
+# CC_LOOKUP table below (i.e. anything other than the 5 hardcoded names)
+# silently scored DEFAULT_CC=2 regardless of how critical it actually was.
+CRITICALITY_TO_CC = {"critical": 10, "high": 7, "medium": 4, "low": 2}
+
+
+def lookup_cc(device_type: str, device_criticality: str = None) -> float:
+    if device_criticality:
+        cc = CRITICALITY_TO_CC.get(str(device_criticality).lower())
+        if cc is not None:
+            return cc
     return CC_LOOKUP.get(device_type, DEFAULT_CC)
 
 
@@ -231,9 +274,25 @@ def cas_to_action(cas: float) -> str:
     return DEFAULT_ACTION
 
 
-def top_shap_features(scaled_row: np.ndarray, n: int = 3) -> str:
+def confidence_to_level(confidence: float) -> str:
+    """RF max-class probability -> a coarse label the dashboard can badge
+    directly ("Low confidence — recommend manual review") without every
+    caller re-deriving its own thresholds."""
+    if confidence >= 0.75:
+        return "high"
+    if confidence >= 0.5:
+        return "medium"
+    return "low"
+
+
+def shap_explanation(scaled_row: np.ndarray, n: int = 3) -> dict:
     """
-    Return a short text explanation naming the top-N contributing features.
+    Explain the predicted class's top-N contributing features, both as a
+    parseable list (`top_features` — feature/value/direction, for the
+    dashboard's structured bar-chart rendering — see
+    frontend/src/pages/dashboard/AlertDetailsModal.tsx) and as the same
+    human-readable sentence (`text`) this function used to be the sole
+    output of, kept for callers that only render plain text.
 
     Handles both SHAP output conventions:
       - older shap: list of (n_samples, n_features) arrays, one per class
@@ -255,8 +314,21 @@ def top_shap_features(scaled_row: np.ndarray, n: int = 3) -> str:
             class_shap = shap_arr[0]
 
     top_idx = np.argsort(np.abs(class_shap))[::-1][:n]
-    parts = [f"{FEATURE_COLUMNS[i]} ({class_shap[i]:+.2f})" for i in top_idx]
-    return "Top contributing features: " + ", ".join(parts)
+    # Positive SHAP value = pushed the model toward the predicted class;
+    # negative = pushed away from it (still one of the most influential
+    # features overall, just in the opposite direction).
+    top_features = [
+        {
+            "feature": FEATURE_COLUMNS[i],
+            "value": round(float(class_shap[i]), 4),
+            "direction": "increases" if class_shap[i] > 0 else "decreases",
+        }
+        for i in top_idx
+    ]
+    text = "Top contributing features: " + ", ".join(
+        f"{f['feature']} ({f['value']:+.2f})" for f in top_features
+    )
+    return {"text": text, "top_features": top_features}
 
 
 # --------------------------------------------------------------------------
@@ -427,7 +499,7 @@ def index():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "models_loaded": True})
+    return jsonify({"status": "ok", "models_loaded": True, "model_version": MODEL_VERSION})
 
 
 @app.route("/predict", methods=["POST"])
@@ -466,7 +538,7 @@ def predict():
         cluster_label = CLUSTER_LABELS.get(cluster_idx, "unknown")
 
         # --- 5. Rule-based dimensions (CC, AE, TC) -------------------------
-        cc_score = lookup_cc(payload.get("device_type", ""))
+        cc_score = lookup_cc(payload.get("device_type", ""), payload.get("device_criticality"))
         ae_score = lookup_ae(bool(payload.get("cve_known_exploited", False)))
         tc_score = lookup_tc(hour_of_day)
 
@@ -475,7 +547,7 @@ def predict():
         action = cas_to_action(cas)
 
         # --- 7. SHAP explanation --------------------------------------------
-        explanation = top_shap_features(X_scaled)
+        shap_result = shap_explanation(X_scaled)
 
         return jsonify({
             "label": label,
@@ -488,7 +560,10 @@ def predict():
             "TC_score": tc_score,
             "CAS": cas,
             "action": action,
-            "explanation": explanation,
+            "explanation": shap_result["text"],
+            "shap_top_features": shap_result["top_features"],
+            "confidence_level": confidence_to_level(confidence),
+            "model_version": MODEL_VERSION,
         })
 
     except Exception as exc:  # keep the API resilient; log for debugging

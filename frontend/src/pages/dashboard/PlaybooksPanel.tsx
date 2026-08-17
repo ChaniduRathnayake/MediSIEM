@@ -1,16 +1,8 @@
-// frontend/src/pages/dashboard/PlaybooksPanel.tsx
 // Read-only reference for the live-demo runbook (ml-pipeline/DEMO_RUNBOOK.md).
-//
-// Deliberately NOT a "run" button. The underlying scripts (run_victim_capture.sh,
-// run_attack.sh) need root, raw packet capture on a specific NIC, and a real
-// target VM IP — they're built to run manually over SSH on separate physical/
-// virtual attacker/victim machines the Node backend has no access to and no
-// business touching. Wiring a web button to them would mean handing the
-// backend passwordless root and turning "click a button" into "any admin
-// session can launch real ARP-spoof/SYN-flood traffic at a configurable
-// target" — a standing attack-tool endpoint, not a demo convenience. This
-// panel gets the same "impressive live demo" outcome by making the exact
-// same commands easy to read and copy, run by a human, on the right machine.
+// Deliberately not a "run" button — the underlying scripts need root and raw
+// packet capture on separate attacker/victim VMs the backend has no business
+// touching; wiring a web button to them would turn this into a standing
+// attack-tool endpoint. This panel just makes the commands easy to copy.
 import React, { useState } from 'react';
 import { Zap, Copy, Check, Info, Monitor, Server, ShieldAlert, ArrowRight } from 'lucide-react';
 

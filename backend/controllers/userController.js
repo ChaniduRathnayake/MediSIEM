@@ -122,7 +122,7 @@ export const createUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
-    if (!name || !email || !password) {
+    if (typeof name !== 'string' || typeof email !== 'string' || typeof password !== 'string' || !name || !email || !password) {
       return res.status(400).json({ error: 'Name, email and password are required.' });
     }
 
@@ -229,6 +229,76 @@ export const getPresenceSummary = async (req, res) => {
     return res.status(200).json(response);
   } catch (err) {
     console.error('[getPresenceSummary]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+};
+
+// ─── PATCH /api/users/:id/mfa-required  (admin only) ──────────────────────────
+// Forces (or lifts) two-factor setup for a NON-admin account. Admins can only
+// ever configure their own 2FA (self-service via Settings → Security), never
+// another admin's — enforced here by rejecting admin targets outright.
+export const setUserMfaRequired = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { required } = req.body;
+    if (typeof required !== 'boolean') {
+      return res.status(400).json({ error: '`required` must be a boolean.' });
+    }
+
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    if (user.role === 'admin') {
+      return res.status(403).json({ error: 'Administrators can only configure their own two-factor authentication.' });
+    }
+
+    user.mfaRequiredByAdmin = required;
+    await user.save();
+
+    await logAudit({
+      action: required ? 'require_mfa' : 'unrequire_mfa',
+      actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+      target: { id: user._id.toString(), name: user.name, email: user.email },
+      details: required ? 'Two-factor authentication required at next login' : 'Two-factor requirement lifted',
+    });
+
+    return res.status(200).json({ user });
+  } catch (err) {
+    console.error('[setUserMfaRequired]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+};
+
+// ─── POST /api/users/:id/mfa-reset  (admin only) ───────────────────────────────
+// Lost-device recovery: clears an enrolled NON-admin user's TOTP secret,
+// backup codes and enabled flag so they can re-enroll from scratch. Cannot
+// target admins, for the same reason as setUserMfaRequired above.
+export const adminResetUserMfa = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    if (user.role === 'admin') {
+      return res.status(403).json({ error: 'Administrators can only configure their own two-factor authentication.' });
+    }
+    if (!user.mfaEnabled) {
+      return res.status(400).json({ error: 'This user does not have two-factor authentication enabled.' });
+    }
+
+    user.mfaEnabled = false;
+    user.mfaSecret = null;
+    user.mfaBackupCodes = [];
+    await user.save();
+
+    await logAudit({
+      action: 'admin_reset_mfa',
+      actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+      target: { id: user._id.toString(), name: user.name, email: user.email },
+      details: 'Two-factor authentication reset by admin (lost-device recovery)',
+    });
+
+    return res.status(200).json({ user });
+  } catch (err) {
+    console.error('[adminResetUserMfa]', err);
     return res.status(500).json({ error: 'Server error.' });
   }
 };

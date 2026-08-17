@@ -1,23 +1,9 @@
-"""
-verify_feature_cols.py -- fast pass/fail check for feature-column alignment.
-
-Problem this catches: to_feature_frame() in src/app.py does
-`payload.get(col, 0.0)` per column in FEATURE_COLUMNS -- any column your live
-capture tool doesn't produce silently becomes 0.0 instead of erroring. That
-quietly degrades (or destroys) prediction accuracy with no visible symptom.
-Run this BEFORE a demo, not after predictions look wrong.
-
-Usage:
-    # Just print the trained column list (45 columns from feature_cols.pkl):
-    python verify_feature_cols.py
-
-    # Diff against a live capture tool's actual output header:
-    python verify_feature_cols.py --against path/to/live_capture_output.csv
-    python verify_feature_cols.py --against "Header_Length,Protocol Type,..."
-
-Exit code: 0 if every trained column is present in --against, 1 otherwise.
-Without --against, it always exits 0 (informational mode).
-"""
+# Fast pass/fail check for feature-column alignment: to_feature_frame() in
+# src/app.py silently zero-fills any column a live capture tool doesn't
+# produce instead of erroring, quietly degrading predictions. Run this before
+# a demo, not after predictions look wrong.
+# Usage: python verify_feature_cols.py [--against path/to/live_capture_output.csv | "col1,col2,..."]
+# Exit code: 0 if every trained column is present in --against (or if omitted), 1 otherwise.
 
 import argparse
 import csv

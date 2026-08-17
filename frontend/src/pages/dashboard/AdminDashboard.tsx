@@ -18,11 +18,12 @@ import {
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
-  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge,
+  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge, Plug,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { apiGetAllUsers, apiCreateUser, apiUpdateUser, apiDeleteUser } from '../../services/api';
+import { apiSetUserMfaRequired, apiAdminResetUserMfa } from '../../services/authExtrasApi';
 import type { User as MediUser, UserRole } from '../../types';
 import AccountMenu from '../../components/AccountMenu';
 import PresenceWidget, { usePresenceSummary } from './PresenceWidget';
@@ -33,7 +34,8 @@ import SeverityBadge from '../../components/SeverityBadge';
 import AlertsPanel from './AlertsPanel';
 import AdminCasesPanel from './AdminCasesPanel';
 import RulesPanel from './RulesPanel';
-import PasswordPolicyPanel from './PasswordPolicyPanel';
+import SecuritySettingsPanel from './SecuritySettingsPanel';
+import IntegrationsSettingsPanel from './IntegrationsSettingsPanel';
 import PlaybooksPanel from './PlaybooksPanel';
 import DetectionPerformancePanel from './DetectionPerformancePanel';
 import AuditLogPanel from './AuditLogPanel';
@@ -43,6 +45,7 @@ import type { PasswordPolicy } from '../../services/passwordPolicyApi';
 import { passwordMeetsPolicy } from '../../utils/passwordPolicy';
 import ThemeToggle from '../../components/ThemeToggle';
 import SoundToggle from '../../components/SoundToggle';
+import NotificationCenterBell from '../../components/NotificationCenterBell';
 import ChartCard from '../../components/charts/ChartCard';
 import AlertsTimelineChart from '../../components/charts/AlertsTimelineChart';
 import SeverityDonutChart from '../../components/charts/SeverityDonutChart';
@@ -166,7 +169,7 @@ const UserFormModal: React.FC<{
       <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">{mode === 'create' ? 'Add User' : 'Edit User'}</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -308,7 +311,7 @@ const ConfirmDeleteModal: React.FC<{
       <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">Delete User</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -346,12 +349,145 @@ const ConfirmDeleteModal: React.FC<{
   );
 };
 
+// ─── Configure 2FA modal (Users tab → non-admin targets only) ─────────────────
+// Admins can force a non-admin to set up 2FA next login, and reset a lost
+// device's enrollment — but never generate/see a secret on the user's
+// behalf, since TOTP requires the account owner's own authenticator app.
+const MfaControlModal: React.FC<{
+  user: MediUser;
+  token: string | null;
+  onClose: () => void;
+  onUpdated: (user: MediUser) => void;
+}> = ({ user, token, onClose, onUpdated }) => {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const toggleRequired = async (required: boolean) => {
+    if (!token) { setError('Your session has expired. Please sign in again.'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      const { user: updated } = await apiSetUserMfaRequired(token, user.id, required);
+      onUpdated(updated);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update two-factor requirement.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!token) { setError('Your session has expired. Please sign in again.'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      const { user: updated } = await apiAdminResetUserMfa(token, user.id);
+      onUpdated(updated);
+      setConfirmReset(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to reset two-factor authentication.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Configure 2FA — {user.name}</h2>
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            2FA is set up on the user's own device, so it can only be required or reset here — not enabled directly.
+          </p>
+
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Status:</span>
+            {user.mfaEnabled ? (
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium"><ShieldCheck className="w-3.5 h-3.5" /> Enrolled</span>
+            ) : user.mfaRequiredByAdmin ? (
+              <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium"><ShieldAlert className="w-3.5 h-3.5" /> Required, not yet set up</span>
+            ) : (
+              <span className="text-slate-500 dark:text-slate-400">Not enabled</span>
+            )}
+          </div>
+
+          <label className="flex items-center justify-between gap-3 cursor-pointer pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div>
+              <p className="text-sm text-slate-700 dark:text-slate-300">Require two-factor authentication</p>
+              <p className="text-xs text-slate-400 dark:text-slate-600">Prompts setup at this user's next login</p>
+            </div>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => toggleRequired(!user.mfaRequiredByAdmin)}
+              className={`relative flex-shrink-0 w-10 h-5.5 rounded-full transition-colors disabled:opacity-60 ${user.mfaRequiredByAdmin ? 'bg-cyan-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+              aria-pressed={!!user.mfaRequiredByAdmin}
+              aria-label="Require two-factor authentication"
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform ${user.mfaRequiredByAdmin ? 'translate-x-[19px]' : 'translate-x-0'}`} />
+            </button>
+          </label>
+
+          {user.mfaEnabled && (
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+              {confirmReset ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-red-500 dark:text-red-400">
+                    This clears their authenticator enrollment and backup codes (lost-device recovery). They'll need to set 2FA up again.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmReset(false)}
+                      className="flex-1 py-2 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      disabled={submitting}
+                      className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-white bg-red-500 hover:bg-red-400 disabled:opacity-60 transition-colors"
+                    >
+                      {submitting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Resetting…</> : 'Confirm reset'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmReset(true)}
+                  className="w-full py-2 rounded-lg border border-red-500/30 text-red-500 dark:text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors"
+                >
+                  Reset two-factor authentication
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const UsersPanel: React.FC<{ token: string | null; currentUserId?: string }> = ({ token, currentUserId }) => {
   const [users, setUsers] = useState<MediUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState<UserModalState>(null);
   const [deleteTarget, setDeleteTarget] = useState<MediUser | null>(null);
+  const [mfaTarget, setMfaTarget] = useState<MediUser | null>(null);
 
   const loadUsers = () => {
     if (!token) {
@@ -442,6 +578,15 @@ const UsersPanel: React.FC<{ token: string | null; currentUserId?: string }> = (
                       >
                         <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
+                      {u.role !== 'admin' && (
+                        <button
+                          onClick={() => setMfaTarget(u)}
+                          title="Administrators can only configure their own two-factor authentication"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" /> 2FA
+                        </button>
+                      )}
                       {u.id !== currentUserId && (
                         <button
                           onClick={() => setDeleteTarget(u)}
@@ -479,6 +624,18 @@ const UsersPanel: React.FC<{ token: string | null; currentUserId?: string }> = (
           token={token}
           onClose={() => setDeleteTarget(null)}
           onDeleted={(id) => setUsers((prev) => prev.filter((u) => u.id !== id))}
+        />
+      )}
+
+      {mfaTarget && (
+        <MfaControlModal
+          user={mfaTarget}
+          token={token}
+          onClose={() => setMfaTarget(null)}
+          onUpdated={(u) => {
+            setUsers((prev) => prev.map((existing) => (existing.id === u.id ? u : existing)));
+            setMfaTarget(u);
+          }}
         />
       )}
     </div>
@@ -570,7 +727,7 @@ const DeviceGroupsModal: React.FC<{
       <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">Manage Device Groups</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -945,6 +1102,8 @@ const NotificationBell: React.FC<{ onViewAll: () => void }> = ({ onViewAll }) =>
     <div className="relative" ref={ref}>
       <button
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
+        title="Wazuh alerts (severity 8+)"
+        aria-label={`Wazuh alerts, severity 8 and above${count > 0 ? ` — ${count} shown` : ''}`}
         className="relative p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <Bell className="w-4 h-4" />
@@ -959,7 +1118,7 @@ const NotificationBell: React.FC<{ onViewAll: () => void }> = ({ onViewAll }) =>
         <div className="absolute right-0 top-12 w-80 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Notifications</p>
-            <button onClick={() => setOpen(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-300 transition-colors">
+            <button onClick={() => setOpen(false)} aria-label="Close" className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-300 transition-colors">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1197,6 +1356,12 @@ const AdminDashboard: React.FC = () => {
     navigate('/');
   };
 
+  const goToSecuritySettings = () => {
+    setShowAccountMenu(false);
+    setSettingsOpen(true);
+    setActiveNav('Security');
+  };
+
   const navItems = [
     { label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
     { label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
@@ -1212,7 +1377,8 @@ const AdminDashboard: React.FC = () => {
     { label: 'Users', icon: <Users className="w-3.5 h-3.5" /> },
     { label: 'Wazuh SIEM', icon: <Shield className="w-3.5 h-3.5" /> },
     { label: 'Detection Rules', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
-    { label: 'Password Policy', icon: <KeyRound className="w-3.5 h-3.5" /> },
+    { label: 'Security', icon: <KeyRound className="w-3.5 h-3.5" /> },
+    { label: 'Integrations', icon: <Plug className="w-3.5 h-3.5" /> },
     { label: 'Audit Log', icon: <Database className="w-3.5 h-3.5" /> },
   ];
   const isSettingsActive = settingsSubItems.some((s) => s.label === activeNav);
@@ -1233,7 +1399,7 @@ const AdminDashboard: React.FC = () => {
 
         {/* Sidebar */}
         <aside
-          className={`fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ${
+          className={`no-print fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-transform duration-300 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0 lg:static lg:z-auto`}
         >
@@ -1247,7 +1413,7 @@ const AdminDashboard: React.FC = () => {
                 MediSIEM
               </span>
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close sidebar" className="lg:hidden text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -1372,7 +1538,7 @@ const AdminDashboard: React.FC = () => {
         {/* Main */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
-          <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 bg-white/90 dark:bg-slate-950/90 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+          <header className="no-print sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 bg-white/90 dark:bg-slate-950/90 backdrop-blur border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <Menu className="w-5 h-5" />
@@ -1397,6 +1563,7 @@ const AdminDashboard: React.FC = () => {
               <div className="flex items-center gap-1">
                 <SoundToggle />
                 <ThemeToggle />
+                <NotificationCenterBell />
                 <NotificationBell onViewAll={() => setActiveNav('Wazuh SIEM')} />
               </div>
               <div className="relative pl-4 border-l border-slate-200 dark:border-slate-800">
@@ -1416,61 +1583,99 @@ const AdminDashboard: React.FC = () => {
                     userId={user?.id}
                     onClose={() => setShowAccountMenu(false)}
                     onLogout={handleLogout}
+                    onOpenSecuritySettings={goToSecuritySettings}
                   />
                 )}
               </div>
             </div>
           </header>
 
-          {/* Content */}
+          {/* Org policy requires 2FA and this admin hasn't enrolled yet — see
+              routes/auth.js's isMfaSetupRequired(). Persistent (not
+              dismissible) since it reflects an actual org policy, not a tip. */}
+          {user?.mfaSetupRequired && (
+            <div className="no-print flex items-center justify-between gap-3 px-5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs">
+              <span className="flex items-center gap-2">
+                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                Two-factor authentication is required for admin accounts on this deployment.
+              </span>
+              <button
+                onClick={goToSecuritySettings}
+                className="flex-shrink-0 px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 font-semibold transition-colors"
+              >
+                Set up now
+              </button>
+            </div>
+          )}
+
+          {/* A switch, not a chain of activeNav checks, so each nav item renders exactly one panel. */}
           <main className="flex-1 overflow-y-auto">
-            {activeNav === 'Wazuh SIEM' && <WazuhDashboard />}
-            {activeNav === 'Users' && <UsersPanel token={token} currentUserId={user?.id} />}
-            {activeNav === 'Detection Rules' && <RulesPanel />}
-            {activeNav === 'Password Policy' && <PasswordPolicyPanel />}
-            {activeNav === 'Audit Log' && <AuditLogPanel token={token} />}
-            {activeNav === 'Devices' && <DevicesPanel />}
-            {activeNav === 'Alerts' && (
-              <AlertsPanel
-                alerts={liveAlerts}
-                connected={alertsConnected}
-                loading={alertsLoading}
-                error={alertsError}
-                token={token}
-                totalCount={alertsTotalCount}
-                severityTotals={alertsSeverityTotals}
-              />
-            )}
-            {activeNav === 'Case Status' && (
-              <AdminCasesPanel
-                alerts={liveAlerts}
-                loading={alertsLoading}
-                error={alertsError}
-                token={token}
-              />
-            )}
-            {activeNav === 'Vulnerabilities' && <VulnerabilitiesPanel />}
-            {activeNav === 'Detection Performance' && <DetectionPerformancePanel />}
-            {activeNav === 'Playbooks' && <PlaybooksPanel />}
-            {activeNav === 'HIPAA' && <CompliancePanel framework="hipaa" />}
-            {activeNav === 'GDPR' && <CompliancePanel framework="gdpr" />}
-            {activeNav === 'CIS' && <CompliancePanel framework="cis" />}
-            {activeNav !== 'Wazuh SIEM' && activeNav !== 'Users' && activeNav !== 'Detection Rules' && activeNav !== 'Password Policy' && activeNav !== 'Audit Log' && activeNav !== 'Devices' &&
-             activeNav !== 'Alerts' && activeNav !== 'Case Status' && activeNav !== 'Vulnerabilities' && activeNav !== 'Playbooks' && activeNav !== 'Detection Performance' &&
-             activeNav !== 'HIPAA' && activeNav !== 'GDPR' && activeNav !== 'CIS' && (
-              <OverviewTab
-                userName={user?.name}
-                liveAlerts={liveAlerts}
-                alertsConnected={alertsConnected}
-                alertsLoading={alertsLoading}
-                alertsError={alertsError}
-                presenceSummary={presenceSummary}
-                presenceLoading={presenceLoading}
-                presenceError={presenceError}
-                onViewAllAlerts={() => setActiveNav('Alerts')}
-                alertsSeverityTotals={alertsSeverityTotals}
-              />
-            )}
+            {(() => {
+              switch (activeNav) {
+                case 'Wazuh SIEM':
+                  return <WazuhDashboard />;
+                case 'Users':
+                  return <UsersPanel token={token} currentUserId={user?.id} />;
+                case 'Detection Rules':
+                  return <RulesPanel />;
+                case 'Security':
+                  return <SecuritySettingsPanel />;
+                case 'Integrations':
+                  return <IntegrationsSettingsPanel token={token} />;
+                case 'Audit Log':
+                  return <AuditLogPanel token={token} />;
+                case 'Devices':
+                  return <DevicesPanel />;
+                case 'Alerts':
+                  return (
+                    <AlertsPanel
+                      alerts={liveAlerts}
+                      connected={alertsConnected}
+                      loading={alertsLoading}
+                      error={alertsError}
+                      token={token}
+                      totalCount={alertsTotalCount}
+                      severityTotals={alertsSeverityTotals}
+                    />
+                  );
+                case 'Case Status':
+                  return (
+                    <AdminCasesPanel
+                      alerts={liveAlerts}
+                      loading={alertsLoading}
+                      error={alertsError}
+                      token={token}
+                    />
+                  );
+                case 'Vulnerabilities':
+                  return <VulnerabilitiesPanel />;
+                case 'Detection Performance':
+                  return <DetectionPerformancePanel />;
+                case 'Playbooks':
+                  return <PlaybooksPanel />;
+                case 'HIPAA':
+                  return <CompliancePanel framework="hipaa" />;
+                case 'GDPR':
+                  return <CompliancePanel framework="gdpr" />;
+                case 'CIS':
+                  return <CompliancePanel framework="cis" />;
+                default:
+                  return (
+                    <OverviewTab
+                      userName={user?.name}
+                      liveAlerts={liveAlerts}
+                      alertsConnected={alertsConnected}
+                      alertsLoading={alertsLoading}
+                      alertsError={alertsError}
+                      presenceSummary={presenceSummary}
+                      presenceLoading={presenceLoading}
+                      presenceError={presenceError}
+                      onViewAllAlerts={() => setActiveNav('Alerts')}
+                      alertsSeverityTotals={alertsSeverityTotals}
+                    />
+                  );
+              }
+            })()}
           </main>
         </div>
       </div>

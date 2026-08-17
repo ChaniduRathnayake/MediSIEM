@@ -1,19 +1,10 @@
-// backend/services/detectionMetrics.js
-//
-// Live analogs of the three offline evaluation metrics computed in
-// ai_server/src/hospital_scenarios.py (alert_ranking_accuracy /
-// mean_time_to_critical / false_positive_rate_top_n), run against the actual
-// in-memory alert buffer instead of the labeled synthetic scenario dataset.
-// Same rank-based definitions, ported to JS since the buffer lives here —
-// `deviceCriticality` (from the admin-managed MedicalDevice inventory)
-// stands in for hospital_scenarios.py's `patient_dependency` label: both ask
-// "how much does this alert matter clinically", just sourced differently
-// (assigned inventory criticality here vs. a synthetic scenario tag there).
-//
-// This is a live monitoring signal, NOT a replacement for the full offline
-// evaluation — sample size/composition depend entirely on whatever has come
-// through the pipeline so far, which is why every response carries
-// `sampleSize` and a `methodology` string the UI must show alongside it.
+// Live analogs of the three offline evaluation metrics in
+// ai_server/src/hospital_scenarios.py (alert ranking accuracy / mean time to
+// critical / false positive rate @N), run against the live in-memory alert
+// buffer instead of the synthetic scenario dataset — `deviceCriticality`
+// stands in for that script's `patient_dependency` label. A live monitoring
+// signal, not a replacement for the offline evaluation, so every response
+// carries `sampleSize` and a `methodology` string the UI must show alongside it.
 import { getBufferedAlerts } from './alertPipeline.js';
 import AlertClosure from '../models/AlertClosure.js';
 

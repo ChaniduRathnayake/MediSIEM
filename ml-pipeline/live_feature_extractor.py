@@ -1,93 +1,8 @@
-"""
-live_feature_extractor.py — CIC IoMT-2024 / CICIoT2023-schema live flow features.
-
-WHY THIS EXISTS (read before using):
-    Your trained model (ai_server/models/feature_cols.pkl) uses the CICIoT2023
-    / CIC IoMT-2024 dataset's 45-column feature schema (Header_Length, Rate,
-    Srate, Drate, per-packet-window flag counts, protocol one-hot flags,
-    Magnitude/Radius/Covariance/Variance/Weight, etc.). That is NOT what
-    CICFlowMeter (Java tool or the `cicflowmeter` pip package) produces —
-    CICFlowMeter's ~80-column schema (Flow Duration, Total Fwd Packets, Flow
-    Bytes/s, ...) has ZERO name overlap with this model's columns. Verified
-    with verify_feature_cols.py: 0/45 matched against a real CICFlowMeter
-    header. Installing CICFlowMeter and feeding it to flow_consumer.py would
-    silently zero-fill every single feature — a meaningless prediction dressed
-    up as a real one.
-
-    This script replaces CICFlowMeter. It sniffs live packets and computes the
-    actual 45 columns your model expects, then writes them as CSV rows into
-    the same folder flow_consumer.py already watches — flow_consumer.py needs
-    NO changes.
-
-SOURCE FOR THE FEATURE DEFINITIONS:
-    Neto et al., "CICIoT2023: A Real-Time Dataset and Benchmark for
-    Large-Scale Attacks in IoT Environment", Sensors 2023, Table 4.
-    (https://www.mdpi.com/1424-8220/23/13/5941 — the same lab and feature
-    schema CIC IoMT-2024 reuses.) Definitions quoted/paraphrased there:
-      Header_Length        = header length
-      Protocol Type        = numeric protocol id (IP/UDP/TCP/ICMP/IGMP/Unknown)
-      Duration              = Time-To-Live (TTL) — NOT a time span, despite the name
-      Rate / Srate / Drate  = overall / outbound / inbound packet rate in the window
-      *_flag_number         = binary: was this TCP flag set anywhere in the window
-      *_count               = count of packets in the window with that flag set
-      HTTP..LLC             = binary: was this protocol seen anywhere in the window
-      Tot sum / Tot size    = sum of packet lengths / length of the representative packet
-      Min / Max / AVG / Std = packet-length stats across the window
-      IAT                   = mean inter-arrival time in the window (seconds)
-      Number                = packet count in the window
-      Magnitude             = sqrt(avg_len_fwd + avg_len_bwd)
-      Radius                = sqrt(var_len_fwd + var_len_bwd)
-      Covariance            = cov(len_fwd, len_bwd) — see ASSUMPTION below
-      Variance              = var_len_fwd / var_len_bwd  (ratio, per the paper's own wording)
-      Weight                = count_fwd * count_bwd
-
-    The original dataset used a window of 10 packets for light attacks
-    (recon, spoofing, brute force) and 100 packets for volumetric attacks
-    (DDoS/DoS/Mirai) — chosen using ground-truth attack labels the authors
-    already knew. A live detector doesn't have that luxury, so this script
-    uses ONE fixed window size for every flow (--window, default 100).
-    This is a real, documented deviation from the training methodology —
-    say so explicitly in your thesis writeup, and expect predictions to be
-    LESS accurate on light/low-volume attacks than the offline evaluation
-    reported, since those were trained on the 10-packet window variant.
-
-ASSUMPTIONS (paper's Table 4 doesn't fully specify these — documented so you
-can correct them if you get access to CIC's original extractor source):
-    - "forward"/"backward" = packets whose src IP matches the first packet's
-      src IP in the flow ("forward"), vs. the reverse direction ("backward").
-    - Header_Length is the MEAN IP header length across the window, not a sum.
-    - Protocol Type is the protocol number of the LAST packet in the window.
-    - Tot size = length of the LAST packet in the window (distinct from
-      Tot sum, the summed length of ALL packets in the window).
-    - Covariance is numpy.cov() over the forward/backward packet-length
-      series, truncated to the shorter of the two (they're rarely equal
-      length within one window).
-    - LLC is always 0 — not observable from standard Ethernet/IP capture
-      without 802.2 framing, which this script doesn't parse.
-    - App-layer protocol flags (HTTP/HTTPS/DNS/Telnet/SMTP/SSH/IRC) are
-      inferred from well-known TCP/UDP port numbers, not deep packet
-      inspection — a flow to port 8080 running HTTP will be missed, for
-      instance.
-
-    None of this is guaranteed to bit-match whatever the original CIC
-    extractor did. Column NAMES will match (verify_feature_cols.py will
-    report PASS), but that only proves the columns line up — it does NOT
-    prove the VALUES have the same distribution the model was trained on.
-    Sanity-check by comparing a batch of your live "benign" output against
-    ai_server/data/train/Benign_train.pcap.csv (similar ranges/orders of
-    magnitude is a good sign; wildly different is a red flag).
-
-Requires (Windows): Npcap (https://npcap.com/#download) installed with
-"WinPcap API-compatible mode" checked, and this script run from an elevated
-(Administrator) shell — raw packet capture needs it.
-
-Usage:
-    pip install -r requirements.txt
-    python live_feature_extractor.py --iface "Ethernet" --out-dir ./cicflowmeter_output --window 100
-
-    List available interface names first if unsure:
-    python -c "from scapy.all import get_if_list; print(get_if_list())"
-"""
+# Replaces CICFlowMeter, whose ~80-column schema has zero name overlap with the
+# trained model's 45 CICIoT2023-schema columns (verified via verify_feature_cols.py).
+# Sniffs live packets and computes those 45 columns directly, writing CSV rows into
+# the folder flow_consumer.py already watches. Feature definitions: Neto et al.,
+# "CICIoT2023", Sensors 2023, Table 4. Windows requires Npcap + an elevated shell.
 
 import argparse
 import csv
@@ -287,9 +202,14 @@ def compute_features(win: FlowWindow, src_ip: str) -> dict:
 
 
 class LiveExtractor:
-    def __init__(self, out_dir: str, window: int):
+    def __init__(self, out_dir: str, window: int, sequence_window_seconds: int = 300):
         self.window = window
+        self.sequence_window_seconds = sequence_window_seconds
         self.flows: dict[frozenset, FlowWindow] = {}
+        # Per-device (by its own src IP) timestamps of recently completed
+        # flow-windows — see _record_and_count_recent_flow() below and the
+        # SEQUENCE-AWARENESS section in this module's docstring.
+        self.recent_flow_times: dict[str, deque] = defaultdict(deque)
         os.makedirs(out_dir, exist_ok=True)
         self.out_path = os.path.join(out_dir, "live_flows.csv")
         self._init_csv()
@@ -298,10 +218,21 @@ class LiveExtractor:
     def _init_csv(self):
         is_new = not os.path.exists(self.out_path)
         self._file = open(self.out_path, "a", newline="", encoding="utf-8")
-        self._writer = csv.DictWriter(self._file, fieldnames=FEATURE_COLUMNS + ["Src IP"])
+        self._writer = csv.DictWriter(self._file, fieldnames=FEATURE_COLUMNS + ["Src IP", "recent_flow_count"])
         if is_new:
             self._writer.writeheader()
             self._file.flush()
+
+    def _record_and_count_recent_flow(self, src_ip: str) -> int:
+        """Rolling count of this same device's own completed flow-windows in
+        the last `sequence_window_seconds` — see the SEQUENCE-AWARENESS
+        section of this module's docstring for what this is (and isn't)."""
+        now = time.time()
+        dq = self.recent_flow_times[src_ip]
+        dq.append(now)
+        while dq and now - dq[0] > self.sequence_window_seconds:
+            dq.popleft()
+        return len(dq)
 
     def handle_packet(self, pkt):
         if not pkt.haslayer(IP):
@@ -318,10 +249,11 @@ class LiveExtractor:
 
         if len(win) >= self.window:
             row = compute_features(win, src_ip=win.forward_ip)
+            row["recent_flow_count"] = self._record_and_count_recent_flow(win.forward_ip)
             self._writer.writerow(row)
             self._file.flush()  # flow_consumer.py's watchdog needs to see growth immediately
             self.row_count += 1
-            print(f"[live_feature_extractor] wrote row #{self.row_count} for flow {tuple(flow_key)} ({self.window} pkts)")
+            print(f"[live_feature_extractor] wrote row #{self.row_count} for flow {tuple(flow_key)} ({self.window} pkts, recent_flow_count={row['recent_flow_count']})")
             del self.flows[flow_key]  # tumbling window — start fresh for this flow
 
     def close(self):
@@ -334,14 +266,16 @@ def main():
     parser.add_argument("--out-dir", default="./cicflowmeter_output", help="Folder flow_consumer.py watches")
     parser.add_argument("--window", type=int, default=100, help="Packets per flow window (paper used 10 for light attacks, 100 for volumetric)")
     parser.add_argument("--bpf", default="ip", help="BerkeleyPacketFilter, default 'ip' (skip ARP/non-IP)")
+    parser.add_argument("--sequence-window-seconds", type=int, default=300, help="Rolling window for the recent_flow_count sequence-awareness column (see module docstring)")
     args = parser.parse_args()
 
     print(f"[live_feature_extractor] {len(FEATURE_COLUMNS)} feature columns loaded from {FEATURE_COLS_PATH}")
     print(f"[live_feature_extractor] Sniffing on {args.iface!r}, window={args.window} packets/flow, writing to {args.out_dir}")
+    print(f"[live_feature_extractor] recent_flow_count rolling window: {args.sequence_window_seconds}s (not yet scored by the deployed model — see docstring)")
     print("[live_feature_extractor] NOTE: this reconstructs CICIoT2023-schema features from first principles —")
     print("[live_feature_extractor] read the ASSUMPTIONS section in this file's docstring before trusting the numbers.")
 
-    extractor = LiveExtractor(args.out_dir, args.window)
+    extractor = LiveExtractor(args.out_dir, args.window, args.sequence_window_seconds)
     try:
         sniff(iface=args.iface, filter=args.bpf, prn=extractor.handle_packet, store=False)
     except KeyboardInterrupt:

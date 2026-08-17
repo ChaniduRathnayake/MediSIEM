@@ -1,16 +1,8 @@
-// frontend/src/pages/dashboard/MedicalDeviceInventoryPanel.tsx
-//
 // The hospital's onboarded medical device inventory (ventilators, infusion
-// pumps, monitors, imaging systems, etc.) — MongoDB-backed via
-// services/medicalDeviceApi.ts. Unlike the live Wazuh agent table above it,
-// these are assets an admin has explicitly onboarded: they don't need to run
-// a Wazuh agent to be listed here, and their device_type/department is what
-// the CAAP model scores clinical criticality against for any alert whose
-// agent name/IP matches a device's `key`.
-//
-// Tagging reuses the same DeviceGroup catalog (and GroupAssignDropdown UI) as
-// the live agent table, so a group like "ICU" can cover both a Wazuh-reporting
-// workstation and a ventilator that never talks to Wazuh at all.
+// pumps, monitors, etc.), MongoDB-backed. Unlike the live Wazuh agent table,
+// these are admin-onboarded assets that don't need to run a Wazuh agent —
+// their device_type/department is what CAAP scores clinical criticality
+// against for any alert whose agent name/IP matches a device's `key`.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Stethoscope, Plus, Loader2, AlertCircle, X, Pencil, Trash2, Search, ShieldAlert,
@@ -89,7 +81,7 @@ const MedicalDeviceFormModal: React.FC<{
       <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">{initial ? 'Edit Device' : 'Onboard Medical Device'}</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>

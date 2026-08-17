@@ -1,9 +1,6 @@
-// backend/services/wazuhIndexerService.js
-//
-// Talks to the Wazuh Indexer (OpenSearch, the storage layer behind Wazuh —
-// this is the "Elasticsearch API" referenced in the work plan) to pull new
-// alerts as they land. In this project it's pointed at the "caap-alerts"
-// index that ml-pipeline/flow_consumer.py populates, not raw wazuh-alerts-*.
+// Talks to the Wazuh Indexer (OpenSearch) to pull new alerts as they land —
+// pointed at the "caap-alerts" index ml-pipeline/flow_consumer.py populates,
+// not raw wazuh-alerts-*.
 
 import { Agent, fetch } from 'undici';
 

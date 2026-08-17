@@ -1,8 +1,5 @@
-// frontend/src/components/AlertBadges.tsx
-// Small inline badges shared by every alert view (AlertsBrowser, Wallboard's
-// priority feed, AlertDetailsModal) — kept as one component so the "what
-// counts as life-critical" / MITRE-formatting logic lives in exactly one
-// place instead of being re-implemented per view.
+// Small inline badges shared by every alert view — kept as one component so
+// the "what counts as life-critical" / MITRE-formatting logic lives in one place.
 import React from 'react';
 import { HeartPulse, Target } from 'lucide-react';
 import { EnrichedAlert } from '../services/alertsApi';

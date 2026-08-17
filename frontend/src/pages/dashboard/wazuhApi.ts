@@ -1,7 +1,6 @@
-// frontend/src/pages/dashboard/wazuhApi.ts
-// All calls go via the MediSIEM backend proxy (/api/wazuh/*).
-// The backend authenticates to Wazuh using:
-//   GET /security/user/authenticate?raw=true  (Basic Auth → raw JWT string)
+// All calls go via the MediSIEM backend proxy (/api/wazuh/*), which
+// authenticates to Wazuh via GET /security/user/authenticate?raw=true.
+import { BASE_URL } from '../../services/api';
 
 export interface WazuhConfig {
   host:     string;   // e.g. https://localhost  or  https://192.168.x.x
@@ -271,7 +270,11 @@ export interface WazuhStats {
 }
 
 // ── Internal helper ───────────────────────────────────────────────────────────
-const PROXY = '/api/wazuh';
+// BASE_URL already ends in /api (configurable via VITE_API_URL) — a hardcoded
+// relative '/api/wazuh' only worked by accident, via vite.config.ts's dev-only
+// server.proxy; the production build is a single portable HTML file
+// (vite-plugin-singlefile) that may not share an origin with the backend.
+const PROXY = `${BASE_URL}/wazuh`;
 
 function configHeaders(cfg: WazuhConfig): Record<string, string> {
   // Same storage key AuthContext.tsx uses — these routes only ever accepted

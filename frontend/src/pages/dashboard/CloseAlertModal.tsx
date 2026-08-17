@@ -1,11 +1,8 @@
-// frontend/src/pages/dashboard/CloseAlertModal.tsx
-//
-// Small, focused modal: an analyst can only close a case by typing why (reason)
-// and what they found (evidence) — both required, so closures always leave a
-// real audit trail behind instead of a bare "resolved" toggle.
+// Both reason and evidence are required — closures always leave a real audit trail.
 import React, { useState } from 'react';
-import { X, CheckCircle2, Loader2, AlertCircle, ShieldCheck, ShieldX, ShieldQuestion, HelpCircle } from 'lucide-react';
+import { X, CheckCircle2, Loader2, AlertCircle, ShieldCheck, ShieldX, ShieldQuestion, HelpCircle, Zap, Wand2 } from 'lucide-react';
 import type { AlertVerdict } from '../../services/alertsApi';
+import { apiDraftCloseReason } from '../../services/alertsApi';
 
 const VERDICT_OPTIONS: { value: AlertVerdict; label: string; icon: React.ReactNode; activeClass: string }[] = [
   { value: 'true_positive', label: 'True positive', icon: <ShieldCheck className="w-3.5 h-3.5" />, activeClass: 'bg-red-600 text-white border-red-600' },
@@ -14,16 +11,49 @@ const VERDICT_OPTIONS: { value: AlertVerdict; label: string; icon: React.ReactNo
   { value: 'uncertain', label: 'Uncertain', icon: <HelpCircle className="w-3.5 h-3.5" />, activeClass: 'bg-amber-500 text-white border-amber-500' },
 ];
 
+// One click fills verdict + reason + a starting point for evidence, for closures that recur.
+const QUICK_PRESETS: { label: string; verdict: AlertVerdict; reason: string; evidence: string }[] = [
+  {
+    label: 'Known scanner IP',
+    verdict: 'false_positive',
+    reason: 'False positive — known vulnerability scanner IP',
+    evidence: 'Source IP matches our scheduled vulnerability scanner range. ',
+  },
+  {
+    label: 'Duplicate case',
+    verdict: 'benign',
+    reason: 'Duplicate of an already-open case',
+    evidence: 'Same root cause as case ',
+  },
+  {
+    label: 'Benign — confirmed with owner',
+    verdict: 'benign',
+    reason: 'Benign — confirmed with device owner',
+    evidence: 'Contacted the device/service owner, who confirmed this was expected activity: ',
+  },
+  {
+    label: 'Rule too broad',
+    verdict: 'false_positive',
+    reason: 'False positive — detection rule too broad for this context',
+    evidence: 'Rule fired on legitimate activity that doesn\'t indicate a real threat. ',
+  },
+];
+
 const CloseAlertModal: React.FC<{
   alertTitle: string;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
   onSubmit: (reason: string, evidence: string, verdict: AlertVerdict) => void;
-}> = ({ alertTitle, submitting, error, onClose, onSubmit }) => {
+  // Enables the "Draft with AI" button — omitted callers just don't get it.
+  alertId?: string;
+  token?: string | null;
+}> = ({ alertTitle, submitting, error, onClose, onSubmit, alertId, token }) => {
   const [reason, setReason] = useState('');
   const [evidence, setEvidence] = useState('');
   const [verdict, setVerdict] = useState<AlertVerdict | null>(null);
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   const canSubmit = reason.trim().length > 0 && evidence.trim().length > 0 && !!verdict && !submitting;
 
@@ -31,6 +61,22 @@ const CloseAlertModal: React.FC<{
     e.preventDefault();
     if (!canSubmit || !verdict) return;
     onSubmit(reason.trim(), evidence.trim(), verdict);
+  };
+
+  const draftWithAi = async () => {
+    if (!token || !alertId) return;
+    setAiDrafting(true);
+    setAiError('');
+    try {
+      const { draft } = await apiDraftCloseReason(token, alertId);
+      setVerdict(draft.verdict);
+      setReason(draft.reason);
+      setEvidence(draft.evidence);
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'AI assistant request failed.');
+    } finally {
+      setAiDrafting(false);
+    }
   };
 
   return (
@@ -44,12 +90,42 @@ const CloseAlertModal: React.FC<{
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">Close case</h2>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">{alertTitle}</p>
           </div>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0 ml-3">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0 ml-3">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Zap className="w-3 h-3 text-cyan-500 dark:text-cyan-400" /> Quick fill
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => { setVerdict(p.verdict); setReason(p.reason); setEvidence(p.evidence); }}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium border border-cyan-500/30 bg-cyan-500/5 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-500/15 transition-colors"
+                >
+                  {p.label}
+                </button>
+              ))}
+              {alertId && token && (
+                <button
+                  type="button"
+                  onClick={draftWithAi}
+                  disabled={aiDrafting}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border border-violet-500/30 bg-violet-500/5 text-violet-600 dark:text-violet-400 hover:bg-violet-500/15 disabled:opacity-50 transition-colors"
+                >
+                  {aiDrafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />} Draft with AI
+                </button>
+              )}
+            </div>
+            {aiError && <p className="text-[11px] text-red-500 dark:text-red-400 mt-1.5">{aiError}</p>}
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">Fills verdict, reason, and a starting point for evidence — finish the specifics below before submitting.</p>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1.5">
               Verdict <span className="text-red-500">*</span>

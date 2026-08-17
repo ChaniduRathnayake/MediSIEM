@@ -30,6 +30,45 @@ export async function apiGetDetectionPerformance(token: string): Promise<Detecti
   return json;
 }
 
+// Mirrors the JSON shape ai_server/check_drift.py writes to
+// reports/drift_report_<date>.json — see that script for exactly what
+// z_score / out_of_range_fraction mean and don't mean.
+export interface DriftFeatureReport {
+  train_mean: number;
+  train_std: number;
+  live_mean: number;
+  live_std: number;
+  z_score: number;
+  out_of_range_fraction: number;
+  drifted: boolean;
+}
+
+export interface DriftReport {
+  generated_at: string;
+  input_file: string;
+  input_rows: number;
+  baseline_trained_at: string | null;
+  status: 'ok' | 'insufficient_rows';
+  z_threshold?: number;
+  out_of_range_threshold?: number;
+  drift_rate?: number;
+  drifted_features?: string[];
+  features?: Record<string, DriftFeatureReport>;
+  min_rows_required?: number;
+}
+
+// Absent (404) until someone has actually run check_drift.py at least once
+// — a script-generated report, not something the backend computes itself.
+export async function apiGetDriftReport(token: string): Promise<{ filename: string; report: DriftReport } | null> {
+  const res = await fetch(`${BASE_URL}/detection-performance/drift-report`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 404) return null;
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to fetch drift report');
+  return json;
+}
+
 export interface KevStatus {
   loaded: boolean;
   count: number;

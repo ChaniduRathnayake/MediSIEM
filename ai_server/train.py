@@ -1,61 +1,12 @@
-"""
-=============================================================
-  CAAP IoMT IDS — TRAINING SCRIPT v6
-  3-Model Pipeline: Random Forest + Isolation Forest + K-Means
+# CAAP IoMT IDS training script (Random Forest + Isolation Forest + K-Means).
+# Drop pcap CSVs into data/train/ and data/test/ — labels are derived from
+# filenames, FEATURE_COLS from whatever numeric columns are actually present.
+# Isolation Forest is fit one-class (Benign rows only), per standard practice
+# for unsupervised anomaly detectors.
+# Author: R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
+# Usage: python train.py  ->  models/*.pkl, reports/*.png, reports/classification_report.txt
 
-  ► HOW TO USE:
-      Drop ALL individual pcap CSV files into:
-          data/train/   (e.g. ARP_Spoofing_train.pcap.csv)
-          data/test/    (e.g. ARP_Spoofing_test.pcap.csv)
-
-      Labels are derived automatically from filenames.
-      No single merged CSV required — this script merges them.
-
-  ► Label mapping (filename prefix → label group):
-      ARP_Spoofing*         → ARP_Spoofing
-      Benign*               → Benign
-      MQTT-DDoS-*           → MQTT_Publish_Flood
-      MQTT-DoS-*            → MQTT_Publish_Flood
-      MQTT-Malformed*       → MQTT_Brute_Force
-      Recon-*                → Recon
-      TCP_IP-DDoS-SYN*       → DoS_TCP
-      TCP_IP-DoS-SYN*        → DoS_TCP
-      TCP_IP-DDoS-TCP*       → DoS_TCP
-      TCP_IP-DoS-TCP*        → DoS_TCP
-      TCP_IP-DDoS-ICMP*      → DoS_TCP
-      TCP_IP-DoS-ICMP*       → DoS_TCP
-      TCP_IP-DDoS-UDP*       → DoS_TCP
-      TCP_IP-DoS-UDP*        → DoS_TCP
-
-  Real CIC IoMT 2024 network feature columns (used as ML input):
-    Header_Length, Protocol Type, Duration, Rate, Srate, Drate,
-    fin_flag_number, syn_flag_number, rst_flag_number, psh_flag_number,
-    ack_flag_number, ece_flag_number, cwr_flag_number,
-    ack_count, syn_count, fin_count, rst_count,
-    HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC,
-    TCP, UDP, DHCP, ARP, ICMP, IGMP, IPv, LLC,
-    Tot sum, Min, Max, AVG, Std, Tot size,
-    IAT, Number, Magnitue, Radius, Covariance, Variance, Weight
-
-  ── v6 CHANGE ─────────────────────────────────────────────────────────────
-  Isolation Forest is now trained in a proper ONE-CLASS configuration:
-  it is fit ONLY on rows labelled "Benign" from the training split, instead
-  of the full mixed (benign + attack) training set. This is standard
-  practice for unsupervised anomaly detectors — IF should learn what
-  "normal" IoMT traffic looks like, then flag deviations from that
-  boundary at inference time (attacks included). Training it on a mixed
-  set (as in v5) lets it partially absorb attack traffic as "normal",
-  which weakens its usefulness as an independent anomaly signal.
-  Random Forest and K-Means are unaffected by this change.
-  ─────────────────────────────────────────────────────────────────────────
-
-  Author : R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
-  Usage  : python train.py
-  Output : models/*.pkl   reports/*.png   reports/classification_report.txt
-=============================================================
-"""
-
-import os, re, warnings, time, glob, datetime
+import os, re, warnings, time, glob, datetime, json, hashlib
 import joblib
 import numpy as np
 import pandas as pd
@@ -84,7 +35,13 @@ MODEL_DIR  = "models"
 REPORT_DIR = "reports"
 N_CLUSTERS = 2
 
-CLUSTER_LABELS = {0: "active", 1: "idle"}
+# Verified against the actual fitted kmeans.pkl centroids (Tot sum/Tot size/AVG/
+# Duration are all near-zero for cluster 0 across 98.7% of samples, and several
+# std devs above the mean for cluster 1's remaining 1.3%) — 0 is the idle/
+# baseline traffic cluster, 1 is the high-volume/active one. Must match
+# src/app.py's CLUSTER_LABELS exactly; this dict was previously inverted
+# relative to app.py, which had it right.
+CLUSTER_LABELS = {0: "idle", 1: "active"}
 
 # ── LABEL MAP: filename prefix → canonical label ──────────────────────────────
 LABEL_MAP = [
@@ -123,9 +80,14 @@ t_start = time.time()
 
 def load_and_merge(directory: str) -> pd.DataFrame:
     """
-    Reads every *.csv in `directory`, derives the label from the filename,
-    appends a 'label' column, concatenates everything, drops NaNs,
-    and returns the combined DataFrame.
+    Reads every *.csv in `directory`. Raw pcap-derived CSVs have no 'label'
+    column of their own, so those get one label for the whole file, derived
+    from the filename. A CSV that already has a 'label' column — e.g. an
+    admin's GET /api/alerts/training-feedback-export download, which mixes
+    per-row verdict-derived labels (true-positive rows keep their original
+    predicted attack label, false-positive/benign rows become "Benign")
+    within a single file — keeps its own per-row labels untouched instead.
+    Concatenates everything, drops NaNs, and returns the combined DataFrame.
     """
     csv_files = sorted(glob.glob(os.path.join(directory, "*.csv")))
     if not csv_files:
@@ -141,10 +103,15 @@ def load_and_merge(directory: str) -> pd.DataFrame:
         except UnicodeDecodeError:
             df = pd.read_csv(f, encoding="latin1", low_memory=False)
 
-        lbl = filename_to_label(f)
-        df["label"] = lbl
-        frames.append(df)
-        print(f"    {os.path.basename(f):<55}  {len(df):>8,} rows  →  {lbl}")
+        if "label" in df.columns:
+            counts = ", ".join(f"{v}×{c}" for v, c in df["label"].value_counts().items())
+            frames.append(df)
+            print(f"    {os.path.basename(f):<55}  {len(df):>8,} rows  →  per-row labels ({counts})")
+        else:
+            lbl = filename_to_label(f)
+            df["label"] = lbl
+            frames.append(df)
+            print(f"    {os.path.basename(f):<55}  {len(df):>8,} rows  →  {lbl}")
 
     combined = pd.concat(frames, ignore_index=True)
     combined.columns = combined.columns.str.strip()
@@ -732,6 +699,58 @@ with open(summary_path, "w", encoding="utf-8") as f:
     f.write(summary_text + "\n")
 
 print(f"\n  ✓ Saved → {summary_path}")
+
+
+# ── STEP 9b : MODEL METADATA  (versioning + drift baseline — models/model_meta.json) ──
+# Consumed by ai_server/src/app.py at startup (model_version in /health and
+# /predict) and by ai_server/check_drift.py (feature_stats as the "what does
+# normal training data look like" baseline to compare live captured flows
+# against). feature_columns_hash lets a consumer notice a retrain changed the
+# feature set without diffing the full column list by eye.
+print("\n" + "=" * 68)
+print("  STEP 9b — SAVING MODEL METADATA  →  models/model_meta.json")
+print("=" * 68)
+
+feature_columns_hash = hashlib.sha256(",".join(FEATURE_COLS).encode("utf-8")).hexdigest()[:16]
+feature_stats = {
+    col: {"mean": float(np.mean(X_train_raw[:, i])), "std": float(np.std(X_train_raw[:, i]))}
+    for i, col in enumerate(FEATURE_COLS)
+}
+
+model_meta = {
+    "trained_at": datetime.datetime.utcnow().isoformat() + "Z",
+    "feature_columns": FEATURE_COLS,
+    "feature_columns_hash": feature_columns_hash,
+    "classes": list(le.classes_),
+    "models": {
+        "random_forest": {
+            "metric": "classification_accuracy",
+            "train_pct": round(rf_train_acc * 100, 2),
+            "test_pct": round(rf_test_acc * 100, 2),
+            "overall_pct": round(rf_overall_acc * 100, 2),
+        },
+        "isolation_forest": {
+            "metric": "binary_normal_attack_accuracy",
+            "train_pct": round(if_train_acc * 100, 2),
+            "test_pct": round(if_test_acc * 100, 2),
+            "overall_pct": round(if_overall_acc * 100, 2),
+        },
+        "kmeans": {
+            "metric": "cluster_purity",
+            "train_pct": round(km_train_acc * 100, 2),
+            "test_pct": round(km_test_acc * 100, 2),
+            "overall_pct": round(km_overall_acc * 100, 2),
+        },
+    },
+    # Per-feature train-set mean/std (raw, pre-scaling) — the baseline
+    # check_drift.py z-scores newly captured flows against.
+    "feature_stats": feature_stats,
+}
+
+meta_path = os.path.join(MODEL_DIR, "model_meta.json")
+with open(meta_path, "w", encoding="utf-8") as f:
+    json.dump(model_meta, f, indent=2)
+print(f"  ✓ Saved → {meta_path}")
 
 
 # ── FINAL SUMMARY ─────────────────────────────────────────────────────────────

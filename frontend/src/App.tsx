@@ -3,10 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
+import { NotificationCenterProvider } from './context/NotificationCenterContext';
 
 // Pages
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AboutPage from './pages/AboutPage';
 import ServicesPage from './pages/ServicesPage';
 import PricingPage from './pages/PricingPage';
@@ -130,6 +132,7 @@ const AppRoutes: React.FC = () => (
         </PublicOnlyRoute>
       }
     />
+    <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 
     {/* ── Protected: patient/user dashboard ── */}
     <Route
@@ -175,7 +178,9 @@ const App: React.FC = () => (
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-          <AppRoutes />
+          <NotificationCenterProvider>
+            <AppRoutes />
+          </NotificationCenterProvider>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

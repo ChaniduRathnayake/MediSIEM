@@ -5,10 +5,13 @@ import { getPasswordPolicy } from '../utils/passwordPolicy.js';
 
 const router = express.Router();
 
-// ─── GET /api/password-policy  (any authenticated user) ───────────────────────
-// Needed by every password-entry form (admin create/edit user, self
-// password-change) to show live requirement feedback, not just admins.
-router.get('/', protect, async (req, res) => {
+// ─── GET /api/password-policy  (public) ────────────────────────────────────────
+// Needed by every password-entry form — admin create/edit user, self
+// password-change, and the pre-auth forgot/reset-password flow — to show
+// live requirement feedback. No `protect`: the policy itself (min length,
+// which character classes are required) isn't sensitive, and the
+// reset-password page has no session token yet by definition.
+router.get('/', async (req, res) => {
   try {
     const policy = await getPasswordPolicy();
     res.json({ policy });

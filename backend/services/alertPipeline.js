@@ -1,15 +1,12 @@
-// backend/services/alertPipeline.js
-//
-// The live loop: poll the Indexer for new alerts → use them as-is if already
-// enriched by flow_consumer.py (real RF + Isolation Forest + K-Means), or
-// fall back to caapService's rule.level estimate only if they aren't → keep
-// an in-memory buffer for REST reads → push each new one over Socket.IO so
-// the dashboard updates in real time without polling.
+// The live loop: poll the Indexer for new alerts, enrich via caapService if not already
+// scored, buffer in memory for REST reads, and push each new one over Socket.IO.
 
 import { fetchNewAlerts } from './wazuhIndexerService.js';
 import { enrichAlert } from './caapService.js';
 import { lookupDevice } from '../config/deviceInventory.js';
 import DetectionRule from '../models/DetectionRule.js';
+import { sendImmediateCasAlert } from './notificationService.js';
+import AlertLog from '../models/AlertLog.js';
 
 const {
   ALERT_POLL_INTERVAL_MS = '5000',
@@ -20,16 +17,38 @@ const BUFFER_SIZE = parseInt(ALERT_BUFFER_SIZE, 10);
 const POLL_INTERVAL = parseInt(ALERT_POLL_INTERVAL_MS, 10);
 
 let buffer = []; // newest first
-let bufferedIds = new Set(); // mirrors buffer's ids — O(1) dedup check, see pollOnce()
 let lastTimestamp = null;
 let io = null; // set via init()
 let pollHandle = null;
 
-// Cumulative counters — unlike `buffer` (capped at BUFFER_SIZE, oldest
-// evicted to bound memory), these only ever grow for the life of the
-// process. The buffer is what the alert *list* is drawn from; these are
-// what "Total Alerts" / severity-mix stats should be drawn from, so those
-// numbers don't freeze the instant the buffer fills up.
+// Guards against the Indexer's `@timestamp gt lastTimestamp` cursor re-returning an
+// already-processed document (millisecond-boundary overlap between polls).
+const RECENT_RAW_ID_WINDOW_MS = 5 * 60 * 1000;
+const recentRawIds = new Map(); // rawId -> seenAt
+
+function pruneRecentRawIds(now) {
+  for (const [id, seenAt] of recentRawIds) {
+    if (now - seenAt >= RECENT_RAW_ID_WINDOW_MS) recentRawIds.delete(id);
+  }
+}
+
+// Collapses repeats of the same rule+device+source within this window into one buffered
+// entry with a running duplicateCount, instead of a row per repeat.
+const DEDUP_WINDOW_MS = 2 * 60 * 1000;
+const dedupSignatures = new Map(); // dedupKey -> { alertId, lastSeen }
+
+function dedupKey(displayAlert) {
+  return `${displayAlert.ruleDescription || ''}|${displayAlert.agent || ''}|${displayAlert.src_ip || ''}`;
+}
+
+function pruneStaleSignatures(now) {
+  for (const [key, sig] of dedupSignatures) {
+    if (now - sig.lastSeen >= DEDUP_WINDOW_MS) dedupSignatures.delete(key);
+  }
+}
+
+// Unlike `buffer` (capped, oldest evicted), these only ever grow — what "Total Alerts" /
+// severity-mix stats draw from, so they don't freeze once the buffer fills up.
 let totalCount = 0;
 const severityTotals = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
 
@@ -40,10 +59,7 @@ export function casToSeverity(cas) {
   return 'LOW';
 }
 
-// ─── Rule evaluation ────────────────────────────────────────────────────────
-// Fixed field/operator whitelist — no scripting, no eval — evaluated against
-// the same flattened alert shape toDisplayAlert() produces below. All
-// conditions in a rule must match (AND only, see DetectionRule.js).
+// Fixed field/operator whitelist — no scripting/eval. All conditions in a rule must match.
 export function conditionMatches(alert, { field, operator, value }) {
   const actual = alert[field];
   if (actual === undefined || actual === null) return false;
@@ -52,8 +68,6 @@ export function conditionMatches(alert, { field, operator, value }) {
     return String(actual).toLowerCase().includes(String(value).toLowerCase());
   }
   if (operator === 'equals') {
-    // Numeric fields compare numerically even if `value` arrived as a string
-    // from a form input; string fields compare case-insensitively.
     return typeof actual === 'number' ? Number(actual) === Number(value) : String(actual).toLowerCase() === String(value).toLowerCase();
   }
   const a = Number(actual);
@@ -72,9 +86,7 @@ function evaluateRules(alert, rules) {
     .map((rule) => ({ id: rule._id.toString(), name: rule.name }));
 }
 
-// Re-fetched once per poll cycle rather than cached indefinitely — cheap for
-// a small collection, and means a rule edited in the UI takes effect on the
-// very next poll without a separate cache-invalidation path.
+// Re-fetched each poll (not cached) so a rule edited in the UI takes effect next poll.
 async function getEnabledRules() {
   try {
     return await DetectionRule.find({ enabled: true });
@@ -85,22 +97,14 @@ async function getEnabledRules() {
 }
 
 async function toDisplayAlert(raw, enrichment) {
-  // flow_consumer.py already stamps agent.department (real ML path) AND
-  // reuses agent.name to carry the device TYPE, not a hostname (see its
-  // _handle_row(): `"agent": {"name": device["device_type"], ...}`). The
-  // rule.level fallback path (raw Wazuh HIDS alerts) has neither, so resolve
-  // both from the same clinical inventory caapService.js scores against —
-  // one lookup, reused for department/deviceType/criticality below.
+  // flow_consumer.py stamps agent.department and reuses agent.name for device TYPE (not
+  // hostname); the rule.level fallback path has neither, so resolve both from inventory.
   const deviceMeta = await lookupDevice(raw.agent || {});
   const department = raw.agent?.department || deviceMeta.department;
   const deviceType = raw.agent?.department ? (raw.agent?.name || deviceMeta.device_type) : deviceMeta.device_type;
 
-  // `enrichment` is often just the raw indexed doc minus `id` (the
-  // already-enriched fast path), which still carries its OWN raw `agent`
-  // object/`flow`/etc. Spread it FIRST so the explicit fields below always
-  // win — otherwise `...enrichment` clobbers the flattened `agent` string
-  // with the original {name, ip, department} object, and React throws
-  // "Objects are not valid as a React child" the instant it tries to render it.
+  // Spread enrichment FIRST so the explicit fields below win — otherwise it clobbers the
+  // flattened `agent` string with the original {name, ip, department} object.
   return {
     ...enrichment,
     id: raw.id,
@@ -108,15 +112,9 @@ async function toDisplayAlert(raw, enrichment) {
     agent: raw.agent?.name || raw.agent?.ip || 'unknown',
     department,
     deviceType,
-    // From the admin-managed MedicalDevice inventory ('critical'/'high'/
-    // 'medium'/'low') — lets rules and the UI escalate purely on "this is a
-    // life-critical device" independent of whatever CAS came out as.
     deviceCriticality: deviceMeta.criticality,
     ruleDescription: raw.rule?.description || 'Unknown event',
     ruleLevel: raw.rule?.level ?? null,
-    // Wazuh tags many rules with the MITRE ATT&CK technique they correspond
-    // to — surfaced as-is (id/tactic/technique arrays) when present, null
-    // when this rule has no MITRE mapping.
     mitre: raw.rule?.mitre
       ? { id: raw.rule.mitre.id || [], tactic: raw.rule.mitre.tactic || [], technique: raw.rule.mitre.technique || [] }
       : null,
@@ -128,28 +126,20 @@ async function pollOnce() {
     const rawAlerts = await fetchNewAlerts(lastTimestamp);
     if (!rawAlerts.length) return;
 
-    // Loaded once per poll cycle, not per-alert — same rule set applies to
-    // every alert in this batch.
     const rules = await getEnabledRules();
+    const now = Date.now();
+    pruneStaleSignatures(now);
+    pruneRecentRawIds(now);
 
     for (const raw of rawAlerts) {
-      // The Indexer's `@timestamp gt lastTimestamp` cursor can re-return an
-      // alert already in the buffer — e.g. when several documents share the
-      // same timestamp at millisecond precision and the range query's
-      // boundary handling doesn't exclude all of them cleanly. Guard here
-      // instead of trusting the query to never repeat itself: without this,
-      // a re-fetched alert both duplicates the React key on the frontend
-      // AND re-evaluates/re-emits as if it were new.
-      if (bufferedIds.has(raw.id)) {
+      // Guards against the same millisecond-boundary re-return the window above prunes.
+      if (recentRawIds.has(raw.id)) {
         lastTimestamp = raw['@timestamp'] || lastTimestamp;
         continue;
       }
 
-      // caap-alerts documents are already fully scored by flow_consumer.py
-      // (real RF + Isolation Forest + K-Means via /predict) — use them as-is.
-      // Only alerts with no CAS field at all (e.g. polling a raw
-      // wazuh-alerts-* index instead) fall back to enrichAlert(), which
-      // itself only produces a rule.level estimate, not an ML classification.
+      // caap-alerts docs are already scored by flow_consumer.py — use as-is. Only alerts
+      // with no CAS field fall back to enrichAlert()'s rule.level estimate.
       let enrichment;
       if (raw.CAS !== undefined) {
         const { id, ...rest } = raw;
@@ -169,20 +159,64 @@ async function pollOnce() {
 
       const displayAlert = await toDisplayAlert(raw, enrichment);
       displayAlert.matchedRules = evaluateRules(displayAlert, rules);
-      buffer.unshift(displayAlert);
-      bufferedIds.add(displayAlert.id);
-      if (buffer.length > BUFFER_SIZE) {
-        const evicted = buffer.pop();
-        bufferedIds.delete(evicted.id);
-      }
+
+      // If the same signature is still "live", fold into it (bump duplicateCount, re-emit
+      // under the SAME id) instead of adding a new row.
+      const key = dedupKey(displayAlert);
+      const signature = dedupSignatures.get(key);
+      const existing = signature && now - signature.lastSeen < DEDUP_WINDOW_MS
+        ? buffer.find((a) => a.id === signature.alertId)
+        : null;
 
       totalCount += 1;
       severityTotals[casToSeverity(displayAlert.CAS ?? 0)] += 1;
+      recentRawIds.set(raw.id, now); // the raw alert has been consumed either way — never re-process it
 
-      if (io) {
-        io.emit('alert:new', displayAlert);
-        io.emit('alerts:stats', { totalCount, severityTotals });
+      if (existing) {
+        existing.duplicateCount = (existing.duplicateCount || 1) + 1;
+        existing.timestamp = displayAlert.timestamp;
+        signature.lastSeen = now;
+        if (io) {
+          io.emit('alert:new', existing);
+          io.emit('alerts:stats', { totalCount, severityTotals });
+        }
+        // No notification here — the first occurrence already triggered one.
+      } else {
+        displayAlert.duplicateCount = 1;
+        buffer.unshift(displayAlert);
+        if (buffer.length > BUFFER_SIZE) buffer.pop();
+        dedupSignatures.set(key, { alertId: displayAlert.id, lastSeen: now });
+
+        if (io) {
+          io.emit('alert:new', displayAlert);
+          io.emit('alerts:stats', { totalCount, severityTotals });
+        }
+        sendImmediateCasAlert(displayAlert).catch((err) =>
+          console.warn('[alertPipeline] Immediate-CAS notification failed:', err.message)
+        );
+
+        // Fire-and-forget — a slow Mongo write should never delay the live push above.
+        AlertLog.findOneAndUpdate(
+          { alertId: displayAlert.id },
+          {
+            alertId: displayAlert.id,
+            timestamp: displayAlert.timestamp,
+            CAS: displayAlert.CAS ?? null,
+            action: displayAlert.action ?? null,
+            severity: casToSeverity(displayAlert.CAS ?? 0),
+            department: displayAlert.department ?? null,
+            agent: displayAlert.agent ?? null,
+            deviceType: displayAlert.deviceType ?? null,
+            deviceCriticality: displayAlert.deviceCriticality ?? null,
+            label: displayAlert.label ?? null,
+            ruleDescription: displayAlert.ruleDescription ?? null,
+            mitreTactic: displayAlert.mitre?.tactic ?? [],
+            matchedRuleNames: (displayAlert.matchedRules ?? []).map((r) => r.name),
+          },
+          { upsert: true }
+        ).catch((err) => console.warn('[alertPipeline] AlertLog write failed:', err.message));
       }
+
       lastTimestamp = raw['@timestamp'] || lastTimestamp;
     }
   } catch (err) {

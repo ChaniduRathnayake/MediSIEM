@@ -1,11 +1,9 @@
-// frontend/src/pages/dashboard/complianceApi.ts
 // Client for the Wazuh Indexer proxy (backend/routes/compliance.js) — a
-// separate service from the Wazuh manager API that wazuhApi.ts talks to.
-// Backs the full paginated Alerts browser, the HIPAA/GDPR compliance views,
-// and FIM change history. Same request shape as wazuhApi.ts's proxyGet, but
-// against /api/compliance with x-indexer-* headers instead of x-wazuh-*.
+// separate service from the Wazuh manager API wazuhApi.ts talks to. Backs
+// the Alerts browser, HIPAA/GDPR views, and FIM change history.
 
 import type { WazuhConfig } from './wazuhApi';
+import { BASE_URL } from '../../services/api';
 
 export type ComplianceFramework = 'hipaa' | 'gdpr';
 
@@ -37,7 +35,8 @@ export interface ComplianceAgentDetail {
   violatedControls: ComplianceControlDetail[];
 }
 
-const PROXY = '/api/compliance';
+// See wazuhApi.ts's PROXY comment — same reasoning, same fix.
+const PROXY = `${BASE_URL}/compliance`;
 
 function configHeaders(cfg: WazuhConfig): Record<string, string> {
   // Same storage key AuthContext.tsx uses — these routes only ever accepted

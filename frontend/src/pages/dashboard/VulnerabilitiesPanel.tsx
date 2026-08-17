@@ -1,10 +1,6 @@
-// frontend/src/pages/dashboard/VulnerabilitiesPanel.tsx
-// "Vulnerabilities" tab: lists devices; CVE data for a device is only fetched
-// when you click "View CVEs" — opens the existing AgentDetailsModal deep-linked
-// to its Vulnerabilities tab (id, severity, package, version, Load More).
-// Deliberately does not fetch or show any vulnerability data in this table
-// itself (no per-device counts) — nothing vulnerability-related loads until
-// you actually ask to view it.
+// "Vulnerabilities" tab: lists devices; CVE data is only fetched on "View
+// CVEs" click, via AgentDetailsModal deep-linked to its Vulnerabilities tab.
+// This table itself shows no per-device CVE counts — nothing loads until asked for.
 import React, { useState } from 'react';
 import { Bug, Loader2, AlertCircle, ShieldAlert } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
