@@ -1,8 +1,5 @@
-// frontend/src/pages/dashboard/GroupAssignDropdown.tsx
-// Reusable tag-assignment dropdown: shows a device's current groups as pills
-// with a "+" to open a checklist of all known groups (plus inline
-// create-and-assign). Used by both the live Wazuh device table and the
-// onboarded medical device inventory.
+// Reusable tag-assignment dropdown: current groups as pills, "+" opens a
+// checklist with inline create-and-assign. Used by both device tables.
 import React, { useEffect, useRef, useState } from 'react';
 import { Tag, Plus, Loader2 } from 'lucide-react';
 import type { DeviceGroup } from './deviceApi';

@@ -1,15 +1,8 @@
-// frontend/src/pages/dashboard/Wallboard.tsx
-// Chrome-free, full-screen SOC wallboard meant for an actual monitor in the
-// room — no sidebar, no settings, nothing to click during a shift. Composed
-// entirely from data/components that already exist elsewhere in the admin
-// console (useLiveAlerts, useWazuhContext, usePresenceSummary, StatCard,
-// ChartCard, AlertsTimelineChart, SeverityDonutChart) — no new fetching logic.
-//
-// Always dark, regardless of the app-wide theme toggle: a wallboard is a
-// fixed aesthetic for a shared display, not part of the per-user toggleable
-// chrome. Scoped by wrapping the root in a `dark` class rather than touching
-// ThemeContext/localStorage, since it must not affect the admin's own
-// light/dark preference when they later reopen /admin in the same tab.
+// Chrome-free, full-screen SOC wallboard for an actual monitor in the room —
+// no sidebar, nothing to click, composed from existing admin-console data
+// hooks/components. Always dark regardless of the app theme toggle, scoped
+// via a `dark` class wrapper rather than ThemeContext so it can't affect the
+// admin's own light/dark preference elsewhere.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, Wifi, WifiOff, ArrowLeft, AlertTriangle, Server, TrendingUp, Users } from 'lucide-react';
@@ -22,6 +15,7 @@ import StatCard from '../../components/StatCard';
 import ChartCard from '../../components/charts/ChartCard';
 import AlertsTimelineChart from '../../components/charts/AlertsTimelineChart';
 import SeverityDonutChart from '../../components/charts/SeverityDonutChart';
+import TopBarChart from '../../components/charts/TopBarChart';
 import SoundToggle from '../../components/SoundToggle';
 import { casToSeverity, bucketAlertsByHour, latestTimestamp, SEVERITY_ORDER, SEVERITY_COLORS } from '../../utils/chartData';
 import { LifeCriticalBadge, MitreBadge, isLifeCriticalDevice } from '../../components/AlertBadges';
@@ -58,6 +52,27 @@ const WallboardContent: React.FC = () => {
     () => SEVERITY_ORDER.map((name) => ({ name, value: severityTotals[name], color: SEVERITY_COLORS[name] })),
     [severityTotals]
   );
+
+  // Raw CAS histogram (width-2 buckets) — a finer-grained view of the same
+  // underlying score than the 4-bucket Severity mix donut above, since a
+  // sea of alerts sitting at CAS 7.9 vs. spread evenly across "HIGH" reads
+  // very differently on a wallboard even though both count as one severity bucket.
+  const casDistribution = useMemo(() => {
+    const buckets = [
+      { label: '0–2', min: 0, max: 2 },
+      { label: '2–4', min: 2, max: 4 },
+      { label: '4–6', min: 4, max: 6 },
+      { label: '6–8', min: 6, max: 8 },
+      { label: '8–10', min: 8, max: 10.01 },
+    ];
+    return buckets.map((b) => ({ label: b.label, value: liveAlerts.filter((a) => a.CAS >= b.min && a.CAS < b.max).length }));
+  }, [liveAlerts]);
+  const casBucketColor = (label: string) => {
+    if (label === '8–10') return '#ef4444';
+    if (label === '6–8') return '#f97316';
+    if (label === '4–6') return '#f59e0b';
+    return '#3b82f6';
+  };
 
   const recentCritical = useMemo(
     () => liveAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL' || casToSeverity(a.CAS) === 'HIGH').slice(0, 25),
@@ -124,12 +139,15 @@ const WallboardContent: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
+          <div className="grid grid-cols-4 gap-4 flex-1 min-h-0">
             <ChartCard title="Alert volume (24h)" subtitle="Stacked by severity" height={380} empty={liveAlerts.length === 0} className="col-span-2">
               <AlertsTimelineChart data={timeline} />
             </ChartCard>
             <ChartCard title="Severity mix" subtitle="All-time" height={380} empty={liveAlerts.length === 0}>
               <SeverityDonutChart data={severityDist} />
+            </ChartCard>
+            <ChartCard title="CAS distribution" subtitle="Current buffer" height={380} empty={liveAlerts.length === 0}>
+              <TopBarChart data={casDistribution} colorOf={(entry) => casBucketColor(entry.label)} />
             </ChartCard>
           </div>
         </div>

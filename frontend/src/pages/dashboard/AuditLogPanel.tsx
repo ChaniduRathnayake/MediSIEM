@@ -1,8 +1,5 @@
-// frontend/src/pages/dashboard/AuditLogPanel.tsx
-// Extracted out of AdminDashboard.tsx (where it originally lived inline) so
-// the auditor role — whose entire reason for existing is read access to
-// this — can actually reach it too, from UserDashboard.tsx. Read-only
-// everywhere it's used; nothing here performs a write.
+// Shared between AdminDashboard.tsx and UserDashboard.tsx so the auditor
+// role can reach it too. Read-only everywhere it's used.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { apiGetAuditLog } from '../../services/api';
@@ -21,6 +18,14 @@ const auditActionLabel = (action: AuditLogEntry['action']) => {
     case 'assign_alert': return 'Assigned alert';
     case 'unassign_alert': return 'Unassigned alert';
     case 'close_alert': return 'Closed case';
+    case 'onboard_medical_device': return 'Onboarded device';
+    case 'update_medical_device': return 'Updated device';
+    case 'update_medical_device_groups': return 'Changed device groups';
+    case 'delete_medical_device': return 'Removed device';
+    case 'update_settings': return 'Updated integrations';
+    case 'enable_mfa': return 'Enabled two-factor auth';
+    case 'disable_mfa': return 'Disabled two-factor auth';
+    case 'reset_password': return 'Reset password';
     default: return 'Updated';
   }
 };
@@ -29,17 +34,25 @@ const auditActionBadge = (action: AuditLogEntry['action']) => {
   switch (action) {
     case 'create_user':
     case 'create_device_group':
+    case 'onboard_medical_device':
+    case 'enable_mfa':
       return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
     case 'delete_user':
     case 'delete_device_group':
     case 'unassign_alert':
+    case 'delete_medical_device':
+    case 'disable_mfa':
       return 'text-red-400 bg-red-500/10 border-red-500/30';
     case 'update_device_groups':
     case 'update_device_os_category':
     case 'update_device_group':
     case 'assign_alert':
+    case 'update_medical_device':
+    case 'update_medical_device_groups':
       return 'text-violet-400 bg-violet-500/10 border-violet-500/30';
     case 'close_alert':
+    case 'update_settings':
+    case 'reset_password':
       return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
     default:
       return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';

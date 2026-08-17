@@ -1,26 +1,9 @@
-"""
-test_real_rows.py — Phase 6 validation helper
-================================================
-Your CICIoMT2024 test data is split into one CSV PER attack subtype
-(e.g. data/test/ARP_Spoofing_test.pcap.csv, data/test/TCP_IP-DoS-SYN_test.pcap.csv),
-with no label column inside — the label lives in the filename.
-
-This script scans a directory of such files, samples a few real rows from
-each, sends each to your running Flask /predict endpoint, and prints the
-filename-derived label next to what the model actually predicted.
-
-NOTE: your label_encoder.pkl / RF model may have been trained on a
-CONSOLIDATED label set (e.g. 6 classes per your work plan: ARP_Spoofing,
-Benign, DoS_TCP, MQTT_Brute_Force, MQTT_Publish_Flood, Recon) while these
-filenames use a more granular ~21-subtype taxonomy (e.g. "TCP_IP-DoS-SYN",
-"MQTT-DDoS-Connect_Flood"). The script prints both labels raw — you decide
-whether they should map onto each other and whether that mapping was
-applied consistently during training.
-
-Usage:
-    python test_real_rows.py --dir data/test --rows_per_file 1
-    python test_real_rows.py --dir data/test --rows_per_file 2 --url http://127.0.0.1:5001/predict
-"""
+# Samples a few real rows from each data/test/*.pcap.csv file (label lives in
+# the filename, not a column), sends each to the running Flask /predict
+# endpoint, and prints the filename-derived label next to the prediction.
+# Filenames use a granular ~21-subtype taxonomy while the trained model may
+# use a consolidated 6-class set — both labels print raw for manual comparison.
+# Usage: python test_real_rows.py --dir data/test --rows_per_file 1 [--url http://127.0.0.1:5001/predict]
 
 import argparse
 import json

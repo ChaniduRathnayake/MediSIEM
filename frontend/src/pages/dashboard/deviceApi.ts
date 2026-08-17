@@ -1,8 +1,5 @@
-// frontend/src/pages/dashboard/deviceApi.ts
-// Client for MediSIEM's own device-metadata API (groups + OS-category overrides).
-// Unlike wazuhApi.ts (which proxies the live Wazuh manager), these calls hit the
-// MediSIEM backend directly and require a logged-in admin's JWT — same
-// Authorization header pattern as the user-management calls in services/api.ts.
+// Client for MediSIEM's own device-metadata API (groups + OS-category
+// overrides) — unlike wazuhApi.ts, hits the MediSIEM backend directly.
 
 import type { OsCategory } from './wazuhApi';
 

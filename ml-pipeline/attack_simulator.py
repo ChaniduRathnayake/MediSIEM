@@ -1,27 +1,9 @@
-"""
-attack_simulator.py — CAAP live-demo traffic generator
-
-Generates simulated benign + attack traffic against a TARGET_IP so that a
-flow capture tool (CICFlowMeter) running on the same interface can produce
-real flow records for the CAAP models to classify.
-
-⚠ RUN ONLY IN AN ISOLATED LAB / VM NETWORK YOU OWN. Sending spoofed ARP
-replies, SYN floods, or port scans on any network you don't have explicit
-authorization for is illegal in most jurisdictions and this script is
-provided strictly for controlled research/demo environments (e.g. an
-isolated VirtualBox/VMware host-only network standing in for the IoMT
-device segment).
-
-Requires root/administrator privileges (raw sockets) and scapy:
-    pip install scapy
-
-Usage:
-    sudo python attack_simulator.py --target 192.168.56.10 --gateway 192.168.56.1 --scenario arp_spoof
-    sudo python attack_simulator.py --target 192.168.56.10 --scenario port_scan
-    sudo python attack_simulator.py --target 192.168.56.10 --scenario syn_flood
-    sudo python attack_simulator.py --target 192.168.56.10 --scenario benign
-    sudo python attack_simulator.py --target 192.168.56.10 --scenario all   # cycles through everything
-"""
+# Generates simulated benign + attack traffic against a TARGET_IP so a flow
+# capture tool on the same interface produces real flow records to classify.
+# RUN ONLY IN AN ISOLATED LAB/VM NETWORK YOU OWN — spoofed ARP/SYN-flood/port-
+# scan traffic on any other network is illegal without explicit authorization.
+# Requires root/administrator + scapy (pip install scapy).
+# Usage: sudo python attack_simulator.py --target <ip> --scenario {arp_spoof,port_scan,syn_flood,benign,all}
 
 import argparse
 import random

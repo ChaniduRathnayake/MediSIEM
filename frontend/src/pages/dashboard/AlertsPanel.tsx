@@ -1,15 +1,12 @@
-// frontend/src/pages/dashboard/AlertsPanel.tsx
-// Full-fledged, real-data SIEM alerts view: CAS-ranked live feed (via
-// useLiveAlerts), a timeline + severity-donut chart header, filters, and
-// (for roles allowed to see the analyst directory) assignment. Shared by
-// both the Admin console and the SOC Analyst dashboard so there's exactly
-// one "what does an alert row look like" implementation.
-import React, { useEffect, useMemo, useState } from 'react';
+// Full-fledged SIEM alerts view — CAS-ranked live feed, charts, filters, assignment.
+// Shared by the Admin console and SOC Analyst dashboard.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell, AlertTriangle, Zap, BarChart3, Filter, ChevronsUpDown, AlertCircle, Loader2, Brain, ShieldAlert, Maximize2,
+  Search, CheckSquare, Square, Users, X, Keyboard, Hand, BellOff, Eye, EyeOff, Clock3, Rows3, Rows4, Wand2,
 } from 'lucide-react';
-import type { EnrichedAlert, AssignedAnalyst } from '../../services/alertsApi';
-import { apiAssignAlert } from '../../services/alertsApi';
+import type { EnrichedAlert, AssignedAnalyst, AlertSnoozeInfo } from '../../services/alertsApi';
+import { apiAssignAlert, apiSnoozeAlert, apiParseAlertQuery } from '../../services/alertsApi';
 import { apiGetAllUsers } from '../../services/api';
 import type { User as MediUser } from '../../types';
 import StatCard from '../../components/StatCard';
@@ -21,8 +18,9 @@ import { casToSeverity, severityCounts, bucketAlertsByHour, SEVERITY_ORDER, SEVE
 import type { Severity } from '../../utils/chartData';
 import { LifeCriticalBadge, MitreBadge, isLifeCriticalDevice } from '../../components/AlertBadges';
 import SeverityBadge from '../../components/SeverityBadge';
+import SavedViewsBar from '../../components/SavedViewsBar';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
-// ─── Department badge ──────────────────────────────────────────────────────────
 const DEPARTMENT_DOT: Record<string, string> = {
   ICU: 'bg-red-400',
   Cardiology: 'bg-pink-400',
@@ -39,10 +37,7 @@ const DepartmentBadge: React.FC<{ department: string }> = ({ department }) => (
   </span>
 );
 
-// Small score chip used in the expanded row — TR/CC/TS/AE/TC each feed CAS
-// (0.25 TR + 0.30 CC + 0.25 TS + 0.10 AE + 0.10 TC), so surfacing them
-// individually is what makes an alert's clinical context legible instead of
-// just a single opaque number.
+// TR/CC/TS/AE/TC each feed CAS — surfacing them individually makes the clinical context legible.
 const ScoreChip: React.FC<{ label: string; value: number | null | undefined; hint: string }> = ({ label, value, hint }) => (
   <div className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800" title={hint}>
     <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
@@ -50,26 +45,61 @@ const ScoreChip: React.FC<{ label: string; value: number | null | undefined; hin
   </div>
 );
 
+const SNOOZE_PRESETS: { label: string; minutes: number }[] = [
+  { label: '15 minutes', minutes: 15 },
+  { label: '1 hour', minutes: 60 },
+  { label: '4 hours', minutes: 240 },
+  { label: 'Until tomorrow', minutes: 24 * 60 },
+];
+
+const BulkSnoozeControl: React.FC<{ count: number; busy: boolean; open: boolean; onToggle: () => void; onPick: (minutes: number) => void }> = ({
+  count, busy, open, onToggle, onPick,
+}) => (
+  <div className="relative">
+    <button
+      onClick={onToggle}
+      disabled={busy || count === 0}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+    >
+      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock3 className="w-3.5 h-3.5" />}
+      Snooze
+    </button>
+    {open && (
+      <div className="absolute left-0 top-full mt-1 z-20 w-40 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
+        {SNOOZE_PRESETS.map((p) => (
+          <button
+            key={p.minutes}
+            onClick={() => onPick(p.minutes)}
+            className="w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
 type SortBy = 'cas' | 'time';
 type DetectionFilter = 'all' | 'ml' | 'rules' | 'combined';
 
+interface AlertsPanelFilters {
+  severityFilter: Severity | 'all';
+  departmentFilter: string;
+  actionFilter: EnrichedAlert['action'] | 'all';
+  detectionFilter: DetectionFilter;
+  sortBy: SortBy;
+  search: string;
+}
+
 const isMlDetection = (a: EnrichedAlert) => typeof a.confidence === 'number';
 const isRuleDetection = (a: EnrichedAlert) => !!a.matchedRules && a.matchedRules.length > 0;
-// Mutually exclusive so the three tabs actually partition the alert set —
-// "ML Detections" means ML *and nothing else*, "Rule Detections" means a
-// custom rule fired *without* an ML score, "Combined" means both fired on
-// the same alert. Without this, "ML Detections" and "All" look identical
-// any time (as here) virtually every alert carries a real confidence score.
+// Mutually exclusive so the three tabs actually partition the alert set.
 const isMlOnly = (a: EnrichedAlert) => isMlDetection(a) && !isRuleDetection(a);
 const isRulesOnly = (a: EnrichedAlert) => isRuleDetection(a) && !isMlDetection(a);
 const isCombinedDetection = (a: EnrichedAlert) => isMlDetection(a) && isRuleDetection(a);
 
-// ─── Detection source badges ────────────────────────────────────────────────────
-// Capped at one rule badge + an overflow count instead of one pill per
-// matched rule — an alert that trips three rules doesn't need three
-// same-weight chips fighting for attention in a table cell; the count
-// still says "three rules fired", and the full list is one click away in
-// the row's own expanded detail (which already lists every matched rule).
+// Capped at one rule badge + an overflow count — the full list is one click away in the row's expanded detail.
 const DetectionBadges: React.FC<{ alert: EnrichedAlert }> = ({ alert }) => {
   const ml = isMlDetection(alert);
   const rules = alert.matchedRules ?? [];
@@ -103,42 +133,72 @@ const AlertsPanel: React.FC<{
   error: string | null;
   token: string | null;
   canAssign?: boolean;
-  // Cumulative counts since the backend process started — unlike `alerts`
-  // (capped at MAX_ALERTS for the list/table), these never shrink. Falls
-  // back to buffer-derived counts if omitted, so older callers still work.
+  // Enables "Claim" (self-assign) — omitted by admin call sites, since alerts can only be assigned to role 'user'.
+  currentUserId?: string;
+  // Cumulative since the backend started, unlike `alerts` (capped) — never shrinks.
   totalCount?: number;
   severityTotals?: { CRITICAL: number; HIGH: number; MEDIUM: number; LOW: number };
-}> = ({ alerts, connected, loading, error, token, canAssign = true, totalCount, severityTotals }) => {
+}> = ({ alerts, connected, loading, error, token, canAssign = true, currentUserId, totalCount, severityTotals }) => {
   const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [actionFilter, setActionFilter] = useState<EnrichedAlert['action'] | 'all'>('all');
   const [detectionFilter, setDetectionFilter] = useState<DetectionFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('cas');
+  const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailsAlert, setDetailsAlert] = useState<EnrichedAlert | null>(null);
 
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAssignId, setBulkAssignId] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showAiSearch, setShowAiSearch] = useState(false);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiSearchError, setAiSearchError] = useState('');
+
   const [analysts, setAnalysts] = useState<MediUser[]>([]);
-  // Overlay on top of the `alerts` prop: apiGetAlerts already returns
-  // assignedTo for each alert, but new alerts pushed over Socket.IO don't
-  // carry it, and we want an assignment to reflect immediately after the
-  // PATCH resolves without waiting on the next poll. Keyed by alert id;
-  // `undefined` means "use whatever the alert prop says", not "unassigned".
+  // Overlay on the `alerts` prop so a just-applied assign reflects immediately, not just after the next poll.
   const [assignmentOverrides, setAssignmentOverrides] = useState<Record<string, AssignedAnalyst | null>>({});
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [bulkClaiming, setBulkClaiming] = useState(false);
 
-  // Closed cases have their own dedicated views (My Alerts / Case Status) —
-  // this dashboard is the "what's still live" monitoring view, so anything
-  // already closed (reason + evidence recorded) is excluded everywhere below:
-  // table rows, filters, stat cards, and charts alike.
-  const openAlerts = useMemo(() => alerts.filter((a) => !a.closure), [alerts]);
+  const [snoozeOverrides, setSnoozeOverrides] = useState<Record<string, AlertSnoozeInfo | null>>({});
+  const [snoozingId, setSnoozingId] = useState<string | null>(null);
+  const [bulkSnoozing, setBulkSnoozing] = useState(false);
+  const [snoozeFormId, setSnoozeFormId] = useState<string | null>(null);
+  const [showBulkSnoozeMenu, setShowBulkSnoozeMenu] = useState(false);
+  const [showSnoozed, setShowSnoozed] = useState(false);
+
+  const [compact, setCompact] = useState(() => {
+    try { return localStorage.getItem('medisiem_alerts_density') === 'compact'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('medisiem_alerts_density', compact ? 'compact' : 'comfortable'); } catch { /* ignore */ }
+  }, [compact]);
+
+  const snoozedFor = (a: EnrichedAlert): AlertSnoozeInfo | null =>
+    a.id in snoozeOverrides ? snoozeOverrides[a.id] : (a.snoozed ?? null);
+  const isActivelySnoozed = (a: EnrichedAlert) => {
+    const s = snoozedFor(a);
+    return !!s && new Date(s.snoozedUntil).getTime() > Date.now();
+  };
+
+  // This dashboard is the "what's still live" view — closed and (by default) snoozed cases are excluded.
+  const openAlerts = useMemo(
+    () => alerts.filter((a) => !a.closure && (showSnoozed || !isActivelySnoozed(a))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [alerts, showSnoozed, snoozeOverrides]
+  );
+  const snoozedCount = useMemo(() => alerts.filter((a) => !a.closure && isActivelySnoozed(a)).length, [alerts, snoozeOverrides]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // GET /api/users is admin-only — SOC analysts get a read-only assigned
-    // badge instead of the picker (see canAssign below), so skip the fetch
-    // (and the guaranteed 403) entirely for them.
+    // GET /api/users is admin-only — skip the fetch entirely for SOC analysts.
     if (!token || !canAssign) return;
     apiGetAllUsers(token)
-      .then((data) => setAnalysts(data.users.filter((u) => u.role === 'user'))) // SOC analysts only — admins triage, they don't get assigned
+      .then((data) => setAnalysts(data.users.filter((u) => u.role === 'user')))
       .catch(() => {});
   }, [token, canAssign]);
 
@@ -158,11 +218,91 @@ const AlertsPanel: React.FC<{
     }
   };
 
+  const handleClaim = async (alertId: string) => {
+    if (!token || !currentUserId) return;
+    setClaimingId(alertId);
+    try {
+      const { assignedTo } = await apiAssignAlert(token, alertId, currentUserId);
+      setAssignmentOverrides((prev) => ({ ...prev, [alertId]: assignedTo }));
+    } catch (err) {
+      console.error('Failed to claim alert', err);
+    } finally {
+      setClaimingId(null);
+    }
+  };
+
+  // Claims the highest-priority unassigned, unsnoozed alert in the current sort/filter.
+  const handleClaimNext = () => {
+    const next = filtered.find((a) => !assignedToFor(a) && !isActivelySnoozed(a));
+    if (next) handleClaim(next.id);
+  };
+
+  const handleSnooze = async (alertId: string, minutes: number | null, reason?: string) => {
+    if (!token) return;
+    setSnoozingId(alertId);
+    try {
+      const { snoozed } = await apiSnoozeAlert(token, alertId, minutes, reason);
+      setSnoozeOverrides((prev) => ({ ...prev, [alertId]: snoozed }));
+      setSnoozeFormId(null);
+    } catch (err) {
+      console.error('Failed to snooze alert', err);
+    } finally {
+      setSnoozingId(null);
+    }
+  };
+
+  const handleBulkClaim = async () => {
+    if (!token || !currentUserId || selectedIds.size === 0) return;
+    setBulkClaiming(true);
+    try {
+      const targets = [...selectedIds].filter((id) => {
+        const a = filtered.find((x) => x.id === id);
+        return a && !assignedToFor(a);
+      });
+      const results = await Promise.all(
+        targets.map((id) => apiAssignAlert(token, id, currentUserId).then((r) => [id, r.assignedTo] as const))
+      );
+      setAssignmentOverrides((prev) => {
+        const next = { ...prev };
+        for (const [id, assignedTo] of results) next[id] = assignedTo;
+        return next;
+      });
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error('Bulk claim failed', err);
+    } finally {
+      setBulkClaiming(false);
+    }
+  };
+
+  const handleBulkSnooze = async (minutes: number) => {
+    if (!token || selectedIds.size === 0) return;
+    setBulkSnoozing(true);
+    setShowBulkSnoozeMenu(false);
+    try {
+      const ids = [...selectedIds];
+      const results = await Promise.all(
+        ids.map((id) => apiSnoozeAlert(token, id, minutes).then((r) => [id, r.snoozed] as const))
+      );
+      setSnoozeOverrides((prev) => {
+        const next = { ...prev };
+        for (const [id, snoozed] of results) next[id] = snoozed;
+        return next;
+      });
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error('Bulk snooze failed', err);
+    } finally {
+      setBulkSnoozing(false);
+    }
+  };
+
   const departments = useMemo(
     () => Array.from(new Set(openAlerts.map((a) => a.department))).sort(),
     [openAlerts]
   );
 
+  const searchLower = search.trim().toLowerCase();
   const filtered = useMemo(() => {
     const list = openAlerts
       .filter((a) => severityFilter === 'all' || casToSeverity(a.CAS) === severityFilter)
@@ -173,11 +313,86 @@ const AlertsPanel: React.FC<{
         if (detectionFilter === 'ml') return isMlOnly(a);
         if (detectionFilter === 'rules') return isRulesOnly(a);
         return isCombinedDetection(a);
+      })
+      .filter((a) => {
+        if (!searchLower) return true;
+        const haystack = `${a.agent} ${a.label} ${a.ruleDescription} ${a.department} ${a.deviceType ?? ''}`.toLowerCase();
+        return haystack.includes(searchLower);
       });
     return sortBy === 'time'
       ? list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       : list.sort((a, b) => b.CAS - a.CAS);
-  }, [openAlerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy]);
+  }, [openAlerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy, searchLower]);
+
+  // Clamp focusedIndex once filters/search narrow the list, rather than let it dangle.
+  useEffect(() => {
+    if (focusedIndex >= filtered.length) setFocusedIndex(filtered.length > 0 ? filtered.length - 1 : -1);
+  }, [filtered.length, focusedIndex]);
+
+  const currentFilters: AlertsPanelFilters = { severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy, search };
+  const applyFilters = (f: AlertsPanelFilters) => {
+    setSeverityFilter(f.severityFilter);
+    setDepartmentFilter(f.departmentFilter);
+    setActionFilter(f.actionFilter);
+    setDetectionFilter(f.detectionFilter);
+    setSortBy(f.sortBy);
+    setSearch(f.search);
+  };
+
+  const handleAiSearch = async () => {
+    if (!token || !aiQuery.trim()) return;
+    setAiSearching(true);
+    setAiSearchError('');
+    try {
+      const { filters } = await apiParseAlertQuery(token, aiQuery.trim(), departments);
+      applyFilters(filters);
+      setShowAiSearch(false);
+      setAiQuery('');
+    } catch (err: unknown) {
+      setAiSearchError(err instanceof Error ? err.message : 'AI assistant request failed.');
+    } finally {
+      setAiSearching(false);
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  useKeyboardShortcuts({
+    j: () => setFocusedIndex((i) => Math.min(filtered.length - 1, i + 1)),
+    k: () => setFocusedIndex((i) => Math.max(0, i === -1 ? 0 : i - 1)),
+    Enter: () => { if (focusedIndex >= 0 && filtered[focusedIndex]) setDetailsAlert(filtered[focusedIndex]); },
+    x: () => { if (focusedIndex >= 0 && filtered[focusedIndex]) toggleSelected(filtered[focusedIndex].id); },
+    '/': () => searchInputRef.current?.focus(),
+    Escape: () => { setFocusedIndex(-1); setSelectedIds(new Set()); searchInputRef.current?.blur(); },
+  });
+
+  const handleBulkAssign = async () => {
+    if (!token || !bulkAssignId || selectedIds.size === 0) return;
+    setBulkAssigning(true);
+    try {
+      const results = await Promise.all(
+        [...selectedIds].map((id) => apiAssignAlert(token, id, bulkAssignId).then((r) => [id, r.assignedTo] as const))
+      );
+      setAssignmentOverrides((prev) => {
+        const next = { ...prev };
+        for (const [id, assignedTo] of results) next[id] = assignedTo;
+        return next;
+      });
+      setSelectedIds(new Set());
+      setBulkAssignId('');
+    } catch (err) {
+      console.error('Bulk assign failed', err);
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
 
   const stats = useMemo(() => {
     const critical = severityTotals?.CRITICAL ?? openAlerts.filter((a) => casToSeverity(a.CAS) === 'CRITICAL').length;
@@ -207,8 +422,6 @@ const AlertsPanel: React.FC<{
     return severityCounts(openAlerts, (a) => casToSeverity(a.CAS));
   }, [openAlerts, severityTotals]);
 
-  // Same weight-drops-with-urgency logic as SeverityBadge: Immediate is the
-  // one that should stop the eye, Monitor should barely register.
   const actionColor: Record<EnrichedAlert['action'], string> = {
     Immediate: 'bg-red-600 text-white font-bold',
     Investigate: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-semibold',
@@ -285,17 +498,81 @@ const AlertsPanel: React.FC<{
             </button>
           ))}
         </div>
-        {/* Right next to the toggle, not buried in the filter row below — the
-            table's top rows (sorted by CAS) can look identical between "All"
-            and a narrower filter when the highest-scoring alerts happen to
-            satisfy both, so the count is the only visible proof anything
-            changed. */}
         {detectionFilter !== 'all' && (
           <span className="text-xs text-slate-500">{filtered.length} of {openAlerts.length} alerts match</span>
         )}
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
+          <input
+            ref={searchInputRef}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search device, event, department… ( / )"
+            className="pl-8 pr-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 w-56"
+          />
+        </div>
+        {token && (
+          showAiSearch ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAiSearch(); if (e.key === 'Escape') setShowAiSearch(false); }}
+                  placeholder="e.g. critical alerts in ICU from the last shift"
+                  className="pl-3 pr-3 py-1.5 bg-violet-500/5 border border-violet-500/30 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-violet-500/60 w-64"
+                />
+                <button
+                  onClick={handleAiSearch}
+                  disabled={aiSearching || !aiQuery.trim()}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-violet-500 hover:bg-violet-400 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                >
+                  {aiSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                </button>
+                <button onClick={() => { setShowAiSearch(false); setAiSearchError(''); }} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {aiSearchError && <p className="text-[11px] text-red-500 dark:text-red-400">{aiSearchError}</p>}
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAiSearch(true)}
+              title="Search in plain English, powered by the AI assistant"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-violet-500/30 bg-violet-500/5 text-violet-600 dark:text-violet-400 hover:bg-violet-500/15 transition-colors"
+            >
+              <Wand2 className="w-3.5 h-3.5" /> Ask in plain English
+            </button>
+          )
+        )}
+        {!canAssign && currentUserId && (
+          <button
+            onClick={handleClaimNext}
+            disabled={!filtered.some((a) => !assignedToFor(a) && !isActivelySnoozed(a))}
+            title="Self-assign the top alert in the current sort/filter"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition-colors"
+          >
+            <Hand className="w-3.5 h-3.5" /> Claim next
+          </button>
+        )}
+        {snoozedCount > 0 && (
+          <button
+            onClick={() => setShowSnoozed((v) => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              showSnoozed
+                ? 'bg-violet-500/10 border-violet-500/30 text-violet-600 dark:text-violet-400'
+                : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {showSnoozed ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {showSnoozed ? 'Hide' : 'Show'} snoozed ({snoozedCount})
+          </button>
+        )}
+        <SavedViewsBar storageKey="medisiem_alerts_panel_views" currentFilters={currentFilters} onApply={applyFilters} />
         <span className="flex items-center gap-1.5 text-xs text-slate-500">
           <Filter className="w-3.5 h-3.5" /> Filter
         </span>
@@ -342,12 +619,96 @@ const AlertsPanel: React.FC<{
           <option value="time">Most recent</option>
         </select>
 
-        {(severityFilter !== 'all' || departmentFilter !== 'all' || actionFilter !== 'all' || detectionFilter !== 'all') && (
+        {(severityFilter !== 'all' || departmentFilter !== 'all' || actionFilter !== 'all' || detectionFilter !== 'all' || searchLower) && (
           <span className="text-xs text-slate-500">{filtered.length} of {openAlerts.length} shown</span>
         )}
+        <button
+          onClick={() => setCompact((v) => !v)}
+          title={compact ? 'Switch to comfortable row spacing' : 'Switch to compact row spacing — more rows on screen'}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors ml-2"
+        >
+          {compact ? <Rows4 className="w-3.5 h-3.5" /> : <Rows3 className="w-3.5 h-3.5" />}
+          {compact ? 'Compact' : 'Comfortable'}
+        </button>
+        <span
+          className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-600 ml-auto"
+          title="j/k — move focus · Enter — open details · x — select · / — search · Esc — clear"
+        >
+          <Keyboard className="w-3.5 h-3.5" /> Shortcuts
+        </span>
       </div>
 
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {selectedIds.size > 0 && canAssign && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex-wrap">
+          <span className="text-xs font-medium text-cyan-700 dark:text-cyan-300 flex items-center gap-1.5">
+            <CheckSquare className="w-3.5 h-3.5" /> {selectedIds.size} selected
+          </span>
+          <select
+            value={bulkAssignId}
+            onChange={(e) => setBulkAssignId(e.target.value)}
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
+          >
+            <option value="">Assign to…</option>
+            {analysts.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleBulkAssign}
+            disabled={!bulkAssignId || bulkAssigning}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 transition-colors"
+          >
+            {bulkAssigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+            Assign
+          </button>
+          <BulkSnoozeControl
+            count={selectedIds.size}
+            busy={bulkSnoozing}
+            open={showBulkSnoozeMenu}
+            onToggle={() => setShowBulkSnoozeMenu((v) => !v)}
+            onPick={handleBulkSnooze}
+          />
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        </div>
+      )}
+
+      {selectedIds.size > 0 && !canAssign && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex-wrap">
+          <span className="text-xs font-medium text-cyan-700 dark:text-cyan-300 flex items-center gap-1.5">
+            <CheckSquare className="w-3.5 h-3.5" /> {selectedIds.size} selected
+          </span>
+          {currentUserId && (
+            <button
+              onClick={handleBulkClaim}
+              disabled={bulkClaiming}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 transition-colors"
+            >
+              {bulkClaiming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Hand className="w-3.5 h-3.5" />}
+              Claim unassigned
+            </button>
+          )}
+          <BulkSnoozeControl
+            count={selectedIds.size}
+            busy={bulkSnoozing}
+            open={showBulkSnoozeMenu}
+            onToggle={() => setShowBulkSnoozeMenu((v) => !v)}
+            onPick={handleBulkSnooze}
+          />
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        </div>
+      )}
+
+      <div className={`rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden ${compact ? 'density-compact' : ''}`}>
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-14 text-slate-500 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading alerts…
@@ -365,6 +726,17 @@ const AlertsPanel: React.FC<{
             <table className="w-full">
               <thead>
                 <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                  <th className="py-2.5 px-4 text-left w-8">
+                    <button
+                      onClick={() =>
+                        setSelectedIds((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((a) => a.id))))
+                      }
+                      title={selectedIds.size === filtered.length ? 'Deselect all' : 'Select all'}
+                      className="text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
+                    >
+                      {filtered.length > 0 && selectedIds.size === filtered.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                    </button>
+                  </th>
                   <th className="py-2.5 px-4 text-left">Severity</th>
                   <th className="py-2.5 px-4 text-left">Device</th>
                   <th className="py-2.5 px-4 text-left">Department</th>
@@ -379,18 +751,37 @@ const AlertsPanel: React.FC<{
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((a) => {
+                {filtered.map((a, rowIndex) => {
                   const severity = casToSeverity(a.CAS);
                   const isExpanded = expandedId === a.id;
                   const assignedTo = assignedToFor(a);
+                  const isFocused = rowIndex === focusedIndex;
+                  const isSelected = selectedIds.has(a.id);
                   return (
                     <React.Fragment key={a.id}>
                       <tr
-                        onClick={() => setExpandedId(isExpanded ? null : a.id)}
-                        className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer"
+                        onClick={() => { setExpandedId(isExpanded ? null : a.id); setFocusedIndex(rowIndex); }}
+                        className={`border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer ${
+                          isFocused ? 'bg-cyan-500/5 ring-1 ring-inset ring-cyan-500/30' : ''
+                        }`}
                       >
+                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => toggleSelected(a.id)} className="text-slate-400 dark:text-slate-500 hover:text-cyan-500 transition-colors" aria-label={isSelected ? 'Deselect row' : 'Select row'}>
+                            {isSelected ? <CheckSquare className="w-3.5 h-3.5 text-cyan-500" /> : <Square className="w-3.5 h-3.5" />}
+                          </button>
+                        </td>
                         <td className="py-3 px-4">
-                          <SeverityBadge severity={severity} />
+                          <span className="flex items-center gap-1.5 flex-wrap">
+                            <SeverityBadge severity={severity} />
+                            {isActivelySnoozed(a) && (
+                              <span
+                                title={`Snoozed until ${new Date(snoozedFor(a)!.snoozedUntil).toLocaleString()}${snoozedFor(a)!.reason ? ` — ${snoozedFor(a)!.reason}` : ''}`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/30 text-[10px] font-semibold"
+                              >
+                                <BellOff className="w-2.5 h-2.5" /> Snoozed
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300 font-mono">
                           <span className="flex items-center gap-1.5 flex-wrap">
@@ -400,7 +791,17 @@ const AlertsPanel: React.FC<{
                         </td>
                         <td className="py-3 px-4"><DepartmentBadge department={a.department} /></td>
                         <td className="py-3 px-4 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">
-                          {a.label !== 'Unclassified' ? a.label : a.ruleDescription}
+                          <span className="inline-flex items-center gap-1.5">
+                            {a.label !== 'Unclassified' ? a.label : a.ruleDescription}
+                            {(a.duplicateCount ?? 1) > 1 && (
+                              <span
+                                title={`Repeated ${a.duplicateCount}× within a short window — collapsed into one row`}
+                                className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                              >
+                                ×{a.duplicateCount}
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-xs text-slate-500 capitalize">{a.cluster}</td>
                         <td className="py-3 px-4">
@@ -437,17 +838,28 @@ const AlertsPanel: React.FC<{
                           </td>
                         )}
                         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setDetailsAlert(a)}
-                            className="flex items-center gap-1 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
-                          >
-                            <Maximize2 className="w-3 h-3" /> Details
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => setDetailsAlert(a)}
+                              className="flex items-center gap-1 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
+                            >
+                              <Maximize2 className="w-3 h-3" /> Details
+                            </button>
+                            {!canAssign && currentUserId && !assignedTo && (
+                              <button
+                                onClick={() => handleClaim(a.id)}
+                                disabled={claimingId === a.id}
+                                className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 disabled:opacity-50 transition-colors"
+                              >
+                                {claimingId === a.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Hand className="w-3 h-3" />} Claim
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800/60">
-                          <td colSpan={canAssign ? 11 : 10} className="px-4 py-4">
+                          <td colSpan={canAssign ? 12 : 11} className="px-4 py-4">
                             <div className="grid sm:grid-cols-5 gap-2 mb-3">
                               <ScoreChip label="TR" value={a.TR_score} hint="Threat Risk — RF classification confidence" />
                               <ScoreChip label="CC" value={a.CC_score} hint="Clinical Criticality — how life-critical this device is" />
@@ -475,6 +887,48 @@ const AlertsPanel: React.FC<{
                                 {a.deviceCriticality && ` · inventory criticality: ${a.deviceCriticality}`}
                               </p>
                             )}
+
+                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                              {isActivelySnoozed(a) ? (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
+                                    <BellOff className="w-3.5 h-3.5" />
+                                    Snoozed until {new Date(snoozedFor(a)!.snoozedUntil).toLocaleString()}
+                                    {snoozedFor(a)!.reason && ` — ${snoozedFor(a)!.reason}`}
+                                  </span>
+                                  <button
+                                    onClick={() => handleSnooze(a.id, null)}
+                                    disabled={snoozingId === a.id}
+                                    className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:underline disabled:opacity-50"
+                                  >
+                                    {snoozingId === a.id ? 'Working…' : 'Unsnooze'}
+                                  </button>
+                                </div>
+                              ) : snoozeFormId === a.id ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {SNOOZE_PRESETS.map((p) => (
+                                    <button
+                                      key={p.minutes}
+                                      onClick={() => handleSnooze(a.id, p.minutes)}
+                                      disabled={snoozingId === a.id}
+                                      className="px-2.5 py-1 rounded-full text-[11px] font-medium border border-violet-500/30 bg-violet-500/5 text-violet-700 dark:text-violet-400 hover:bg-violet-500/15 disabled:opacity-50 transition-colors"
+                                    >
+                                      {p.label}
+                                    </button>
+                                  ))}
+                                  <button onClick={() => setSnoozeFormId(null)} className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setSnoozeFormId(a.id)}
+                                  className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+                                >
+                                  <Clock3 className="w-3.5 h-3.5" /> Snooze this case
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -486,7 +940,7 @@ const AlertsPanel: React.FC<{
           </div>
         )}
       </div>
-      {detailsAlert && <AlertDetailsModal kind="ml" alert={detailsAlert} onClose={() => setDetailsAlert(null)} />}
+      {detailsAlert && <AlertDetailsModal kind="ml" alert={detailsAlert} onClose={() => setDetailsAlert(null)} token={token} allAlerts={alerts} />}
     </div>
   );
 };

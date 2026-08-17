@@ -1,8 +1,22 @@
 import express from 'express';
 import { protect, adminOnly } from '../middleware/auth.js';
 import DetectionRule from '../models/DetectionRule.js';
+import { draftDetectionRule } from '../services/aiAssistantService.js';
 
 const router = express.Router();
+
+// POST /api/rules/draft — plain-English -> structured rule draft (admin reviews/edits before saving).
+router.post('/draft', protect, adminOnly, async (req, res) => {
+  try {
+    const prompt = (req.body.prompt || '').trim();
+    if (!prompt) return res.status(400).json({ error: 'A description is required.' });
+    const draft = await draftDetectionRule(prompt);
+    res.json({ draft });
+  } catch (err) {
+    console.error('[draftRule]', err);
+    res.status(502).json({ error: err.message || 'AI assistant request failed.' });
+  }
+});
 
 // ─── GET /api/rules  (any authenticated user — Alerts pages need rule names for badges) ──
 router.get('/', protect, async (req, res) => {

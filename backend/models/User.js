@@ -44,6 +44,24 @@ const UserSchema = new Schema(
       type: Date,
       default: null,
     },
+    // ─── Login lockout (routes/auth.js) ────────────────────────────────────
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
+    // ─── TOTP two-factor auth (routes/auth.js, services/mfaService.js) ────
+    // mfaSecret is set as soon as setup starts but mfaEnabled only flips
+    // true once the user confirms a real code, so an abandoned setup never
+    // gates login. Backup codes are stored hashed (sha256), single-use.
+    mfaSecret: { type: String, select: false, default: null },
+    mfaEnabled: { type: Boolean, default: false },
+    mfaBackupCodes: { type: [String], select: false, default: [] },
+    // Admin-forced requirement for non-admin accounts (Users tab → Configure
+    // 2FA) — separate from the org-wide admin toggle in SystemSettings.
+    // Checked by routes/auth.js's isMfaSetupRequired(). Never applies to
+    // admins: an admin's own 2FA can only ever be self-configured.
+    mfaRequiredByAdmin: { type: Boolean, default: false },
+    // ─── Password reset (routes/auth.js) ───────────────────────────────────
+    resetPasswordTokenHash: { type: String, select: false, default: null },
+    resetPasswordExpires: { type: Date, select: false, default: null },
   },
   {
     timestamps: true, // adds createdAt + updatedAt automatically
@@ -74,6 +92,15 @@ UserSchema.set('toJSON', {
     ret.id = ret._id.toString();
     delete ret._id;
     delete ret.password;
+    // select:false only keeps these out of query projections — it does NOT
+    // stop them appearing in toJSON() once a code path explicitly assigns to
+    // them (e.g. clearing mfaSecret/mfaBackupCodes on reset) and then
+    // serializes the document. Scrub them here too, same as password above,
+    // so no response can ever include them regardless of how they got set.
+    delete ret.mfaSecret;
+    delete ret.mfaBackupCodes;
+    delete ret.resetPasswordTokenHash;
+    delete ret.resetPasswordExpires;
     delete ret.__v;
     return ret;
   },

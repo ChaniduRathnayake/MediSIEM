@@ -1,24 +1,10 @@
-"""
-replay_test_flows.py — get real alerts into the dashboard without a live capture.
-
-Reads real rows from ai_server/data/test/*.csv (the actual CICIoT2023-schema
-test split — same 45 columns feature_cols.pkl expects, held out from
-training), feeds them through Flask /predict, and indexes the results into
-the same `caap-alerts` index flow_consumer.py writes to. Every alert this
-produces is a genuine RF/Isolation Forest/K-Means classification on real flow
-data — it's just replayed from the test set rather than captured live off the
-wire. Use this to sanity-check the dashboard/pipeline wiring; swap to the real
-live_feature_extractor.py + attack_simulator.py path in the lab VM when you
-want an actual live-capture demo.
-
-Usage (from repo root):
-    pip install -r ml-pipeline/requirements.txt
-    python ml-pipeline/replay_test_flows.py
-    python ml-pipeline/replay_test_flows.py --count 300 --min-delay 0.5 --max-delay 2.0
-
-Reads WAZUH_INDEXER_URL/USER/PASS and CAAP_AI_URL from backend/.env by
-default (same values the Node backend uses) — override with flags if needed.
-"""
+# Gets real alerts into the dashboard without a live capture: reads real rows
+# from ai_server/data/test/*.csv (held-out CICIoT2023-schema test split),
+# feeds them through Flask /predict, and indexes results into the same
+# `caap-alerts` index flow_consumer.py writes to — genuine model output,
+# just replayed rather than captured off the wire. Defaults to the
+# WAZUH_INDEXER_*/CAAP_AI_URL values in backend/.env; override with flags.
+# Usage: python ml-pipeline/replay_test_flows.py [--count 300 --min-delay 0.5 --max-delay 2.0]
 
 import argparse
 import csv

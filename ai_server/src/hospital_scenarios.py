@@ -1,30 +1,11 @@
-"""
-hospital_scenarios.py — Part A of Phase 9 evaluation: CAAP vs CVSS-equivalent
-baseline on 3 simulated hospital alert scenarios.
-
-IMPORTANT — what is real and what is simulated, stated plainly for the thesis:
-  REAL:      the underlying network-flow feature rows (sampled from the actual
-             held-out data/test/*.csv), and every RF/IsolationForest/K-Means
-             prediction and CAS score computed from them via the real trained
-             models + the real src/cas_engine.py.
-  SIMULATED: no real hospital ever produced this traffic on these devices —
-             no such labeled dataset exists in this repo (confirmed by
-             repo-wide search). Each row is assigned a destination port drawn
-             from cas_engine.DEVICE_PROFILES to STAND IN for "which hospital
-             device this alert came from", so the CAS engine's device-aware
-             scoring has something to score against. This is declared upfront
-             rather than presented as real hospital telemetry.
-
-Patient-dependency tier (life_critical / low / none) is assigned AT GENERATION
-TIME per the chosen device port (ground truth for the scenario), not re-derived
-after the fact — cas_engine.py's own patient_dep field is binary (0/1) and
-can't distinguish "recognized low-priority device" from "no device identified
-at all", so the 3-tier split is intentionally set here:
-  life_critical → FDA Class III port (cas_engine cc=5, patient_dep=1)
-  low           → FDA Class I/II port (cas_engine cc=1-4, patient_dep=0/1)
-  none          → port NOT in DEVICE_PROFILES at all (falls to cas_engine's
-                  _DEFAULT_PROFILE — no device could be identified)
-"""
+# CAAP vs CVSS-equivalent baseline on 3 simulated hospital alert scenarios.
+# REAL: flow feature rows (sampled from held-out data/test/*.csv) and every
+# RF/IsolationForest/K-Means prediction + CAS score computed from real trained
+# models. SIMULATED: no real hospital dataset exists for this — each row's
+# destination port is drawn from cas_engine.DEVICE_PROFILES to stand in for
+# "which device this came from". Patient-dependency tier (life_critical/low/
+# none) is set at generation time from that port, since cas_engine's own
+# patient_dep field is binary and can't distinguish the 3-tier split.
 import os
 import random
 import sys

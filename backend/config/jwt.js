@@ -1,9 +1,6 @@
-// backend/config/jwt.js
-// Centralized JWT secret — both signing (routes/auth.js) and verifying
-// (middleware/auth.js) import from here so they can never drift, and so a
-// missing/weak/placeholder secret fails loudly at startup instead of
-// silently falling back to a guessable default (or `undefined`, which
-// would 401 every request at runtime with no clue why).
+// Centralized JWT secret — signing and verifying both import from here so
+// they can't drift, and a missing/weak/placeholder secret fails loudly at
+// startup instead of silently 401-ing every request later.
 const WEAK_PLACEHOLDERS = new Set([
   'your_super_secret_jwt_key_here_change_in_production',
   'medisiem_secret',

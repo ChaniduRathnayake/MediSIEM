@@ -1,17 +1,16 @@
-// frontend/src/pages/dashboard/RulesPanel.tsx
-// Admin Settings panel for managing custom detection rules. Rules are
-// AND-combined field/operator/value conditions, evaluated server-side
-// against every alert as it flows through backend/services/alertPipeline.js
-// — this panel is just CRUD + a "load samples" convenience, not the
-// evaluator itself.
+// Admin Settings panel for managing custom detection rules (AND-combined
+// field/operator/value conditions) — CRUD only, evaluated server-side in
+// backend/services/alertPipeline.js.
 import React, { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Loader2, AlertCircle, X, Sparkles, Zap, ShieldAlert } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, AlertCircle, X, Sparkles, Zap, ShieldAlert, Wand2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
-  apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiSeedSampleRules,
+  apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule, apiSeedSampleRules, apiDraftRule,
   RULE_FIELDS, NUMERIC_RULE_FIELDS,
 } from '../../services/rulesApi';
 import type { DetectionRule, RuleCondition, RuleField, RuleOperator } from '../../services/rulesApi';
+import { apiGetRuleHealth } from '../../services/reportsApi';
+import type { RuleHealthRow } from '../../services/reportsApi';
 
 const FIELD_LABELS: Record<RuleField, string> = {
   ruleDescription: 'Rule description',
@@ -22,6 +21,8 @@ const FIELD_LABELS: Record<RuleField, string> = {
   label: 'ML classification label',
   action: 'Recommended action',
   cluster: 'Cluster',
+  deviceType: 'Device type',
+  deviceCriticality: 'Device criticality',
 };
 
 const OPERATOR_LABELS: Record<RuleOperator, string> = {
@@ -54,6 +55,25 @@ const RuleFormModal: React.FC<{
   );
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [aiError, setAiError] = useState('');
+
+  const draftWithAi = async () => {
+    if (!token || !aiPrompt.trim()) return;
+    setAiDrafting(true);
+    setAiError('');
+    try {
+      const { draft } = await apiDraftRule(token, aiPrompt.trim());
+      setName(draft.name);
+      setDescription(draft.description);
+      setConditions(draft.conditions);
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'AI assistant request failed.');
+    } finally {
+      setAiDrafting(false);
+    }
+  };
 
   const updateCondition = (i: number, patch: Partial<RuleCondition>) => {
     setConditions((prev) => prev.map((c, idx) => {
@@ -102,7 +122,7 @@ const RuleFormModal: React.FC<{
       <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">{mode === 'create' ? 'New Detection Rule' : 'Edit Detection Rule'}</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -112,6 +132,32 @@ const RuleFormModal: React.FC<{
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 dark:text-red-400 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {mode === 'create' && (
+            <div className="p-3 rounded-lg bg-violet-500/5 border border-violet-500/20 space-y-2">
+              <label className="text-xs font-medium text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
+                <Wand2 className="w-3.5 h-3.5" /> Draft with AI (optional)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="e.g. Flag any critical-CAS alert on an ICU device"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-violet-500/60"
+                />
+                <button
+                  type="button"
+                  onClick={draftWithAi}
+                  disabled={aiDrafting || !aiPrompt.trim()}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500 hover:bg-violet-400 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                >
+                  {aiDrafting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Draft
+                </button>
+              </div>
+              {aiError && <p className="text-xs text-red-500 dark:text-red-400">{aiError}</p>}
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">Fills in the fields below — review and edit before saving, same as any other draft.</p>
             </div>
           )}
 
@@ -224,7 +270,7 @@ const ConfirmDeleteRuleModal: React.FC<{
       <div className="w-full max-w-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">Delete Rule</h2>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -269,6 +315,7 @@ const RulesPanel: React.FC = () => {
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [unhealthyRules, setUnhealthyRules] = useState<RuleHealthRow[]>([]);
 
   const loadRules = () => {
     if (!token) { setError('Your session has expired. Please sign in again.'); setLoading(false); return; }
@@ -281,6 +328,14 @@ const RulesPanel: React.FC = () => {
   };
 
   useEffect(loadRules, [token]);
+
+  // False-positive-rate nudge — high-FP rules are worth a look, not an alarm.
+  useEffect(() => {
+    if (!token) return;
+    apiGetRuleHealth(token, {})
+      .then((data) => setUnhealthyRules(data.rules.filter((r) => (r.falsePositiveRate ?? 0) >= 50)))
+      .catch(() => {});
+  }, [token]);
 
   const handleToggle = async (rule: DetectionRule) => {
     if (!token) return;
@@ -340,6 +395,15 @@ const RulesPanel: React.FC = () => {
       {seedMessage && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-xs">
           <Sparkles className="w-3.5 h-3.5 flex-shrink-0" /> {seedMessage}
+        </div>
+      )}
+
+      {unhealthyRules.length > 0 && (
+        <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+          <span>
+            {unhealthyRules.length} rule{unhealthyRules.length === 1 ? ' has' : 's have'} a false-positive rate of 50%+ from real analyst verdicts (last 30 days): {unhealthyRules.map((r) => `${r.rule} (${r.falsePositiveRate}%)`).join(', ')}. Worth a second look.
+          </span>
         </div>
       )}
 

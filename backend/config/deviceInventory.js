@@ -1,14 +1,8 @@
-// backend/config/deviceInventory.js
-//
-// Maps a Wazuh agent (by name or IP) to clinical metadata the CAAP model needs
-// for the Clinical Criticality (CC) dimension: device_type + department.
-//
-// Backed by the `MedicalDevice` Mongo collection (managed from the admin
-// Devices tab — onboard/edit/tag/decommission), not hardcoded. Since
-// lookupDevice() is called once per alert on the polling pipeline, results
-// are cached in memory for a short TTL rather than hitting Mongo per-alert;
-// call invalidateDeviceInventoryCache() after any write so mutations are
-// picked up on the very next lookup instead of waiting out the TTL.
+// Maps a Wazuh agent (by name or IP) to clinical metadata the CAAP model
+// needs for the Clinical Criticality (CC) dimension: device_type + department.
+// Backed by the `MedicalDevice` Mongo collection, cached in memory for a short
+// TTL since lookupDevice() runs once per alert — call
+// invalidateDeviceInventoryCache() after any write to pick up changes immediately.
 import MedicalDevice from '../models/MedicalDevice.js';
 
 const DEFAULT_DEVICE = { device_type: 'Unknown Device', department: 'General', criticality: 'medium' };

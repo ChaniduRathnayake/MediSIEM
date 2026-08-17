@@ -1,14 +1,8 @@
-// backend/config/seedMedicalDevices.js
-//
 // Default hospital medical device inventory, loaded into the `MedicalDevice`
-// Mongo collection once on first server startup (see server.js). This is
-// starter data for a fresh install, not a source of truth read at runtime —
-// once seeded, the inventory lives in Mongo and is managed from the admin
-// Devices tab (onboard / edit / tag / decommission).
-//
-// `key` matches a Wazuh agent's name or IP (lowercase) so alerts from that
-// agent resolve to this device's device_type/department for CAAP scoring —
-// see config/deviceInventory.js.
+// Mongo collection once on first server startup — starter data for a fresh
+// install only, managed from the admin Devices tab after that. `key` matches
+// a Wazuh agent's name or IP (lowercase) so alerts resolve to this device's
+// device_type/department for CAAP scoring — see config/deviceInventory.js.
 const SEED_MEDICAL_DEVICES = [
   { key: 'icu-vent-04', deviceName: 'ICU Ventilator 04', deviceType: 'ICU Ventilator', department: 'ICU', manufacturer: 'Draeger', model: 'Evita V500', criticality: 'critical', location: 'ICU Bay 4' },
   { key: 'icu-vent-05', deviceName: 'ICU Ventilator 05', deviceType: 'ICU Ventilator', department: 'ICU', manufacturer: 'Draeger', model: 'Evita V500', criticality: 'critical', location: 'ICU Bay 5' },

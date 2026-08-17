@@ -1,20 +1,9 @@
-// backend/routes/compliance.js
-// Proxies queries to the Wazuh Indexer (OpenSearch/Elasticsearch). Unlike the
-// Wazuh manager API (routes/wazuh.js, port 55000) — whose /manager/logs is
-// just a raw ossec.log tail with no structured agent/rule fields — the
-// Indexer holds the actual alert documents in the wazuh-alerts-* index, with
-// full agent.id/name/ip and rule.id/level/description/groups per alert. This
-// backs two things:
-//   1. The full paginated/filterable Alerts browser (GET /alerts below).
-//   2. HIPAA/GDPR "compliance" views — Wazuh's ruleset tags each rule with
-//      the regulatory controls it maps to (rule.hipaa / rule.gdpr / ... —
-//      the same fields ai_server/src/wazuh_consumer.py already reads from
-//      this same index for its own enrichment pipeline).
-//
-// IMPORTANT: "compliant" (in the HIPAA/GDPR routes) means "no alert fired
-// against a rule mapped to that control, in the selected window" — it's
-// derived from observed alert activity, not a certified compliance audit.
-// The frontend must label this plainly; this file only computes the numbers.
+// Proxies queries to the Wazuh Indexer (OpenSearch/Elasticsearch, wazuh-alerts-*
+// index — full agent/rule fields, unlike routes/wazuh.js's raw log tail).
+// Backs the paginated Alerts browser and the HIPAA/GDPR views (Wazuh's ruleset
+// tags each rule with rule.hipaa/rule.gdpr controls). "Compliant" here means
+// "no alert fired against a mapped rule in the window" — observed activity,
+// not a certified audit; the frontend must label it plainly.
 
 import express from 'express';
 import https   from 'https';

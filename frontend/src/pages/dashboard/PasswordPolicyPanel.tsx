@@ -1,8 +1,6 @@
-// frontend/src/pages/dashboard/PasswordPolicyPanel.tsx
 // Admin Settings panel for the org-wide password policy — enforced
-// server-side in backend/controllers/userController.js (createUser /
-// updateUser) via backend/utils/passwordPolicy.js, and mirrored client-side
-// for live feedback wherever a password is entered (PasswordChecklist).
+// server-side via backend/utils/passwordPolicy.js, mirrored client-side for
+// live feedback wherever a password is entered (PasswordChecklist).
 import React, { useEffect, useState } from 'react';
 import { KeyRound, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -108,6 +106,7 @@ const PasswordPolicyPanel: React.FC = () => {
                   onClick={() => setPolicy({ ...policy, [t.key]: !policy[t.key] })}
                   className={`relative flex-shrink-0 w-10 h-5.5 rounded-full transition-colors ${policy[t.key] ? 'bg-cyan-500' : 'bg-slate-300 dark:bg-slate-700'}`}
                   aria-pressed={policy[t.key]}
+                  aria-label={t.label}
                 >
                   <span className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform ${policy[t.key] ? 'translate-x-[19px]' : 'translate-x-0.5'}`} />
                 </button>

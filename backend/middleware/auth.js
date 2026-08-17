@@ -17,7 +17,11 @@ export const protect = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    // Pin the accepted algorithm explicitly — without this, jsonwebtoken
+    // accepts whatever alg the token header itself claims (including, in
+    // some verify configurations, 'none' or an asymmetric alg the server
+    // never signed with), which is a classic JWT algorithm-confusion attack.
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
 
     const user = await User.findById(decoded.id);
     if (!user) {

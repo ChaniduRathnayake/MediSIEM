@@ -56,18 +56,34 @@ const DonutChart: React.FC<{ data: DonutSlice[]; centerLabel?: string; onSliceCl
           <span className="text-[10px] text-slate-500 uppercase tracking-wide">{centerLabel}</span>
         </div>
       </div>
+      {/* The pie slices themselves (above) are mouse-only — recharts doesn't
+          expose a clean way to make individual SVG <Cell>s focusable/keyboard-
+          activatable. This legend offers the same filtering action as real
+          <button>s instead, so a keyboard-only user isn't locked out of it
+          entirely, even though the chart itself stays mouse-only. */}
       <ul className="flex-shrink-0 space-y-1.5">
-        {data.map((d) => (
-          <li
-            key={d.name}
-            onClick={onSliceClick ? () => onSliceClick(d.name) : undefined}
-            className={`flex items-center gap-2 text-xs ${clickable ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
-          >
-            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-            <span className="text-slate-500 dark:text-slate-400">{d.name}</span>
-            <span className="text-slate-900 dark:text-white font-medium ml-auto">{d.value}</span>
-          </li>
-        ))}
+        {data.map((d) =>
+          clickable ? (
+            <li key={d.name}>
+              <button
+                type="button"
+                onClick={() => onSliceClick!(d.name)}
+                aria-label={`Filter by ${d.name} (${d.value})`}
+                className="flex items-center gap-2 text-xs w-full text-left cursor-pointer hover:opacity-70 transition-opacity"
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                <span className="text-slate-500 dark:text-slate-400">{d.name}</span>
+                <span className="text-slate-900 dark:text-white font-medium ml-auto">{d.value}</span>
+              </button>
+            </li>
+          ) : (
+            <li key={d.name} className="flex items-center gap-2 text-xs">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+              <span className="text-slate-500 dark:text-slate-400">{d.name}</span>
+              <span className="text-slate-900 dark:text-white font-medium ml-auto">{d.value}</span>
+            </li>
+          )
+        )}
       </ul>
     </div>
   );

@@ -1,14 +1,8 @@
-// frontend/src/components/SeverityBadge.tsx
-// Single source of truth for how severity renders as UI, replacing the
-// sevColor/SEV_CLASS objects previously duplicated (with drifting values)
-// across AlertsPanel, CaseTable, AlertDetailsModal, and Wallboard.
-//
-// Deliberately NOT four equally-weighted colored pills — that treats a
-// CRITICAL clinical alert and a LOW one as the same shape of fact, just
-// tinted differently, which is exactly backwards for a tool whose entire
-// job is triage. Weight drops with severity instead: CRITICAL is a solid
-// filled block (the one thing that should stop a scrolling eye), HIGH is a
-// tinted outline, MEDIUM is plain colored text, LOW is muted and recedes.
+// Single source of truth for how severity renders as UI (previously
+// duplicated with drifting values across several panels). Deliberately not
+// four equally-weighted pills — visual weight drops with severity instead:
+// CRITICAL is a solid filled block, HIGH a tinted outline, MEDIUM plain
+// text, LOW muted, so the one thing that should stop a scrolling eye does.
 import React from 'react';
 import type { Severity } from '../utils/chartData';
 

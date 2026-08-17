@@ -1,7 +1,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import { protect, adminOnly } from '../middleware/auth.js';
-import { createUser, updateUser, deleteUser, getPresenceSummary } from '../controllers/userController.js';
+import { createUser, updateUser, deleteUser, getPresenceSummary, setUserMfaRequired, adminResetUserMfa } from '../controllers/userController.js';
 
 const router = express.Router();
 
@@ -13,6 +13,12 @@ router.patch('/:id', protect, updateUser);
 
 // ─── DELETE /api/users/:id  (admin only) ──────────────────────────────────────
 router.delete('/:id', protect, adminOnly, deleteUser);
+
+// ─── PATCH /api/users/:id/mfa-required  (admin only, non-admin targets) ──────
+router.patch('/:id/mfa-required', protect, adminOnly, setUserMfaRequired);
+
+// ─── POST /api/users/:id/mfa-reset  (admin only, non-admin targets) ──────────
+router.post('/:id/mfa-reset', protect, adminOnly, adminResetUserMfa);
 
 // ─── GET /api/users  (admin only) ────────────────────────────────────────────
 router.get('/', protect, adminOnly, async (req, res) => {

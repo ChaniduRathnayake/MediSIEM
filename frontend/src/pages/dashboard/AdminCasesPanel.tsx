@@ -1,13 +1,7 @@
-// frontend/src/pages/dashboard/AdminCasesPanel.tsx
-//
-// Admin-wide view of case status — every alert across all analysts, split
-// into an Open Cases / Closed Cases tab switcher. Complements AlertsPanel
-// (the raw CAS-ranked/severity monitoring view) with a case-management lens:
-// what's still being worked vs. what's been resolved, by whom, and why —
-// the Closed Cases tab surfaces each analyst's recorded reason + evidence
-// for admin oversight. Admins can also close a case directly from here (the
-// backend allows admin to close any alert, assigned or not — analysts are
-// restricted to their own assignments).
+// Admin-wide case status view — every alert across all analysts, split into
+// Open/Closed tabs. Complements AlertsPanel's raw monitoring view with a
+// case-management lens (who resolved what, and why); admins can also close
+// any case directly here, unlike analysts who are restricted to their own.
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, Clock, Siren, Download } from 'lucide-react';
 import type { EnrichedAlert, AlertClosure } from '../../services/alertsApi';
@@ -191,6 +185,7 @@ const AdminCasesPanel: React.FC<{
           <CaseTable
             variant="open"
             alerts={openCases}
+            allAlerts={alerts}
             closureOf={closureOf}
             showAssignedTo
             emptyMessage="No open cases — everything currently in the buffer has been closed."
@@ -201,6 +196,7 @@ const AdminCasesPanel: React.FC<{
           <CaseTable
             variant="closed"
             alerts={closedCases}
+            allAlerts={alerts}
             closureOf={closureOf}
             showAssignedTo
             emptyMessage="No cases closed yet."
@@ -209,7 +205,7 @@ const AdminCasesPanel: React.FC<{
         )}
       </div>
 
-      {detailsAlert && <AlertDetailsModal kind="ml" alert={detailsAlert} onClose={() => setDetailsAlert(null)} />}
+      {detailsAlert && <AlertDetailsModal kind="ml" alert={detailsAlert} onClose={() => setDetailsAlert(null)} token={token} />}
       {closingAlert && (
         <CloseAlertModal
           alertTitle={closingAlert.label !== 'Unclassified' ? closingAlert.label : closingAlert.ruleDescription}
@@ -217,6 +213,8 @@ const AdminCasesPanel: React.FC<{
           error={submitError}
           onClose={() => setClosingAlert(null)}
           onSubmit={handleSubmitClose}
+          alertId={closingAlert.id}
+          token={token}
         />
       )}
     </div>

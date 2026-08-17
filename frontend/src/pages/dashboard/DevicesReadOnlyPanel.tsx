@@ -1,8 +1,5 @@
-// frontend/src/pages/dashboard/DevicesReadOnlyPanel.tsx
-// Read-only device inventory for SOC analysts — same underlying data as the
-// Admin "Devices" tab (live Wazuh agents + OS category + MediSIEM group
-// assignments), but with no way to edit anything: no group management, no
-// OS-category override, no "Manage Groups". Just the insight, filterable.
+// Read-only device inventory for SOC analysts — same data as the Admin
+// "Devices" tab, minus any editing (no group management, no OS override).
 import React, { useMemo, useState } from 'react';
 import { Server, Loader2, AlertCircle, Tag, Filter } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';

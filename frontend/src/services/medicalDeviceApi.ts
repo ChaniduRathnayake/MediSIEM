@@ -1,8 +1,5 @@
-// frontend/src/services/medicalDeviceApi.ts
-// Client for MediSIEM's onboarded medical device inventory (ventilators,
-// infusion pumps, monitors, imaging systems, etc. — MongoDB-backed, managed
-// from the admin Devices tab). Same Authorization header pattern as the rest
-// of services/*.
+// Client for MediSIEM's onboarded medical device inventory, managed from
+// the admin Devices tab.
 
 import { BASE_URL } from './api';
 

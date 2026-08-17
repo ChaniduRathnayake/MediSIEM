@@ -1,13 +1,7 @@
-// frontend/src/pages/dashboard/PresenceWidget.tsx
-// Real-time "who's logged in" widget for the Overview page of both the Admin
-// Console and the SOC Analyst dashboard. Backed by GET /api/users/presence,
-// which derives "online" from lastActiveAt — stamped (throttled) by the
-// `protect` auth middleware on every authenticated request, so it reflects
-// actual API activity rather than a separate heartbeat/socket connection.
-//
-// Everyone gets the counts. Only admin callers get back a `roster` (who,
-// specifically, is online) — SOC analysts see numbers only, not a directory
-// of their colleagues' session status.
+// Real-time "who's logged in" widget, backed by GET /api/users/presence —
+// derives "online" from lastActiveAt, stamped by the `protect` middleware on
+// every authenticated request rather than a separate heartbeat/socket. Only
+// admin callers get back a `roster`; others see counts only.
 import React, { useEffect, useState } from 'react';
 import { Users, ShieldCheck, Eye, ChevronDown, Loader2, Wrench, ClipboardCheck } from 'lucide-react';
 import { apiGetPresenceSummary } from '../../services/api';

@@ -581,7 +581,7 @@ const AgentDetailsModal: React.FC<{
             </h2>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{meta.label} · {agent.ip ?? 'no IP'} · {formatOs(agent.os)}</p>
           </div>
-          <button onClick={onClose} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0">
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex-shrink-0">
             <X className="w-4 h-4" />
           </button>
         </div>

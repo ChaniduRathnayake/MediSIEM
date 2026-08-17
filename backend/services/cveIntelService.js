@@ -1,18 +1,8 @@
-// backend/services/cveIntelService.js
-//
-// Real "is this actively being exploited in the wild" signal for the CAS
-// Active Exploitation (AE) dimension — replaces the old always-false stub
-// (see caapService.js's previous `cve_known_exploited: false` / MITRE-id-only
-// proxy). Source: CISA's Known Exploited Vulnerabilities (KEV) catalog — a
-// free, unauthenticated, actively-maintained JSON feed built for exactly this
-// question, not a synthetic/guessed signal.
-//
-// The lab this pipeline runs against is explicitly an isolated network (see
-// ml-pipeline/PP2_DEMO_SCRIPT.md / attack_simulator.py's warning banner), so
-// the host running this backend may have no internet route to CISA at all —
-// every failure mode here must degrade to "no known-exploited match" rather
-// than throw, or a firewalled demo machine would take the whole alert
-// pipeline down over a threat-intel fetch.
+// "Is this actively exploited in the wild" signal for the CAS Active
+// Exploitation (AE) dimension, sourced from CISA's Known Exploited
+// Vulnerabilities (KEV) catalog. The lab network this runs against may have
+// no internet route to CISA, so every failure mode here degrades to "no
+// known-exploited match" rather than throwing.
 const KEV_URL = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json';
 const REFRESH_MS = 24 * 60 * 60 * 1000; // KEV is updated at most a few times a day
 const FETCH_TIMEOUT_MS = 10_000;

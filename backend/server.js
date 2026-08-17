@@ -1,13 +1,12 @@
-// Must be the first import: services imported below (alertPipeline.js ->
-// wazuhIndexerService.js/caapService.js) read process.env at module top-level,
-// so dotenv has to populate it before those modules are evaluated. ESM
-// evaluates sibling imports in file order, so this only works as line 1.
+// Must be the first import — modules below read process.env at top-level.
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import authRoutes from './routes/auth.js';
@@ -19,20 +18,20 @@ import deviceGroupRoutes from './routes/deviceGroups.js';
 import medicalDeviceRoutes from './routes/medicalDevices.js';
 import complianceRoutes from './routes/compliance.js';
 import alertRoutes from './routes/alerts.js';
+import reportRoutes from './routes/reports.js';
 import ruleRoutes from './routes/rules.js';
 import passwordPolicyRoutes from './routes/passwordPolicy.js';
 import threatIntelRoutes from './routes/threatIntel.js';
 import detectionPerformanceRoutes from './routes/detectionPerformance.js';
+import settingsRoutes from './routes/settings.js';
 import { startPipeline } from './services/alertPipeline.js';
 import { initCveIntel } from './services/cveIntelService.js';
 import MedicalDevice from './models/MedicalDevice.js';
 import DetectionRule from './models/DetectionRule.js';
 import SEED_MEDICAL_DEVICES from './config/seedMedicalDevices.js';
+import JWT_SECRET from './config/jwt.js';
 
-// First-run only, same idempotent pattern as the medical device seed below —
-// gives every fresh install one working example of the deviceCriticality/CAS
-// fields in action instead of an empty rules list. Admins can edit/disable it
-// like any other rule from the Rules tab; this only ever creates it once.
+// First-run only — gives every fresh install one working example rule instead of an empty list.
 const LIFE_CRITICAL_RULE_NAME = 'Life-critical device — elevated risk';
 async function seedLifeCriticalRule() {
   const exists = await DetectionRule.findOne({ name: LIFE_CRITICAL_RULE_NAME });
@@ -53,15 +52,11 @@ async function seedLifeCriticalRule() {
   console.log(`🌱  Seeded default detection rule: "${LIFE_CRITICAL_RULE_NAME}"`);
 }
 
-// ─── MongoDB Connection ────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/medisiem';
 mongoose.connect(MONGO_URI)
   .then(async () => {
     console.log('✅  MongoDB connected');
-    // First-run only: seed the starter medical device inventory so the CAAP
-    // pipeline and the admin Devices tab have real data out of the box.
-    // Once devices exist, this is a no-op — the inventory then lives in Mongo,
-    // managed from the admin UI (onboard / edit / tag / decommission).
+    // First-run only — a no-op once devices exist in Mongo.
     const existingCount = await MedicalDevice.countDocuments();
     if (existingCount === 0) {
       await MedicalDevice.insertMany(SEED_MEDICAL_DEVICES);
@@ -76,23 +71,19 @@ mongoose.connect(MONGO_URI)
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-// CORS_ORIGINS env var (comma-separated) lets a real deployment lock this
-// down to its actual frontend origin(s) instead of shipping with the dev
-// defaults baked in.
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
   : ['http://localhost:5173', 'http://localhost:3000'];
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
   origin: CORS_ORIGINS,
   credentials: true,
 }));
-app.use(express.json({ limit: '1mb' })); // cap request body size — defense against payload-size DoS
+app.use(express.json({ limit: '1mb' })); // defense against payload-size DoS
+app.use(mongoSanitize()); // strips '$'/'.' keys — defense against NoSQL operator injection
 
-// Light global guard against scripted abuse; the auth routes layer their
-// own stricter limiter (see routes/auth.js) on top of this.
+// Auth routes layer their own stricter limiter on top of this.
 app.use('/api', rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
@@ -100,7 +91,6 @@ app.use('/api', rateLimit({
   legacyHeaders: false,
 }));
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/wazuh', wazuhRoutes);
@@ -110,31 +100,42 @@ app.use('/api/device-groups', deviceGroupRoutes);
 app.use('/api/medical-devices', medicalDeviceRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/password-policy', passwordPolicyRoutes);
 app.use('/api/threat-intel', threatIntelRoutes);
 app.use('/api/detection-performance', detectionPerformanceRoutes);
+app.use('/api/settings', settingsRoutes);
 
-// ─── Health Check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'MediSIEM API is running', timestamp: new Date().toISOString() });
 });
 
-// ─── 404 Handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// ─── Error Handler ───────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// ─── HTTP server + Socket.IO (for live alert push to the dashboard) ───────────
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: { origin: CORS_ORIGINS, credentials: true },
+});
+
+// Every live alert is broadcast to every connected socket, so an unauthenticated
+// connection would leak the whole feed — require the same JWT the REST API uses.
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error('Not authorised.'));
+  try {
+    jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    next();
+  } catch {
+    next(new Error('Not authorised.'));
+  }
 });
 
 io.on('connection', (socket) => {
@@ -142,11 +143,12 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log(`🔌  Dashboard client disconnected: ${socket.id}`));
 });
 
+// Lets route handlers (e.g. the @mention notification in routes/alerts.js) emit over the
+// same socket set, without threading `io` through every import.
+app.set('io', io);
+
 httpServer.listen(PORT, () => {
   console.log(`✅  MediSIEM API running on http://localhost:${PORT}`);
-  // Start polling the Indexer → CAAP enrichment (pass-through) → live push.
   startPipeline(io);
-  // Best-effort CISA KEV fetch for real Active-Exploitation scoring — never
-  // blocks startup, degrades to the MITRE-technique heuristic if unreachable.
-  initCveIntel();
+  initCveIntel(); // best-effort CISA KEV fetch, never blocks startup
 });
