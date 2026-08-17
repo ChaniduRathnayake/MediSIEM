@@ -75,7 +75,7 @@ export interface EnrichedAlert {
   // detection via `confidence`).
   matchedRules?: { id: string; name: string }[];
   // Only present for alerts scored from a real captured network flow
-  // (ml-pipeline/flow_consumer.py) — absent for replayed/simulated rows.
+  // (Extra_Material/ml-pipeline/flow_consumer.py) — absent for replayed/simulated rows.
   src_ip?: string;
   // AbuseIPDB's 0-100 "confidence of abuse" score for src_ip (see
   // backend/services/ipReputationService.js) — already factored into

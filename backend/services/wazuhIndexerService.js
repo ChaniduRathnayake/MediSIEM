@@ -1,5 +1,5 @@
 // Talks to the Wazuh Indexer (OpenSearch) to pull new alerts as they land —
-// pointed at the "caap-alerts" index ml-pipeline/flow_consumer.py populates,
+// pointed at the "caap-alerts" index Extra_Material/ml-pipeline/flow_consumer.py populates,
 // not raw wazuh-alerts-*.
 
 import { Agent, fetch } from 'undici';
@@ -69,7 +69,7 @@ export async function fetchNewAlerts(sinceTimestamp, size = 100) {
       if (!loggedMissingIndex) {
         console.warn(
           `[wazuhIndexerService] Index "${WAZUH_INDEXER_INDEX}" doesn't exist yet — waiting for ` +
-            'ml-pipeline/flow_consumer.py to write its first document (auto-creates the index). ' +
+            'Extra_Material/ml-pipeline/flow_consumer.py to write its first document (auto-creates the index). ' +
             'Suppressing this message until then.'
         );
         loggedMissingIndex = true;

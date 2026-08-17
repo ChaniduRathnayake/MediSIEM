@@ -39,7 +39,7 @@ CLUSTER_LABELS = {0: "idle", 1: "active"}  # verified against models/kmeans.pkl'
 # matching the documented thresholds (Immediate >= 8, Investigate >= 5).
 #
 # Keys MUST match the device_type strings actually produced by
-# backend/config/deviceInventory.js and ml-pipeline/device_map.json — the
+# backend/config/deviceInventory.js and Extra_Material/ml-pipeline/device_map.json — the
 # original "Radiology"/"Nurse WS"/"Admin PC" keys never matched anything
 # real (those inventories emit "CT/MRI System" and "Workstation"), so
 # Cardiac Monitor and CT/MRI System alerts were silently falling through to
@@ -82,7 +82,7 @@ rf_model = joblib.load(os.path.join(MODEL_DIR, "random_forest.pkl"))
 iso_forest = joblib.load(os.path.join(MODEL_DIR, "isolation_forest.pkl"))
 kmeans = joblib.load(os.path.join(MODEL_DIR, "kmeans.pkl"))
 label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
-# NOTE on sequence-awareness: ml-pipeline/live_feature_extractor.py also
+# NOTE on sequence-awareness: Extra_Material/ml-pipeline/live_feature_extractor.py also
 # captures a `recent_flow_count` column (rolling count of a device's own
 # recent flows — see that module's docstring) on every row it writes, as a
 # pragmatic step toward catching slow multi-stage activity. It is NOT in
