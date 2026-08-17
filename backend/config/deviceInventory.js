@@ -34,7 +34,7 @@ export function invalidateDeviceInventoryCache() {
  * agent, which entry (if any) matches.
  *
  * Tries `agent.ip` before `agent.name` — for the real ML path
- * (ml-pipeline/flow_consumer.py), `agent.name` holds the device TYPE
+ * (Extra_Material/ml-pipeline/flow_consumer.py), `agent.name` holds the device TYPE
  * ("ICU Ventilator"), not a unique identifier, since flow_consumer.py's own
  * device_map.json already resolved the type before this doc was built. Only
  * `agent.ip` is actually unique per device on that path, so trying `name`

@@ -105,11 +105,11 @@ Write-Host "If that's wrong, run 'ipconfig' and use the IPv4 address of your" -F
 Write-Host "VirtualBox Host-Only / VMware Host-Only adapter instead." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Inside the lab VM:" -ForegroundColor Cyan
-Write-Host "  pip install -r ml-pipeline/requirements.txt"
-Write-Host "  python ml-pipeline/live_feature_extractor.py --iface `"<vm-iface-name>`" --out-dir ./cicflowmeter_output"
-Write-Host "  python ml-pipeline/flow_consumer.py --flow-dir ./cicflowmeter_output \"
+Write-Host "  pip install -r 'Extra_Material/ml-pipeline/requirements.txt'"
+Write-Host "  python 'Extra_Material/ml-pipeline/live_feature_extractor.py' --iface `"<vm-iface-name>`" --out-dir ./cicflowmeter_output"
+Write-Host "  python 'Extra_Material/ml-pipeline/flow_consumer.py' --flow-dir ./cicflowmeter_output \"
 Write-Host "      --caap-url http://$hostIp`:5001 --indexer-url https://$hostIp`:9200 \"
 Write-Host "      --indexer-user $indexerUser --indexer-pass $indexerPass"
-Write-Host "  sudo python ml-pipeline/attack_simulator.py --target <victim-vm-ip> --scenario all"
+Write-Host "  sudo python 'Extra_Material/ml-pipeline/attack_simulator.py' --target <victim-vm-ip> --scenario all"
 Write-Host ""
 Write-Host "Dashboard: http://localhost:5173 (log in, alerts appear as flow_consumer.py indexes them)" -ForegroundColor Green

@@ -20,7 +20,7 @@ import requests
 requests.packages.urllib3.disable_warnings()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))  # .../Extra_Material/ml-pipeline -> repo root
 DATA_DIR = os.path.join(REPO_ROOT, "ai_server", "data", "test")
 ENV_PATH = os.path.join(REPO_ROOT, "backend", ".env")
 DEVICE_MAP_PATH = os.path.join(SCRIPT_DIR, "device_map.json")

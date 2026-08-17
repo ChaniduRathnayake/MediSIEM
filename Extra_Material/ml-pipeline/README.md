@@ -76,7 +76,8 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
 2. **Python deps**, from an elevated (Administrator) shell — raw capture
    needs it:
    ```powershell
-   pip install -r ml-pipeline\requirements.txt
+   cd "Extra_Material\ml-pipeline"    # or just ml-pipeline if you copied it standalone
+   pip install -r requirements.txt
    ```
 3. **Find your interface name**:
    ```powershell
@@ -84,12 +85,12 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
    ```
 4. **Start the extractor** (writes to `./cicflowmeter_output/live_flows.csv`):
    ```powershell
-   python ml-pipeline\live_feature_extractor.py --iface "<name from step 3>" --out-dir .\cicflowmeter_output
+   python live_feature_extractor.py --iface "<name from step 3>" --out-dir .\cicflowmeter_output
    ```
 5. **Start flow_consumer.py**, pointed at the host's IP (find it on the host
    with `ipconfig` — the VirtualBox Host-Only / VMware Host-Only adapter):
    ```powershell
-   python ml-pipeline\flow_consumer.py --flow-dir .\cicflowmeter_output `
+   python flow_consumer.py --flow-dir .\cicflowmeter_output `
        --caap-url http://<host-ip>:5001 --indexer-url https://<host-ip>:9200 `
        --indexer-user <WAZUH_INDEXER_USER from backend/.env> --indexer-pass <WAZUH_INDEXER_PASS from backend/.env>
    ```
@@ -97,7 +98,7 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
 6. **Generate traffic** (only against a target IP on this isolated lab
    network — see the warning at the top of `attack_simulator.py`):
    ```powershell
-   python ml-pipeline\attack_simulator.py --target <victim-vm-ip> --scenario all
+   python attack_simulator.py --target <victim-vm-ip> --scenario all
    ```
 
 ## device_map.json

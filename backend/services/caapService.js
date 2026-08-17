@@ -1,6 +1,6 @@
 // Bridges a raw Wazuh alert to the CAAP Flask AI server (/predict) and returns an
 // enriched alert with CAS score + action. Fallback path only — the primary path is
-// ml-pipeline/flow_consumer.py writing pre-enriched docs straight into caap-alerts;
+// Extra_Material/ml-pipeline/flow_consumer.py writing pre-enriched docs straight into caap-alerts;
 // this only runs when an alert has no CAS field, using zero-filled features (and a
 // rule.level-derived TR instead of RF confidence) when there's no real flow data.
 

@@ -30,8 +30,8 @@ Two dashboard surfaces will both be doing something during the demo:
 Without this, flows from an unrecognized IP fall back to `Unknown
 Device`/`General` in [device_map.json](device_map.json) — CAS still
 computes, just with a flat clinical-criticality term. On the **Windows
-host**, open `ml-pipeline/device_map.json` and add the Ubuntu VM's real IP
-(find it on the VM with `ip -4 addr show`):
+host**, open `Extra_Material/ml-pipeline/device_map.json` and add the
+Ubuntu VM's real IP (find it on the VM with `ip -4 addr show`):
 
 ```json
 {
@@ -69,13 +69,13 @@ the firewall, not the script.
 
 ## 2. Ubuntu VM (victim) — start capture + scoring
 
-Get `ml-pipeline/` onto the VM (git clone the repo, or `scp -r ml-pipeline
-user@ubuntu-vm:~/`), then:
+Get `Extra_Material/ml-pipeline/` onto the VM (git clone the repo, or
+`scp -r "Extra_Material/ml-pipeline" user@ubuntu-vm:~/`), then:
 
 ```bash
-pip3 install -r ml-pipeline/requirements.txt
+cd "Extra_Material/ml-pipeline"    # or just ml-pipeline if you scp'd it standalone
+pip3 install -r requirements.txt
 ip -brief link                                    # find your interface name, e.g. enp0s3
-cd ml-pipeline
 chmod +x run_victim_capture.sh
 sudo ./run_victim_capture.sh enp0s3 <windows-host-ip> admin <WAZUH_INDEXER_PASS>
 ```
@@ -89,8 +89,8 @@ required for raw sockets).
 ## 3. RedHat VM (attacker) — launch the simulated attack
 
 ```bash
-pip3 install -r ml-pipeline/requirements.txt
-cd ml-pipeline
+cd "Extra_Material/ml-pipeline"    # or just ml-pipeline if you scp'd it standalone
+pip3 install -r requirements.txt
 chmod +x run_attack.sh
 sudo ./run_attack.sh <ubuntu-victim-ip> all
 ```

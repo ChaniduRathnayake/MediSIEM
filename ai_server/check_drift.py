@@ -18,7 +18,7 @@ import pandas as pd
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(SCRIPT_DIR, "models")
 REPORT_DIR = os.path.join(SCRIPT_DIR, "reports")
-DEFAULT_INPUT = os.path.join(SCRIPT_DIR, "..", "ml-pipeline", "cicflowmeter_output", "live_flows.csv")
+DEFAULT_INPUT = os.path.join(SCRIPT_DIR, "..", "Extra_Material", "ml-pipeline", "cicflowmeter_output", "live_flows.csv")
 
 # A live batch mean this many training-stdevs away from the training mean
 # is flagged — 3 sigma is the conventional "this isn't just noise" cutoff.
@@ -49,7 +49,7 @@ def load_live_batch(input_path: str, feature_columns: list[str]) -> pd.DataFrame
     if not os.path.exists(input_path):
         sys.exit(
             f"\n  ✗ No captured-flow CSV found at: {os.path.abspath(input_path)}\n"
-            f"  → Run ml-pipeline/live_feature_extractor.py (or point --input at a\n"
+            f"  → Run 'Extra_Material/ml-pipeline/live_feature_extractor.py' (or point --input at a\n"
             f"    different captured-flow CSV, e.g. from replay_test_flows.py) first.\n"
         )
     df = pd.read_csv(input_path, low_memory=False)
@@ -85,7 +85,7 @@ def out_of_range_fraction(live_values: pd.Series, train_mean: float, train_std: 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", default=DEFAULT_INPUT, help="Captured-flow CSV to check (default: ml-pipeline/cicflowmeter_output/live_flows.csv)")
+    parser.add_argument("--input", default=DEFAULT_INPUT, help="Captured-flow CSV to check (default: Extra_Material/ml-pipeline/cicflowmeter_output/live_flows.csv)")
     parser.add_argument("--min-rows", type=int, default=20, help="Minimum live rows required before computing drift (fewer = too noisy to trust)")
     args = parser.parse_args()
 
