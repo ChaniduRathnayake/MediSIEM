@@ -53,6 +53,13 @@ export interface EnrichedAlert {
   cluster: string;
   CAS: number;
   action: 'Immediate' | 'Investigate' | 'Monitor';
+  // Which named weight profile actually produced this CAS score — 'default',
+  // one of ai_server/src/cas_config.py's SCENARIO_WEIGHT_PROFILES keys
+  // (auto-resolved from the device's department), or 'custom' when an admin
+  // has overridden the vector in Settings -> CAS Weights. Absent only for
+  // alerts scored before this field existed.
+  scenario?: string;
+  weights_used?: { TR: number; CC: number; TS: number; AE: number; TC: number };
   // Plain-text SHAP summary — always present when there's a real RF
   // classification behind this alert; a rule.level/AI-unreachable fallback
   // (see caapService.js) sets it to a disclaimer sentence instead.

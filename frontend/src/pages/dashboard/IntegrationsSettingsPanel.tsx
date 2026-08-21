@@ -103,10 +103,10 @@ interface SecretEdits {
   smtpPass: string;
   slackWebhookUrl: string;
   teamsWebhookUrl: string;
-  anthropicApiKey: string;
+  googleApiKey: string;
   abuseIpdbApiKey: string;
 }
-const EMPTY_EDITS: SecretEdits = { smtpPass: '', slackWebhookUrl: '', teamsWebhookUrl: '', anthropicApiKey: '', abuseIpdbApiKey: '' };
+const EMPTY_EDITS: SecretEdits = { smtpPass: '', slackWebhookUrl: '', teamsWebhookUrl: '', googleApiKey: '', abuseIpdbApiKey: '' };
 
 const IntegrationsSettingsPanel: React.FC<{ token: string | null }> = ({ token }) => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -117,7 +117,7 @@ const IntegrationsSettingsPanel: React.FC<{ token: string | null }> = ({ token }
 
   const [edits, setEdits] = useState<SecretEdits>(EMPTY_EDITS);
   const [cleared, setCleared] = useState<Record<keyof SecretEdits, boolean>>({
-    smtpPass: false, slackWebhookUrl: false, teamsWebhookUrl: false, anthropicApiKey: false, abuseIpdbApiKey: false,
+    smtpPass: false, slackWebhookUrl: false, teamsWebhookUrl: false, googleApiKey: false, abuseIpdbApiKey: false,
   });
   const [recipientsInput, setRecipientsInput] = useState('');
 
@@ -165,14 +165,14 @@ const IntegrationsSettingsPanel: React.FC<{ token: string | null }> = ({ token }
         notifyChannels: settings.notifyChannels,
         ...(cleared.slackWebhookUrl ? { slackWebhookUrl: '' } : edits.slackWebhookUrl ? { slackWebhookUrl: edits.slackWebhookUrl } : {}),
         ...(cleared.teamsWebhookUrl ? { teamsWebhookUrl: '' } : edits.teamsWebhookUrl ? { teamsWebhookUrl: edits.teamsWebhookUrl } : {}),
-        ...(cleared.anthropicApiKey ? { anthropicApiKey: '' } : edits.anthropicApiKey ? { anthropicApiKey: edits.anthropicApiKey } : {}),
+        ...(cleared.googleApiKey ? { googleApiKey: '' } : edits.googleApiKey ? { googleApiKey: edits.googleApiKey } : {}),
         ...(cleared.abuseIpdbApiKey ? { abuseIpdbApiKey: '' } : edits.abuseIpdbApiKey ? { abuseIpdbApiKey: edits.abuseIpdbApiKey } : {}),
       };
       const { settings: updated } = await apiUpdateSettings(token, payload);
       setSettings(updated);
       setRecipientsInput(updated.notifyEmailRecipients.join(', '));
       setEdits(EMPTY_EDITS);
-      setCleared({ smtpPass: false, slackWebhookUrl: false, teamsWebhookUrl: false, anthropicApiKey: false, abuseIpdbApiKey: false });
+      setCleared({ smtpPass: false, slackWebhookUrl: false, teamsWebhookUrl: false, googleApiKey: false, abuseIpdbApiKey: false });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: unknown) {
@@ -335,9 +335,9 @@ const IntegrationsSettingsPanel: React.FC<{ token: string | null }> = ({ token }
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-5">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white">API keys</h3>
         <SecretField
-          label="Anthropic API key (AI alert triage assistant)" configured={settings.anthropicConfigured} value={edits.anthropicApiKey}
-          onChange={(v) => setEdits({ ...edits, anthropicApiKey: v })} cleared={cleared.anthropicApiKey}
-          onClear={() => toggleClear('anthropicApiKey')} placeholder="sk-ant-…"
+          label="Google Gemini API key (AI alert triage assistant)" configured={settings.googleConfigured} value={edits.googleApiKey}
+          onChange={(v) => setEdits({ ...edits, googleApiKey: v })} cleared={cleared.googleApiKey}
+          onClear={() => toggleClear('googleApiKey')} placeholder="Paste your Gemini API key"
         />
         <SecretField
           label="AbuseIPDB API key (IP reputation enrichment)" configured={settings.abuseIpdbConfigured} value={edits.abuseIpdbApiKey}

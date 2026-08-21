@@ -1,43 +1,15 @@
-// Six single-call, non-agentic Anthropic uses, all sharing anthropicClient.js's cached
-// client — case-close drafting, investigation summaries, report narratives, plain-English
-// rule authoring, and natural-language alert search.
-import { getAnthropicClient, friendlyAnthropicError, extractText, extractJson } from './anthropicClient.js';
+// Six single-call, non-agentic AI-assistant uses — case-close drafting, investigation
+// summaries, report narratives, plain-English rule authoring, and natural-language alert
+// search. All backed by Google Gemini (services/geminiClient.js).
+import { generateGeminiText, generateGeminiJson } from './geminiClient.js';
 import { RULE_FIELDS, RULE_OPERATORS } from '../models/DetectionRule.js';
 
-const MODEL = 'claude-opus-5';
-
 async function callText(prompt, maxTokens = 500) {
-  const client = await getAnthropicClient();
-  if (!client) throw new Error('AI assistant is not configured — add an Anthropic API key in Settings → Integrations.');
-  let response;
-  try {
-    response = await client.messages.create({
-      model: MODEL,
-      max_tokens: maxTokens,
-      output_config: { effort: 'low' },
-      messages: [{ role: 'user', content: prompt }],
-    });
-  } catch (err) {
-    throw new Error(friendlyAnthropicError(err));
-  }
-  return extractText(response);
+  return generateGeminiText(prompt, maxTokens);
 }
 
 async function callJson(prompt, maxTokens = 700) {
-  const client = await getAnthropicClient();
-  if (!client) throw new Error('AI assistant is not configured — add an Anthropic API key in Settings → Integrations.');
-  let response;
-  try {
-    response = await client.messages.create({
-      model: MODEL,
-      max_tokens: maxTokens,
-      output_config: { effort: 'low' },
-      messages: [{ role: 'user', content: prompt }],
-    });
-  } catch (err) {
-    throw new Error(friendlyAnthropicError(err));
-  }
-  return extractJson(response);
+  return generateGeminiJson(prompt, maxTokens);
 }
 
 function alertSummaryLines(alert) {

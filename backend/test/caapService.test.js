@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { ruleLevelToTrScore, CRITICALITY_TO_CC } from '../services/caapService.js';
+import { ruleLevelToTrScore, CRITICALITY_TO_CC, lookupAe, shiftForHour, lookupTc, resolveScenarioKey } from '../services/caapService.js';
 
 describe('ruleLevelToTrScore', () => {
   // Must land on app.py's 1-10 scale (doubled from the plan's 1-5 table —
@@ -70,5 +70,61 @@ describe('CAS fallback formula (0.25 TR + 0.30 CC + 0.25 TS + 0.10 AE + 0.10 TC)
     const critical = computeFallbackCas({ ruleLevel: 6, criticality: 'critical', knownExploited: false });
     const low = computeFallbackCas({ ruleLevel: 6, criticality: 'low', knownExploited: false });
     assert.ok(critical > low, 'a life-critical device must score higher than a low-criticality one at the same rule level');
+  });
+});
+
+describe('lookupAe (attack-type-aware AE — shared/cas_config.json ae_table)', () => {
+  test('varies by predicted attack type instead of being binary', () => {
+    // Previously app.py's lookup_ae() only looked at cve_known_exploited (2
+    // or 10 flat) — every non-CVE alert scored identically regardless of
+    // what the RF actually classified. These must now differ.
+    const dos = lookupAe('DoS_TCP', false);
+    const recon = lookupAe('Recon', false);
+    const benign = lookupAe('Benign', false);
+    assert.ok(dos > recon, `DoS_TCP (${dos}) must outrank Recon (${recon})`);
+    assert.ok(recon > benign, `Recon (${recon}) must outrank Benign (${benign})`);
+    assert.equal(benign, 0);
+  });
+
+  test('a known-exploited CVE/IP-reputation hit still always boosts to the ceiling', () => {
+    assert.equal(lookupAe('Recon', true), 10);
+    assert.equal(lookupAe('Benign', true), 10);
+  });
+
+  test('an unseen label falls to the shared default rather than crashing', () => {
+    assert.equal(lookupAe('SomeNewAttackType', false), 4);
+  });
+});
+
+describe('shiftForHour / lookupTc (3-tier temporal context, matches test.py current_shift())', () => {
+  test('day 07-15, evening 15-23, else night', () => {
+    assert.equal(shiftForHour(10), 'day');
+    assert.equal(shiftForHour(18), 'evening');
+    assert.equal(shiftForHour(2), 'night');
+    assert.equal(shiftForHour(23), 'night');
+  });
+
+  test('night scores highest, day scores lowest', () => {
+    const night = lookupTc(2);
+    const evening = lookupTc(18);
+    const day = lookupTc(10);
+    assert.ok(night > evening && evening > day, `expected night (${night}) > evening (${evening}) > day (${day})`);
+  });
+});
+
+describe('resolveScenarioKey (department -> scenario profile)', () => {
+  test('ICU-family departments resolve to icu_critical_care', () => {
+    assert.equal(resolveScenarioKey('ICU'), 'icu_critical_care');
+    assert.equal(resolveScenarioKey('NICU'), 'icu_critical_care');
+  });
+
+  test('compound department strings match by substring', () => {
+    assert.equal(resolveScenarioKey('Cardiology / Remote'), 'icu_critical_care');
+    assert.equal(resolveScenarioKey('ICU / General Ward'), 'icu_critical_care');
+  });
+
+  test('an unrecognised department falls to the blended default rather than throwing', () => {
+    assert.equal(resolveScenarioKey('Some New Department'), 'hospital_wide_mixed');
+    assert.equal(resolveScenarioKey(undefined), 'hospital_wide_mixed');
   });
 });

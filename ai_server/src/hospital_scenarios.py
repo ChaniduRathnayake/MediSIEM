@@ -18,6 +18,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+import cas_config  # noqa: E402
 import cas_engine  # noqa: E402
 import eval_utils  # noqa: E402
 
@@ -154,6 +155,18 @@ def build_scenario(scenario_key: str, iomt_df: pd.DataFrame, artifacts: dict, n:
             shift=shifts[i],
             ts_col_val=3,
         )
+        # Scenario-adaptive comparison: same TR/CC/TS/AE/TC dimension values
+        # cas_result already computed with the fixed AHP default weights,
+        # recombined with this scenario's own weight profile (see
+        # cas_config.SCENARIO_WEIGHT_PROFILES) via the sensitivity-analysis
+        # helper below (_weighted_cas) — isolates the effect of adaptive
+        # WEIGHTING from everything else (device, attack type, shift all
+        # identical between CAS and CAS_adaptive for the same row).
+        adaptive_weights = cas_config.SCENARIO_WEIGHT_PROFILES.get(scenario_key, cas_config.DEFAULT_WEIGHTS)
+        cas_adaptive = _weighted_cas(
+            cas_result["TR"], cas_result["CC"], cas_result["TS"], cas_result["AE"], cas_result["TC"],
+            adaptive_weights,
+        )
         records.append({
             "scenario": scenario_key,
             "true_label": rows.loc[i, "label"],
@@ -169,6 +182,8 @@ def build_scenario(scenario_key: str, iomt_df: pd.DataFrame, artifacts: dict, n:
             "patient_dependency": tier,  # ground truth for THIS simulated scenario
             **cas_result,
             "CVSS": cvss_equivalent_score(model_out.loc[i, "predicted_label"]),
+            "CAS_adaptive": cas_adaptive,
+            "action_adaptive": cas_engine.get_action(cas_adaptive, model_out.loc[i, "predicted_label"]),
         })
 
     return pd.DataFrame(records)
@@ -237,6 +252,46 @@ def build_caap_vs_cvss_table(df: pd.DataFrame) -> pd.DataFrame:
         row["FPR_CVSS_top10_%"] = round(fpr_cvss, 2)
         row["AlertFatigueReduction_pts"] = round(fatigue_reduction_pts, 2)
         row["AlertFatigueReduction_%"] = round(fatigue_reduction_pct, 2) if not np.isnan(fatigue_reduction_pct) else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+# ── Static AHP weights vs. scenario-adaptive weights ────────────────────────
+# A second, independent comparison alongside CAAP-vs-CVSS above: does letting
+# the weight VECTOR itself vary by deployment scenario (see
+# cas_config.SCENARIO_WEIGHT_PROFILES / resolve_scenario_key) improve
+# alert-ranking accuracy over the single fixed AHP-derived default, using the
+# exact same TR/CC/TS/AE/TC dimension values for both (built_scenario() already
+# computes CAS with the fixed default and CAS_adaptive with this row's own
+# scenario profile side by side) — isolates the effect of adaptive weighting
+# from every other variable.
+def build_static_vs_adaptive_table(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for scenario_key in list(SCENARIOS.keys()) + ["__all__"]:
+        sub = df if scenario_key == "__all__" else df[df["scenario"] == scenario_key]
+        ara_static = alert_ranking_accuracy(sub, "CAS")
+        ara_adaptive = alert_ranking_accuracy(sub, "CAS_adaptive")
+        mtcai_static = mean_time_to_critical(sub, "CAS")
+        mtcai_adaptive = mean_time_to_critical(sub, "CAS_adaptive")
+        fpr_static = false_positive_rate_top_n(sub, "CAS", 10)
+        fpr_adaptive = false_positive_rate_top_n(sub, "CAS_adaptive", 10)
+        fatigue_reduction_pts = fpr_static - fpr_adaptive
+        fatigue_reduction_pct = (100.0 * fatigue_reduction_pts / fpr_static) if fpr_static > 0 else float("nan")
+
+        row = {
+            "scenario": "ALL SCENARIOS COMBINED" if scenario_key == "__all__" else SCENARIOS[scenario_key]["display_name"],
+            "n_alerts": len(sub),
+            "n_life_critical": int((sub["patient_dependency"] == "life_critical").sum()),
+        }
+        for n in (5, 10, 20):
+            row[f"ARA_static_top{n}_%"] = round(ara_static[n], 2)
+            row[f"ARA_adaptive_top{n}_%"] = round(ara_adaptive[n], 2)
+        row["MTCAI_static_rank"] = round(mtcai_static, 2)
+        row["MTCAI_adaptive_rank"] = round(mtcai_adaptive, 2)
+        row["FPR_static_top10_%"] = round(fpr_static, 2)
+        row["FPR_adaptive_top10_%"] = round(fpr_adaptive, 2)
+        row["AdaptiveFatigueReduction_pts"] = round(fatigue_reduction_pts, 2)
+        row["AdaptiveFatigueReduction_%"] = round(fatigue_reduction_pct, 2) if not np.isnan(fatigue_reduction_pct) else np.nan
         rows.append(row)
     return pd.DataFrame(rows)
 

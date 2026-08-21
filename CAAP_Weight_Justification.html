@@ -581,6 +581,15 @@ select {
       <p style="font-size:12px;color:var(--muted);">Action tier remains <strong>Immediate</strong> across all perturbations for critical devices. Weights are robust.</p>
     </div>
 
+    <div class="just-card" style="grid-column: span 2;">
+      <div class="just-card-header">
+        <span class="just-pill" style="background:rgba(199,125,255,0.15);color:var(--tc)">Method 4 — Extension</span>
+        <span class="just-card-title">Contextual Re-weighting (scenario-adaptive profiles)</span>
+      </div>
+      <p style="margin-bottom:14px;">Methods 1&ndash;3 establish that <strong>one</strong> fixed weight vector is internally consistent (AHP, CR&lt;0.10), standards-grounded, and robust to small perturbation. They do not establish that a single global vector is optimal across every deployment context &mdash; an ICU's alert stream and an administrative ward's are not drawn from the same risk distribution. CAAP now supports <strong>named, per-scenario weight profiles</strong> (<code>ai_server/src/cas_config.py</code>'s <code>SCENARIO_WEIGHT_PROFILES</code>), auto-selected from the alerting device's department and editable per-deployment from Settings &rarr; CAS Weights, with every profile validated to sum to 1.00 and every dimension's TR/CC/TS/AE/TC <em>value</em> computed identically regardless of which profile scores it &mdash; only the relative weighting changes.</p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.7;">This is additive, not a replacement: every profile ships seeded as an <strong>identical copy</strong> of the Method 1&ndash;3 default above until a deployment's own AHP-style pairwise comparison justifies diverging from it &mdash; the same rigor this page already applies to the single default vector should be applied per-scenario before its weights are allowed to differ in production, not asserted here. <code>ai_server/src/hospital_scenarios.py</code>'s <code>build_static_vs_adaptive_table()</code> runs the identical ARA/MTCAI/FPR evaluation this page's own CAAP-vs-CVSS comparison uses, but of static-default-weights vs. scenario-adaptive-weights on the same alert stream &mdash; the mechanism to measure whether contextual re-weighting is worth adopting for a given deployment, once its profiles have been deliberately tuned.</p>
+    </div>
+
   </div>
 
   <div class="section-title mb-24">Why not equal weights (0.20 each)?</div>
@@ -868,6 +877,10 @@ select {
     <div class="std-card">
       <div class="std-tag">Q: How do these compare to CVSS weights?</div>
       <div class="std-desc" style="margin-top:8px;">CVSS has no clinical dimension whatsoever — it weights attack vector, complexity, and CIA impact equally across all device types. CAAP adds CC (device type), TS (anomaly time pressure), and TC (staff availability) — dimensions that are clinically essential but absent in CVSS.</div>
+    </div>
+    <div class="std-card">
+      <div class="std-tag">Q: Isn't a fixed weight vector a limitation — shouldn't weighting adapt to context?</div>
+      <div class="std-desc" style="margin-top:8px;">It can, and now does (Method 4, previous page): named scenario profiles (ICU/Critical Care, General Ward/Admin, Hospital-Wide Mixed) resolved from the alerting device's department, admin-editable at runtime with no redeploy. Every profile still ships as an exact copy of the Method 1–3 default until deliberately tuned, and <code>hospital_scenarios.py</code> can measure whether a tuned profile actually improves alert-ranking accuracy over the static default before it's trusted in production — the fixed vector's defensibility (AHP, CR&lt;0.10, standards mapping) isn't lost, it's the baseline every scenario profile is validated against.</div>
     </div>
   </div>
 
