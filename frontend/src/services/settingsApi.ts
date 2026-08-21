@@ -1,5 +1,13 @@
 import { BASE_URL } from './api';
 
+export interface CasWeightVector {
+  TR: number;
+  CC: number;
+  TS: number;
+  AE: number;
+  TC: number;
+}
+
 export interface SystemSettings {
   smtp: {
     host: string;
@@ -12,12 +20,20 @@ export interface SystemSettings {
   notifyEmailRecipients: string[];
   slackConfigured: boolean;
   teamsConfigured: boolean;
-  anthropicConfigured: boolean;
+  googleConfigured: boolean;
   abuseIpdbConfigured: boolean;
   mfaRequiredForAdmin: boolean;
   lockout: { maxAttempts: number; lockDurationMinutes: number };
   notifyOnImmediateCas: boolean;
   notifyChannels: { email: boolean; slack: boolean; teams: boolean };
+  casWeights: {
+    // The admin's own overrides — null/absent means "not customized, use the
+    // matching built-in* value below".
+    default: CasWeightVector | null;
+    scenarios: Record<string, CasWeightVector>;
+    builtInDefault: CasWeightVector;
+    builtInScenarioProfiles: Record<string, CasWeightVector>;
+  };
   updatedBy?: { id: string; name: string } | null;
   updatedAt: string | null;
 }
@@ -31,12 +47,20 @@ export interface SystemSettingsUpdate {
   notifyEmailRecipients?: string[];
   slackWebhookUrl?: string;
   teamsWebhookUrl?: string;
-  anthropicApiKey?: string;
+  googleApiKey?: string;
   abuseIpdbApiKey?: string;
   mfaRequiredForAdmin?: boolean;
   lockout?: Partial<{ maxAttempts: number; lockDurationMinutes: number }>;
   notifyOnImmediateCas?: boolean;
   notifyChannels?: Partial<{ email: boolean; slack: boolean; teams: boolean }>;
+  // Same omit/clear/replace convention as the secret fields above: omit a
+  // key to leave it untouched, `null` to reset it to the built-in AHP/
+  // scenario default, or a full 5-dimension vector (must sum to 1.00) to
+  // replace it.
+  casWeights?: {
+    default?: CasWeightVector | null;
+    scenarios?: Record<string, CasWeightVector | null>;
+  };
 }
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {

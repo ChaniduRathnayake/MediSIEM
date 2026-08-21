@@ -28,7 +28,9 @@ const SystemSettingsSchema = new Schema(
     notifyEmailRecipients: { type: [String], default: [] },
     slackWebhookUrl: { type: String, default: '', select: false },
     teamsWebhookUrl: { type: String, default: '', select: false },
-    anthropicApiKey: { type: String, default: '', select: false },
+    // AI-assistant provider — Google Gemini (Generative Language API), called
+    // directly over REST in services/geminiClient.js rather than an SDK dependency.
+    googleApiKey: { type: String, default: '', select: false },
     abuseIpdbApiKey: { type: String, default: '', select: false },
     mfaRequiredForAdmin: { type: Boolean, default: false },
     // Login lockout policy — was hardcoded in routes/auth.js; now
@@ -43,6 +45,21 @@ const SystemSettingsSchema = new Schema(
       email: { type: Boolean, default: false },
       slack: { type: Boolean, default: false },
       teams: { type: Boolean, default: false },
+    },
+    // Optional overrides for the CAS scoring weight vector — every field
+    // undefined by default, so nothing changes for existing deployments
+    // until an admin actively edits something in Settings -> CAS Weights.
+    // Falls through to shared/cas_config.json's AHP-justified default (and
+    // its named scenario profiles) when unset — see
+    // backend/services/caapService.js's resolveCasWeights(). Route-level
+    // validation (routes/settings.js) requires each fully-specified profile
+    // to sum to 1.00 +/- 0.01; the schema itself stays permissive (Mixed)
+    // since the same 5-key shape needs to live both at `default` and per
+    // scenario key, which Mongoose's static schema syntax can't express
+    // cleanly without one sub-schema per scenario.
+    casWeights: {
+      default: { type: Schema.Types.Mixed, default: undefined },
+      scenarios: { type: Schema.Types.Mixed, default: undefined },
     },
     updatedBy: {
       id: String,

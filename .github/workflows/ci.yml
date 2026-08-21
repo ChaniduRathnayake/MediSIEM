@@ -72,8 +72,15 @@ jobs:
       - name: Byte-compile every ai_server/ml-pipeline module
         run: |
           python -m py_compile \
-            ai_server/src/app.py ai_server/src/cas_engine.py ai_server/src/eval_utils.py \
-            ai_server/src/hospital_scenarios.py ai_server/train.py ai_server/test.py \
-            ai_server/test_real_rows.py ai_server/verify_feature_cols.py \
+            ai_server/src/app.py ai_server/src/cas_config.py ai_server/src/cas_engine.py \
+            ai_server/src/eval_utils.py ai_server/src/hospital_scenarios.py ai_server/train.py \
+            ai_server/test.py ai_server/test_cas_config.py ai_server/test_real_rows.py \
+            ai_server/verify_feature_cols.py \
             "Extra_Material/ml-pipeline/attack_simulator.py" "Extra_Material/ml-pipeline/flow_consumer.py" \
             "Extra_Material/ml-pipeline/live_feature_extractor.py" "Extra_Material/ml-pipeline/replay_test_flows.py"
+      # Unlike app.py/train.py/test.py, this one needs no trained model
+      # artifacts and no third-party packages (cas_config.py/cas_engine.py
+      # are pure-stdlib) — a real drift guard CI can actually execute, not
+      # just syntax-check, on every push.
+      - name: Run CAS config parity/drift checks
+        run: python ai_server/test_cas_config.py

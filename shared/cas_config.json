@@ -1,0 +1,151 @@
+{
+  "$comment": "Single source of truth for CAS (Clinical Alert Score) scoring config. Loaded by ai_server/src/cas_config.py (Python: app.py's live /predict, cas_engine.py's offline research engine) and backend/services/caapService.js (Node: live enrichment + fallback paths). Edit values ONLY here — both runtimes read this file, so a change here is a change everywhere, with no risk of the three implementations silently drifting again. default_weights is the AHP-derived, standards-justified vector documented in CAAP_Weight_Justification.html — do not change it casually; every scenario profile below starts as an identical copy of it and is meant to be tuned per-deployment from Settings -> CAS Weights, not hand-edited here.",
+
+  "default_weights": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 },
+
+  "criticality_to_cc": { "critical": 10, "high": 7, "medium": 4, "low": 2 },
+
+  "cc_lookup_by_device_type": {
+    "ICU Ventilator": 10,
+    "Infusion Pump": 8,
+    "Cardiac Monitor": 8,
+    "CT/MRI System": 6,
+    "Workstation": 4
+  },
+  "default_cc": 2,
+
+  "ae_table": {
+    "DoS_TCP": 10,
+    "ARP_Spoofing": 8,
+    "MQTT_Publish_Flood": 8,
+    "MQTT_Brute_Force": 8,
+    "Replay": 6,
+    "Recon": 4,
+    "Benign": 0
+  },
+  "default_ae": 4,
+
+  "tc_table": { "night": 10, "evening": 6, "day": 2 },
+  "shift_hours": { "day": [7, 15], "evening": [15, 23], "night": [23, 7] },
+
+  "proto_map": { "6": "tcp", "17": "udp", "1": "icmp", "2": "igmp" },
+
+  "scenario_weight_profiles": {
+    "default": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 },
+    "icu_critical_care": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 },
+    "general_ward_admin": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 },
+    "hospital_wide_mixed": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 }
+  },
+
+  "scenario_department_map": {
+    "icu_critical_care": [
+      "ICU", "NICU", "Cardiology", "Cardiac Surgery", "Oncology", "Nephrology",
+      "Neurology", "Neurosurgery", "Emergency", "Surgery", "Operating Theatre",
+      "Radiation Therapy", "Blood Bank", "Haematology", "Endocrinology"
+    ],
+    "general_ward_admin": [
+      "General Ward", "Radiology", "Administration", "IT", "Laboratory",
+      "Pharmacy", "Clinical Informatics", "Step-Down", "Obstetrics",
+      "Labour Ward", "ENT", "Audiology", "Gastroenterology", "Respiratory",
+      "Pulmonology", "Infection Control", "Logistics"
+    ]
+  },
+
+  "device_profiles": [
+    { "dst_port": 1883, "protocol": "mqtt", "device_name": "MQTT Medical IoT Gateway", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU/General Ward", "notes": "FDA Class II; gateway aggregates life-critical sensor data - 21 CFR 860.3" },
+    { "dst_port": 1883, "protocol": "tcp", "device_name": "MQTT Broker (Hospital IoT)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU/General Ward", "notes": "FDA Class II; broker compromise affects all downstream IoMT devices" },
+    { "dst_port": 8883, "protocol": "tcp", "device_name": "Secure MQTT Gateway (TLS)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU/General Ward", "notes": "FDA Class II; encrypted MQTT - still critical gateway" },
+    { "dst_port": 502, "protocol": "tcp", "device_name": "Modbus Medical Sensor / PLC", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / Operating Theatre", "notes": "FDA Class II; Modbus in ventilator subsystems and infusion controllers" },
+    { "dst_port": 2575, "protocol": "tcp", "device_name": "HL7 MLLP Interface Engine", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; HL7 messaging compromise delays orders and results" },
+    { "dst_port": 2576, "protocol": "tcp", "device_name": "HL7 MLLP (Alt Port)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; alternate HL7 port" },
+    { "dst_port": 4840, "protocol": "tcp", "device_name": "OPC-UA Medical Device Server", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / Operating Theatre", "notes": "FDA Class II; OPC-UA in anaesthesia machines and ventilators" },
+    { "dst_port": 11112, "protocol": "tcp", "device_name": "DICOM PACS / Imaging Workstation", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology", "notes": "FDA Class II; diagnostic imaging - delay impacts clinical decisions" },
+    { "dst_port": 104, "protocol": "tcp", "device_name": "DICOM Store / Query SCU", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology / Cardiology", "notes": "FDA Class II; alternate DICOM port" },
+    { "dst_port": 2000, "protocol": "tcp", "device_name": "DICOM Modality Worklist", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology", "notes": "FDA Class II; worklist disruption delays procedures" },
+    { "dst_port": 8080, "protocol": "tcp", "device_name": "Clinical Web Portal / EHR", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; EHR downtime affects all clinical decisions" },
+    { "dst_port": 8443, "protocol": "tcp", "device_name": "Secure Clinical Web App (HTTPS)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; encrypted clinical web application" },
+    { "dst_port": 443, "protocol": "tcp", "device_name": "Secure Web / Telemedicine / EHR", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "General / Telemedicine", "notes": "FDA Class II; may serve telemedicine, EHR, or remote monitoring" },
+    { "dst_port": 80, "protocol": "tcp", "device_name": "Admin Web Interface / Dashboard", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Administration / IT", "notes": "FDA Class I; management interface - indirect patient impact" },
+    { "dst_port": 22, "protocol": "tcp", "device_name": "SSH Remote Management", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT / Biomedical Engineering", "notes": "FDA Class I; compromise enables device manipulation or lateral movement" },
+    { "dst_port": 23, "protocol": "tcp", "device_name": "Telnet Legacy Medical Device", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Legacy Infrastructure", "notes": "FDA Class I; insecure protocol on older networked medical equipment" },
+    { "dst_port": 21, "protocol": "tcp", "device_name": "FTP Medical File Server", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Administration / Radiology", "notes": "FDA Class I; may transfer DICOM/HL7 files - insecure" },
+    { "dst_port": 161, "protocol": "udp", "device_name": "SNMP Network Monitor", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT / Biomedical Engineering", "notes": "FDA Class I; SNMP on medical devices exposes config data" },
+    { "dst_port": 162, "protocol": "udp", "device_name": "SNMP Trap Receiver", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT", "notes": "FDA Class I; management plane" },
+    { "dst_port": 3389, "protocol": "tcp", "device_name": "RDP Workstation / Clinical PC", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Administration / Clinical IT", "notes": "FDA Class I; RDP compromise = full workstation access" },
+    { "dst_port": 5900, "protocol": "tcp", "device_name": "VNC Remote Desktop", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Biomedical Engineering / IT", "notes": "FDA Class I; legacy remote access on older medical equipment" },
+    { "dst_port": 9100, "protocol": "tcp", "device_name": "Network Label / Results Printer", "fda_class": "I", "cc": 2, "patient_dep": 0, "dept": "Administration", "notes": "FDA Class I; label printer - minimal clinical impact" },
+    { "dst_port": 53, "protocol": "udp", "device_name": "DNS Server (Hospital Network)", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT Infrastructure", "notes": "FDA Class I; DNS poisoning affects all networked medical devices" },
+    { "dst_port": 53, "protocol": "tcp", "device_name": "DNS Server (TCP)", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT Infrastructure", "notes": "FDA Class I; TCP zone transfers" },
+    { "dst_port": 67, "protocol": "udp", "device_name": "DHCP Server", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT Infrastructure", "notes": "FDA Class I; DHCP starvation disrupts all networked devices" },
+    { "dst_port": 123, "protocol": "udp", "device_name": "NTP Time Server", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT Infrastructure", "notes": "FDA Class I; time skew breaks TLS certs and EHR audit logs" },
+    { "dst_port": 3306, "protocol": "tcp", "device_name": "Clinical Database Server (MySQL)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; patient records, medication history" },
+    { "dst_port": 5432, "protocol": "tcp", "device_name": "Clinical Database Server (PostgreSQL)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics", "notes": "FDA Class II; patient record storage" },
+    { "dst_port": 1433, "protocol": "tcp", "device_name": "MS SQL Server (EHR / PACS Backend)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Clinical Informatics / Radiology", "notes": "FDA Class II; backend for EHR and PACS" },
+    { "dst_port": 9200, "protocol": "tcp", "device_name": "Elasticsearch (Clinical Analytics)", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "IT / Clinical Analytics", "notes": "FDA Class I; analytics engine" },
+
+    { "dst_port": 4000, "protocol": "tcp", "device_name": "ICU Mechanical Ventilator", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "ICU", "notes": "FDA Class III - life-sustaining per 21 CFR 860.3 / 860.10" },
+    { "dst_port": 4001, "protocol": "tcp", "device_name": "Smart Infusion Pump (Networked)", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "ICU / General Ward", "notes": "FDA Class III - life-sustaining; wrong rate = patient death" },
+    { "dst_port": 4004, "protocol": "tcp", "device_name": "Defibrillator / ICD Network", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Emergency / ICU", "notes": "FDA Class III - defibrillation failure = cardiac arrest death" },
+    { "dst_port": 4005, "protocol": "tcp", "device_name": "Anaesthesia Delivery System", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Operating Theatre", "notes": "FDA Class III - life-sustaining during surgery per 860.10" },
+    { "dst_port": 4014, "protocol": "tcp", "device_name": "Pacemaker / ICD Programmer", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Cardiology", "notes": "FDA Class III - wireless reprogramming = cardiac arrest risk" },
+    { "dst_port": 4015, "protocol": "tcp", "device_name": "Haemodialysis Machine", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Nephrology / ICU", "notes": "FDA Class III - electrolyte error = lethal arrhythmia" },
+    { "dst_port": 4016, "protocol": "tcp", "device_name": "ECMO / Cardiopulmonary Bypass", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Cardiac Surgery / ICU", "notes": "FDA Class III - substitutes heart/lung function entirely" },
+    { "dst_port": 4019, "protocol": "tcp", "device_name": "Neonatal Incubator / Warmer", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "NICU", "notes": "FDA Class III - life-sustaining for premature neonates" },
+    { "dst_port": 4021, "protocol": "tcp", "device_name": "Intracranial Pressure (ICP) Monitor", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Neurosurgery / ICU", "notes": "FDA Class III - falsified ICP data masks brain herniation" },
+    { "dst_port": 4022, "protocol": "tcp", "device_name": "Deep Brain Stimulator (DBS) Programmer", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Neurology", "notes": "FDA Class III - reprogramming error = uncontrolled seizure" },
+    { "dst_port": 4029, "protocol": "tcp", "device_name": "Surgical Robot (Control Interface)", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Operating Theatre", "notes": "FDA Class III - control disruption = surgical injury" },
+    { "dst_port": 4031, "protocol": "tcp", "device_name": "Linear Accelerator (LINAC) / Radiotherapy", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Oncology / Radiation Therapy", "notes": "FDA Class III - dose error = lethal radiation injury" },
+    { "dst_port": 4032, "protocol": "tcp", "device_name": "Brachytherapy Controller", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Oncology", "notes": "FDA Class III; source position error is life-threatening" },
+    { "dst_port": 4033, "protocol": "tcp", "device_name": "Cochlear Implant Programmer", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "ENT / Audiology", "notes": "FDA Class III implant; reprogramming affects hearing function" },
+    { "dst_port": 4034, "protocol": "tcp", "device_name": "Networked Insulin Pump / Closed-Loop", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Endocrinology / ICU", "notes": "FDA Class III - overdose = hypoglycaemic coma" },
+    { "dst_port": 4044, "protocol": "tcp", "device_name": "Therapeutic Hypothermia System", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "ICU / Cardiac Surgery", "notes": "FDA Class III - temperature management post-cardiac arrest" },
+    { "dst_port": 4059, "protocol": "tcp", "device_name": "Blood Bank / Transfusion Management", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Blood Bank / Haematology", "notes": "FDA Class III - ABO incompatibility error = fatal transfusion reaction" },
+    { "dst_port": 4060, "protocol": "tcp", "device_name": "Oncology Infusion Management", "fda_class": "III", "cc": 10, "patient_dep": 1, "dept": "Oncology", "notes": "FDA Class III - chemotherapy overdose is lethal" },
+
+    { "dst_port": 4002, "protocol": "tcp", "device_name": "Bedside Patient Monitor (Multiparameter)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / General Ward", "notes": "FDA Class II; alarm failure conceals life-threatening deterioration" },
+    { "dst_port": 4003, "protocol": "tcp", "device_name": "Cardiac Monitor / 12-Lead ECG", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Cardiology / ICU", "notes": "FDA Class II; missed arrhythmia detection = life risk" },
+    { "dst_port": 4006, "protocol": "tcp", "device_name": "Pulse Oximeter (Networked SpO2)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / General Ward", "notes": "FDA Class II; hypoxia missed if device compromised" },
+    { "dst_port": 4007, "protocol": "tcp", "device_name": "Automated Blood Pressure Monitor (NIBP)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / General Ward", "notes": "FDA Class II; hypertensive crisis undetected if tampered" },
+    { "dst_port": 4008, "protocol": "tcp", "device_name": "Continuous Glucose Monitor (CGM)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Endocrinology / ICU", "notes": "FDA Class II; falsified glucose = wrong insulin dose = death" },
+    { "dst_port": 4010, "protocol": "tcp", "device_name": "MRI Scanner (Control System)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Radiology", "notes": "FDA Class II; RF parameter tampering = patient harm" },
+    { "dst_port": 4011, "protocol": "tcp", "device_name": "CT Scanner (Control / DICOM Interface)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Radiology", "notes": "FDA Class II; radiation dose error or missed diagnosis" },
+    { "dst_port": 4017, "protocol": "tcp", "device_name": "Syringe Pump / Microinfusion Pump", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / Anaesthesia", "notes": "FDA Class II; dose error risk for vasoactive drugs" },
+    { "dst_port": 4020, "protocol": "tcp", "device_name": "Fetal Monitor / Cardiotocograph (CTG)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Obstetrics / Labour Ward", "notes": "FDA Class II; missed foetal distress = stillbirth" },
+    { "dst_port": 4023, "protocol": "tcp", "device_name": "Automated Drug Dispensing Cabinet", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Pharmacy / ICU", "notes": "FDA Class II; wrong drug dispensed = medication error" },
+    { "dst_port": 4025, "protocol": "tcp", "device_name": "Vital Signs Telemetry Transmitter", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "General Ward / Step-Down", "notes": "FDA Class II; wireless vital signs - missed alarm" },
+    { "dst_port": 4028, "protocol": "tcp", "device_name": "Nurse Call / Emergency Alert System", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "All Wards", "notes": "FDA Class II; disruption delays emergency response" },
+    { "dst_port": 4036, "protocol": "tcp", "device_name": "EEG Monitor / Seizure Detection", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Neurology / ICU", "notes": "FDA Class II; seizure detection failure in ICU is life-threatening" },
+    { "dst_port": 4038, "protocol": "tcp", "device_name": "Central Patient Monitoring Station", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / Step-Down", "notes": "FDA Class II; central hub - single point of failure for ward monitoring" },
+    { "dst_port": 4039, "protocol": "tcp", "device_name": "Clinical Alarm Management System", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / All Wards", "notes": "FDA Class II; disruption silences critical alerts" },
+    { "dst_port": 4040, "protocol": "tcp", "device_name": "Networked Oxygen Therapy System", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Respiratory / ICU", "notes": "FDA Class II; oxygen concentration error is life-threatening" },
+    { "dst_port": 4042, "protocol": "tcp", "device_name": "Apnoea / Respiratory Monitor", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "NICU / Sleep Lab", "notes": "FDA Class IIb; apnoea alarm failure in neonates is fatal" },
+    { "dst_port": 4043, "protocol": "tcp", "device_name": "Capnography / End-Tidal CO2 Monitor", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "Anaesthesia / ICU / Emergency", "notes": "FDA Class II; intubation verification and ventilation adequacy" },
+    { "dst_port": 4047, "protocol": "tcp", "device_name": "Neonatal Phototherapy (Jaundice)", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "NICU / Paediatrics", "notes": "FDA Class II; untreated neonatal jaundice causes brain damage" },
+    { "dst_port": 4049, "protocol": "tcp", "device_name": "Tele-ICU / eICU Remote Monitoring", "fda_class": "II", "cc": 8, "patient_dep": 1, "dept": "ICU / Telemedicine", "notes": "FDA Class II; compromise blinds intensivist to all patients" },
+
+    { "dst_port": 4009, "protocol": "tcp", "device_name": "Smart Temperature Monitor", "fda_class": "II", "cc": 6, "patient_dep": 1, "dept": "General Ward", "notes": "FDA Class II; missed fever in immunocompromised patients" },
+    { "dst_port": 4012, "protocol": "tcp", "device_name": "Digital X-Ray / Fluoroscopy System", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology", "notes": "FDA Class II; image integrity critical for diagnosis" },
+    { "dst_port": 4013, "protocol": "tcp", "device_name": "Ultrasound Imaging System", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology / Obstetrics", "notes": "FDA Class II; diagnostic imaging" },
+    { "dst_port": 4018, "protocol": "tcp", "device_name": "Enteral Feeding Pump", "fda_class": "II", "cc": 6, "patient_dep": 1, "dept": "General Ward / ICU", "notes": "FDA Class II; over/underfeeding in critically ill patients" },
+    { "dst_port": 4024, "protocol": "tcp", "device_name": "Point-of-Care Lab Analyser", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Laboratory / ICU", "notes": "FDA Class II; falsified results mislead treatment decisions" },
+    { "dst_port": 4026, "protocol": "tcp", "device_name": "Wearable ECG / Holter Monitor (IoMT)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Cardiology / Remote", "notes": "FDA Class II; data integrity for arrhythmia detection" },
+    { "dst_port": 4027, "protocol": "tcp", "device_name": "Smart Hospital Bed (Pressure Sensor)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "General Ward", "notes": "FDA Class II; fall detection and pressure ulcer prevention" },
+    { "dst_port": 4030, "protocol": "tcp", "device_name": "Endoscopy / Laparoscopy System", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Gastroenterology / Surgery", "notes": "FDA Class II; image failure during procedure" },
+    { "dst_port": 4035, "protocol": "tcp", "device_name": "Transcranial Doppler (TCD) Monitor", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Neurology / ICU", "notes": "FDA Class II; emboli detection during cardiac surgery" },
+    { "dst_port": 4037, "protocol": "tcp", "device_name": "Gastric pH / Motility Monitor", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Gastroenterology", "notes": "FDA Class II; diagnostic monitoring" },
+    { "dst_port": 4041, "protocol": "tcp", "device_name": "Electronic Spirometer / Lung Function", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Respiratory / Pulmonology", "notes": "FDA Class II; lung function testing" },
+    { "dst_port": 4046, "protocol": "tcp", "device_name": "Negative Pressure Wound Therapy (VAC)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Surgery / Wound Care", "notes": "FDA Class II; wound healing device" },
+    { "dst_port": 4048, "protocol": "tcp", "device_name": "Medical Suction Unit (Networked)", "fda_class": "II", "cc": 6, "patient_dep": 1, "dept": "Emergency / ICU / Surgery", "notes": "FDA Class II; airway management device" },
+    { "dst_port": 4052, "protocol": "tcp", "device_name": "Smart Medication Refrigerator", "fda_class": "I", "cc": 6, "patient_dep": 0, "dept": "Pharmacy / Blood Bank", "notes": "FDA Class I; temperature excursion destroys vaccines" },
+    { "dst_port": 4056, "protocol": "tcp", "device_name": "Pharmacy Management System (PMS)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Pharmacy", "notes": "FDA Class II; medication dispensing and interaction checking" },
+    { "dst_port": 4057, "protocol": "tcp", "device_name": "Laboratory Information System (LIS)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Laboratory", "notes": "FDA Class II; delayed/falsified results affect treatment" },
+    { "dst_port": 4058, "protocol": "tcp", "device_name": "Radiology Information System (RIS)", "fda_class": "II", "cc": 6, "patient_dep": 0, "dept": "Radiology", "notes": "FDA Class II; imaging orders and reports management" },
+
+    { "dst_port": 4045, "protocol": "tcp", "device_name": "Sequential Compression Device (DVT)", "fda_class": "II", "cc": 4, "patient_dep": 0, "dept": "General Ward / Surgery", "notes": "FDA Class II; DVT prevention - lower criticality" },
+    { "dst_port": 4050, "protocol": "tcp", "device_name": "Hospital Bed Management System", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Administration", "notes": "FDA Class I; operational - indirect patient safety impact" },
+    { "dst_port": 4051, "protocol": "tcp", "device_name": "RFID Patient / Asset Tracking", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Administration / Logistics", "notes": "FDA Class I; patient location and asset tracking" },
+    { "dst_port": 4053, "protocol": "tcp", "device_name": "Environmental Sensor (Air Quality)", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "Infection Control", "notes": "FDA Class I; HEPA monitoring - indirect safety" },
+    { "dst_port": 4054, "protocol": "tcp", "device_name": "Admin / Clerical Workstation", "fda_class": "I", "cc": 2, "patient_dep": 0, "dept": "Administration", "notes": "FDA Class I; general purpose computer - minimal direct patient impact" },
+    { "dst_port": 4055, "protocol": "tcp", "device_name": "Nurse Workstation / COW", "fda_class": "I", "cc": 4, "patient_dep": 0, "dept": "All Wards", "notes": "FDA Class I; clinical workstation - interruption affects medication admin" }
+  ]
+}

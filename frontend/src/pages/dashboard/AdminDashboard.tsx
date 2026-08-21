@@ -18,7 +18,7 @@ import {
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
-  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge, Plug,
+  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge, Plug, SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -36,6 +36,7 @@ import AdminCasesPanel from './AdminCasesPanel';
 import RulesPanel from './RulesPanel';
 import SecuritySettingsPanel from './SecuritySettingsPanel';
 import IntegrationsSettingsPanel from './IntegrationsSettingsPanel';
+import CasWeightsSettingsPanel from './CasWeightsSettingsPanel';
 import PlaybooksPanel from './PlaybooksPanel';
 import DetectionPerformancePanel from './DetectionPerformancePanel';
 import AuditLogPanel from './AuditLogPanel';
@@ -1379,6 +1380,7 @@ const AdminDashboard: React.FC = () => {
     { label: 'Detection Rules', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
     { label: 'Security', icon: <KeyRound className="w-3.5 h-3.5" /> },
     { label: 'Integrations', icon: <Plug className="w-3.5 h-3.5" /> },
+    { label: 'CAS Weights', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
     { label: 'Audit Log', icon: <Database className="w-3.5 h-3.5" /> },
   ];
   const isSettingsActive = settingsSubItems.some((s) => s.label === activeNav);
@@ -1622,6 +1624,8 @@ const AdminDashboard: React.FC = () => {
                   return <SecuritySettingsPanel />;
                 case 'Integrations':
                   return <IntegrationsSettingsPanel token={token} />;
+                case 'CAS Weights':
+                  return <CasWeightsSettingsPanel token={token} />;
                 case 'Audit Log':
                   return <AuditLogPanel token={token} />;
                 case 'Devices':

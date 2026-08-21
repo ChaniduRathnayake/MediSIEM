@@ -36,6 +36,18 @@ const wazuhSeverity = (level: number | null): Severity => {
   return 'LOW';
 };
 
+// Matches CasWeightsSettingsPanel.tsx's PROFILE_TABS labels — which named
+// weight profile (see ai_server/src/cas_config.py's SCENARIO_WEIGHT_PROFILES)
+// actually produced this alert's CAS score.
+const SCENARIO_LABELS: Record<string, string> = {
+  default: 'Default (AHP baseline)',
+  icu_critical_care: 'ICU / Critical Care',
+  general_ward_admin: 'General Ward / Admin',
+  hospital_wide_mixed: 'Hospital-Wide Mixed',
+  custom: 'Custom (admin override)',
+};
+const formatScenario = (key: string): string => SCENARIO_LABELS[key] ?? key;
+
 const KeyValueGrid: React.FC<{ rows: [string, React.ReactNode][] }> = ({ rows }) => (
   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
     {rows.map(([label, value]) => (
@@ -99,7 +111,7 @@ function extractNetworkFields(data: Record<string, unknown> | null): { source: s
   return { source: source as string | null, destination: destination as string | null };
 }
 
-// Fired on demand (spends the configured Anthropic key per click). Shows the backend's
+// Fired on demand (spends the configured Gemini key per click). Shows the backend's
 // error text verbatim — it's what tells the analyst what to do next.
 const AiTriageSection: React.FC<{ alertId: string; token?: string | null }> = ({ alertId, token }) => {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -386,6 +398,7 @@ const MlAlertBody: React.FC<{
             ['Clinical Alert Score', alert.CAS.toFixed(2)],
             ['Label', alert.label],
             ['Confidence', typeof alert.confidence === 'number' ? `${(alert.confidence * 100).toFixed(1)}%` : 'n/a (rule.level fallback)'],
+            ...(alert.scenario ? ([['Scoring profile', formatScenario(alert.scenario)]] as [string, React.ReactNode][]) : []),
           ]}
         />
         {alert.shap_top_features && alert.shap_top_features.length > 0 ? (

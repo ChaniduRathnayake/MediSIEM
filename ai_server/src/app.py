@@ -14,6 +14,8 @@ import shap
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+import cas_config
+
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
@@ -38,29 +40,20 @@ CLUSTER_LABELS = {0: "idle", 1: "active"}  # verified against models/kmeans.pkl'
 # Rescaled 1-10 (doubled from the plan's 1-5 table) so CAS ceiling reaches 10,
 # matching the documented thresholds (Immediate >= 8, Investigate >= 5).
 #
-# Keys MUST match the device_type strings actually produced by
-# backend/config/deviceInventory.js and Extra_Material/ml-pipeline/device_map.json — the
-# original "Radiology"/"Nurse WS"/"Admin PC" keys never matched anything
-# real (those inventories emit "CT/MRI System" and "Workstation"), so
-# Cardiac Monitor and CT/MRI System alerts were silently falling through to
-# DEFAULT_CC regardless of actual severity. Values below: ICU Ventilator and
-# Infusion Pump unchanged; Cardiac Monitor=8 from the documented
-# "Cardiac Monitor — ARP Spoof" scenario in CAAP_Weight_Justification.html
-# (CC=4 on the 1-5 scale -> 8 doubled); CT/MRI System=6 inherits the old
-# orphaned "Radiology" value since CT/MRI is the radiology-department
-# device; Workstation=4 merges the old "Nurse WS"(4)/"Admin PC"(2) split
-# into one value since deviceInventory.js doesn't currently distinguish them.
-CC_LOOKUP = {
-    "ICU Ventilator": 10,
-    "Infusion Pump": 8,
-    "Cardiac Monitor": 8,
-    "CT/MRI System": 6,
-    "Workstation": 4,
-}
-DEFAULT_CC = 2  # unknown device types treated as lowest criticality
+# All values below are loaded from ../../shared/cas_config.json — the single
+# source of truth also used by cas_engine.py (offline research engine) and
+# backend/services/caapService.js (Node fallback paths), so this table can no
+# longer silently drift from either of them. Keys MUST match the device_type
+# strings actually produced by backend/config/deviceInventory.js and
+# Extra_Material/ml-pipeline/device_map.json.
+CC_LOOKUP = cas_config.CC_LOOKUP
+DEFAULT_CC = cas_config.DEFAULT_CC  # unknown device types treated as lowest criticality
 
-# CAS formula weights (Phase 3)
-CAS_WEIGHTS = {"TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10}
+# CAS formula weights (Phase 3) — the AHP-justified default (see
+# CAAP_Weight_Justification.html). A per-request override can be posted in
+# /predict's `cas_weights` field (forwarded by caapService.js from an admin's
+# SystemSettings scenario profile) — see resolve_weights() usage below.
+CAS_WEIGHTS = cas_config.DEFAULT_WEIGHTS
 
 # Action thresholds (Phase 6, Day 3)
 ACTION_THRESHOLDS = [(8, "Immediate"), (5, "Investigate")]
@@ -227,47 +220,100 @@ def if_to_ts_score(anomaly_score: float, hour_of_day: int) -> float:
 
 
 
-# Mirrors backend/services/caapService.js's CRITICALITY_TO_CC exactly — that's
-# the mapping the offline (CAAP-unreachable) fallback path already uses from
-# the real, admin-configured MedicalDevice.criticality field. Preferring it
-# here too means the live model path no longer has *less* signal than its own
-# degraded fallback: previously device_criticality was computed in Node but
-# stripped out of the /predict payload, so any device_type not in the tiny
-# CC_LOOKUP table below (i.e. anything other than the 5 hardcoded names)
-# silently scored DEFAULT_CC=2 regardless of how critical it actually was.
-CRITICALITY_TO_CC = {"critical": 10, "high": 7, "medium": 4, "low": 2}
+# Mirrors backend/services/caapService.js's CRITICALITY_TO_CC exactly (both
+# now load it from cas_config, which loads it from shared/cas_config.json) —
+# that's the mapping the offline (CAAP-unreachable) fallback path already
+# uses from the real, admin-configured MedicalDevice.criticality field.
+# Preferring it here too means the live model path no longer has *less*
+# signal than its own degraded fallback.
+CRITICALITY_TO_CC = cas_config.CRITICALITY_TO_CC
 
 
-def lookup_cc(device_type: str, device_criticality: str = None) -> float:
+def _extract_ci(payload: dict, *candidates):
+    """Case-insensitive payload lookup — flow_consumer.py forwards CICFlowMeter
+    column names verbatim (e.g. 'Dst Port'), and capitalisation can vary by
+    source, so match the way test.py's own port/protocol extraction already
+    does rather than assuming one exact casing."""
+    lower_map = {str(k).strip().lower(): v for k, v in payload.items()}
+    for c in candidates:
+        if c in lower_map:
+            return lower_map[c]
+    return None
+
+
+def lookup_cc(payload: dict) -> float:
+    """Clinical Criticality, richest signal first:
+    1. Admin-set MedicalDevice.criticality (deliberate human judgement for
+       *this* hospital's actual device) — always wins when present.
+    2. dst_port/protocol -> cas_config.DEVICE_PROFILES (the real FDA-class
+       port table — flow_consumer.py already forwards CICFlowMeter's numeric
+       'Dst Port' column into every /predict payload; 'Protocol Type' is
+       already one of FEATURE_COLUMNS, doubling as the raw protocol value —
+       see test.py's identical convention).
+    3. device_type -> the small CC_LOOKUP table (legacy/named-device fallback).
+    4. DEFAULT_CC.
+    """
+    device_criticality = payload.get("device_criticality")
     if device_criticality:
         cc = CRITICALITY_TO_CC.get(str(device_criticality).lower())
         if cc is not None:
             return cc
-    return CC_LOOKUP.get(device_type, DEFAULT_CC)
+
+    dst_port = _extract_ci(payload, "dst port", "dst_port", "destination port")
+    if dst_port is not None:
+        protocol_raw = _extract_ci(payload, "protocol type", "protocol", "protocol_type")
+        protocol = cas_config.normalise_protocol(protocol_raw) if protocol_raw is not None else "tcp"
+        try:
+            profile = cas_config.lookup_device_profile(int(float(dst_port)), protocol)
+            if profile is not cas_config.DEFAULT_DEVICE_PROFILE and profile["cc"] is not None:
+                # Only trust a real port match — an unmapped port falls through
+                # to the device_type table below rather than DEFAULT_CC, since
+                # device_type (when present) is more specific than "unknown".
+                if profile["device_name"] != cas_config.DEFAULT_DEVICE_PROFILE["device_name"]:
+                    return profile["cc"]
+        except (TypeError, ValueError):
+            pass
+
+    return CC_LOOKUP.get(payload.get("device_type", ""), DEFAULT_CC)
 
 
-def lookup_ae(cve_known_exploited: bool) -> float:
-    """Active Exploitation — rule based on CVE/CVSS lookup (stubbed input flag)."""
-    return 10.0 if cve_known_exploited else 2.0
+def lookup_ae(predicted_label: str, cve_known_exploited: bool) -> float:
+    """Active Exploitation — attack-type base severity (varies by what the RF
+    actually classified), boosted to the ceiling by an independent known-
+    exploited-CVE/IP-reputation hit. Previously this only looked at the CVE
+    flag (2 or 10 flat), throwing away the classified attack type entirely
+    whenever there was no CVE match."""
+    return cas_config.lookup_ae(predicted_label, cve_known_exploited)
 
 
 def lookup_tc(hour_of_day: int) -> float:
-    """Temporal Context — shift-based rule (night shift = higher weight)."""
-    return 8.0 if (hour_of_day < 6 or hour_of_day >= 22) else 4.0
+    """Temporal Context — 3-tier shift rule (night > evening > day, fewer
+    staff on duty overnight), same day/evening/night hour boundaries test.py
+    already uses for its own real-data CAS scoring."""
+    return cas_config.lookup_tc(hour_of_day)
 
 
-def compute_cas(tr, cc, ts, ae, tc) -> float:
+def compute_cas(tr, cc, ts, ae, tc, weights: dict = None) -> float:
+    w = weights or CAS_WEIGHTS
     cas = (
-        CAS_WEIGHTS["TR"] * tr
-        + CAS_WEIGHTS["CC"] * cc
-        + CAS_WEIGHTS["TS"] * ts
-        + CAS_WEIGHTS["AE"] * ae
-        + CAS_WEIGHTS["TC"] * tc
+        w["TR"] * tr
+        + w["CC"] * cc
+        + w["TS"] * ts
+        + w["AE"] * ae
+        + w["TC"] * tc
     )
     return round(cas, 2)
 
 
-def cas_to_action(cas: float) -> str:
+def cas_to_action(cas: float, label: str = None) -> str:
+    # A flow the RF itself classified as Benign never escalates past Monitor,
+    # no matter how critical the device or how anomalous TS/TC look — matches
+    # cas_engine.py's get_action() and CAAP_Weight_Justification.html's own
+    # calculator, which already encode this rule; the live path previously
+    # didn't, so a Benign-classified flow on a high-criticality device at
+    # night could still misfire into Investigate/Immediate on CC+TS+TC alone.
+    if label == "Benign":
+        return DEFAULT_ACTION
     for threshold, action in ACTION_THRESHOLDS:
         if cas >= threshold:
             return action
@@ -538,13 +584,21 @@ def predict():
         cluster_label = CLUSTER_LABELS.get(cluster_idx, "unknown")
 
         # --- 5. Rule-based dimensions (CC, AE, TC) -------------------------
-        cc_score = lookup_cc(payload.get("device_type", ""), payload.get("device_criticality"))
-        ae_score = lookup_ae(bool(payload.get("cve_known_exploited", False)))
+        cc_score = lookup_cc(payload)
+        ae_score = lookup_ae(label, bool(payload.get("cve_known_exploited", False)))
         tc_score = lookup_tc(hour_of_day)
 
         # --- 6. CAS + action -------------------------------------------------
-        cas = compute_cas(tr_score, cc_score, ts_score, ae_score, tc_score)
-        action = cas_to_action(cas)
+        # `cas_weights` (optional): an explicit vector forwarded by
+        # caapService.js's resolveCasWeights() when an admin has customised
+        # SystemSettings.casWeights. `scenario` (optional): a named profile
+        # key (see cas_config.SCENARIO_WEIGHT_PROFILES) to use when no
+        # explicit vector was posted. Both absent -> the AHP default.
+        weights, weight_source = cas_config.resolve_weights(
+            payload.get("cas_weights"), payload.get("scenario")
+        )
+        cas = compute_cas(tr_score, cc_score, ts_score, ae_score, tc_score, weights)
+        action = cas_to_action(cas, label)
 
         # --- 7. SHAP explanation --------------------------------------------
         shap_result = shap_explanation(X_scaled)
@@ -560,6 +614,8 @@ def predict():
             "TC_score": tc_score,
             "CAS": cas,
             "action": action,
+            "scenario": weight_source,
+            "weights_used": weights,
             "explanation": shap_result["text"],
             "shap_top_features": shap_result["top_features"],
             "confidence_level": confidence_to_level(confidence),

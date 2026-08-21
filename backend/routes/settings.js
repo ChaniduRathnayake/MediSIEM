@@ -1,13 +1,38 @@
 import express from 'express';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { protect, adminOnly } from '../middleware/auth.js';
 import SystemSettings from '../models/SystemSettings.js';
 import { logAudit } from '../utils/auditLog.js';
 import { sendEmail, sendSlackMessage, sendTeamsMessage } from '../services/notificationService.js';
+import { invalidateCasWeightsCache } from '../services/caapService.js';
 
 const router = express.Router();
 
+// Same shared/cas_config.json every runtime reads — used here only to surface
+// the built-in AHP-justified weight profiles as reset targets / initial
+// values for the Settings -> CAS Weights panel, never mutated.
+const _CAS_CONFIG_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared', 'cas_config.json');
+const CAS_CONFIG = JSON.parse(readFileSync(_CAS_CONFIG_PATH, 'utf-8'));
+const CAS_WEIGHT_KEYS = ['TR', 'CC', 'TS', 'AE', 'TC'];
+
+function validateWeightProfile(profile, label) {
+  for (const k of CAS_WEIGHT_KEYS) {
+    const v = Number(profile[k]);
+    if (!Number.isFinite(v) || v < 0 || v > 1) {
+      throw new Error(`${label}: ${k} must be a number between 0 and 1.`);
+    }
+  }
+  const total = CAS_WEIGHT_KEYS.reduce((sum, k) => sum + Number(profile[k]), 0);
+  if (Math.abs(total - 1) > 0.01) {
+    throw new Error(`${label}: weights must sum to 1.00 (got ${total.toFixed(3)}).`);
+  }
+  return CAS_WEIGHT_KEYS.reduce((o, k) => ({ ...o, [k]: Number(profile[k]) }), {});
+}
+
 async function getOrCreateSettings() {
-  let settings = await SystemSettings.findOne().select('+smtp.pass +slackWebhookUrl +teamsWebhookUrl +anthropicApiKey +abuseIpdbApiKey');
+  let settings = await SystemSettings.findOne().select('+smtp.pass +slackWebhookUrl +teamsWebhookUrl +googleApiKey +abuseIpdbApiKey');
   if (!settings) settings = new SystemSettings();
   return settings;
 }
@@ -28,7 +53,7 @@ function toMaskedResponse(settings) {
     notifyEmailRecipients: settings.notifyEmailRecipients || [],
     slackConfigured: !!settings.slackWebhookUrl,
     teamsConfigured: !!settings.teamsWebhookUrl,
-    anthropicConfigured: !!settings.anthropicApiKey,
+    googleConfigured: !!settings.googleApiKey,
     abuseIpdbConfigured: !!settings.abuseIpdbApiKey,
     mfaRequiredForAdmin: !!settings.mfaRequiredForAdmin,
     lockout: {
@@ -40,6 +65,17 @@ function toMaskedResponse(settings) {
       email: !!settings.notifyChannels?.email,
       slack: !!settings.notifyChannels?.slack,
       teams: !!settings.notifyChannels?.teams,
+    },
+    casWeights: {
+      // The admin's own overrides, if any — null means "not customized, use
+      // the built-in default/profile below".
+      default: settings.casWeights?.default || null,
+      scenarios: settings.casWeights?.scenarios || {},
+      // The AHP-justified built-ins (shared/cas_config.json) — always
+      // present, used by the frontend both as the "Reset to AHP default"
+      // target and as sensible pre-fill values for un-customized scenarios.
+      builtInDefault: CAS_CONFIG.default_weights,
+      builtInScenarioProfiles: CAS_CONFIG.scenario_weight_profiles,
     },
     updatedBy: settings.updatedBy || null,
     updatedAt: settings.updatedAt || null,
@@ -88,7 +124,7 @@ router.patch('/', protect, adminOnly, async (req, res) => {
       settings.notifyEmailRecipients = body.notifyEmailRecipients.map((e) => e.trim()).filter(Boolean);
     }
 
-    const secretFields = ['slackWebhookUrl', 'teamsWebhookUrl', 'anthropicApiKey', 'abuseIpdbApiKey'];
+    const secretFields = ['slackWebhookUrl', 'teamsWebhookUrl', 'googleApiKey', 'abuseIpdbApiKey'];
     for (const field of secretFields) {
       if (body[field] !== undefined) {
         if (typeof body[field] !== 'string') {
@@ -125,8 +161,38 @@ router.patch('/', protect, adminOnly, async (req, res) => {
       };
     }
 
+    // casWeights: default/each scenario key is either omitted (leave
+    // untouched), null (reset to the built-in AHP/scenario default), or a
+    // full 5-dimension profile that must sum to 1.00 — same
+    // omit/clear/replace convention the secret fields above already use.
+    if (body.casWeights && typeof body.casWeights === 'object') {
+      if (!settings.casWeights) settings.casWeights = {};
+      try {
+        if (body.casWeights.default !== undefined) {
+          settings.casWeights.default = body.casWeights.default === null
+            ? undefined
+            : validateWeightProfile(body.casWeights.default, 'Default weights');
+        }
+        if (body.casWeights.scenarios && typeof body.casWeights.scenarios === 'object') {
+          const scenarios = { ...(settings.casWeights.scenarios || {}) };
+          for (const [key, profile] of Object.entries(body.casWeights.scenarios)) {
+            if (profile === null) {
+              delete scenarios[key];
+            } else {
+              scenarios[key] = validateWeightProfile(profile, `Scenario "${key}"`);
+            }
+          }
+          settings.casWeights.scenarios = Object.keys(scenarios).length ? scenarios : undefined;
+        }
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      settings.markModified('casWeights');
+    }
+
     settings.updatedBy = { id: req.user.id, name: req.user.name };
     await settings.save();
+    invalidateCasWeightsCache();
 
     await logAudit({
       action: 'update_settings',

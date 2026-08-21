@@ -378,7 +378,7 @@ const DeviceRiskResult: React.FC<{ data: DeviceRiskReport | null; onCsv: () => v
   );
 };
 
-// Fired on demand (spends the configured Anthropic key per click) — turns an
+// Fired on demand (spends the configured Gemini key per click) — turns an
 // already-fetched report object into a short plain-English narrative. The
 // button is no-print; the resulting narrative text prints along with the
 // rest of the report.

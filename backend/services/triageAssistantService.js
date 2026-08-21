@@ -1,10 +1,9 @@
-// A single, non-agentic Anthropic Messages API call that turns an already-scored alert
-// into a short plain-language explanation + recommended next step for a SOC analyst.
-import { getAnthropicClient, isAnthropicConfigured, friendlyAnthropicError, extractText } from './anthropicClient.js';
+// A single, non-agentic AI-assistant call that turns an already-scored alert into a short
+// plain-language explanation + recommended next step for a SOC analyst. Backed by Google
+// Gemini (services/geminiClient.js).
+import { isGeminiConfigured, generateGeminiText } from './geminiClient.js';
 
-const MODEL = 'claude-opus-5';
-
-export const isTriageAssistantConfigured = isAnthropicConfigured;
+export const isTriageAssistantConfigured = isGeminiConfigured;
 
 function formatShap(shapFeatures) {
   if (!Array.isArray(shapFeatures) || shapFeatures.length === 0) return null;
@@ -33,22 +32,5 @@ function buildPrompt(alert) {
 }
 
 export async function generateTriageExplanation(alert) {
-  const client = await getAnthropicClient();
-  if (!client) {
-    throw new Error('AI triage assistant is not configured — add an Anthropic API key in Settings → Integrations.');
-  }
-
-  let response;
-  try {
-    response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 500,
-      output_config: { effort: 'low' },
-      messages: [{ role: 'user', content: buildPrompt(alert) }],
-    });
-  } catch (err) {
-    throw new Error(friendlyAnthropicError(err));
-  }
-
-  return extractText(response);
+  return generateGeminiText(buildPrompt(alert), 500);
 }
