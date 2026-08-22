@@ -19,6 +19,7 @@ import Wallboard from './pages/dashboard/Wallboard';
 // Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import AiChatWidget from './components/AiChatWidget';
 
 // ─── Route Guards ──────────────────────────────────────────────────────────────
 
@@ -73,9 +74,13 @@ const PublicLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </>
 );
 
-/** Dashboard pages are full-screen, no public nav/footer */
+/** Dashboard pages are full-screen, no public nav/footer — the floating AI assistant
+ * is available on both (but not on the bare /wallboard route, which stays chrome-free). */
 const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <>{children}</>
+  <>
+    {children}
+    <AiChatWidget />
+  </>
 );
 
 // ─── App ───────────────────────────────────────────────────────────────────────

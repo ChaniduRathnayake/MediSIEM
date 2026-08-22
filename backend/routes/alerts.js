@@ -452,7 +452,7 @@ router.post('/:id/triage', protect, allowRoles('admin', 'user'), async (req, res
   try {
     const configured = await isTriageAssistantConfigured();
     if (!configured) {
-      return res.status(409).json({ error: 'AI triage assistant is not configured — add a Google Gemini API key in Settings → Integrations.' });
+      return res.status(409).json({ error: 'AI triage assistant is not configured — add an API key in Settings → Integrations.' });
     }
 
     const alertId = req.params.id;

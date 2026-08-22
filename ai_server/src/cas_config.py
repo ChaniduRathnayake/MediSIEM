@@ -68,6 +68,23 @@ AE_TABLE = dict(_CFG["ae_table"])
 DEFAULT_AE = float(_CFG["default_ae"])
 
 
+# ── CVSS-equivalent baseline — shown alongside CAS in the live dashboard so the
+#    CAS-vs-CVSS comparison isn't confined to the offline evaluation notebook.
+#    Same values hospital_scenarios.py uses (that module now imports these
+#    instead of keeping its own copy, so the live demo and the formal
+#    evaluation can never silently drift apart). ─────────────────────────────
+CVSS_BASE_BY_LABEL = dict(_CFG["cvss_base_by_label"])
+DEFAULT_CVSS = float(_CFG["default_cvss"])
+
+
+def lookup_cvss(predicted_label: str) -> float:
+    """CVSS-equivalent base score for an attack label — a representative
+    CVSS v3.1 base-score band per attack technique's general CWE class, not a
+    real per-CVE score (no CVE field exists anywhere in this dataset). Purely
+    a comparison baseline: unlike CAS, it never varies by device or time."""
+    return float(CVSS_BASE_BY_LABEL.get(predicted_label, DEFAULT_CVSS))
+
+
 def lookup_ae(predicted_label: str, cve_known_exploited: bool = False) -> float:
     """Attack-type base severity, boosted (not overridden) by an independent
     known-exploited-CVE/IP-reputation signal — so a real CVE hit still always

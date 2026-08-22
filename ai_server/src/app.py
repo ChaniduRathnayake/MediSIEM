@@ -600,6 +600,12 @@ def predict():
         cas = compute_cas(tr_score, cc_score, ts_score, ae_score, tc_score, weights)
         action = cas_to_action(cas, label)
 
+        # CVSS-equivalent baseline — clinically-blind by design, shown alongside CAS
+        # in the live dashboard so the CAS-vs-CVSS comparison (Section 5.2 of the
+        # evaluation) isn't confined to the offline notebook. Depends only on the
+        # classified attack type, never on device/time — that's the whole point.
+        cvss = cas_config.lookup_cvss(label)
+
         # --- 7. SHAP explanation --------------------------------------------
         shap_result = shap_explanation(X_scaled)
 
@@ -613,6 +619,7 @@ def predict():
             "AE_score": ae_score,
             "TC_score": tc_score,
             "CAS": cas,
+            "CVSS": cvss,
             "action": action,
             "scenario": weight_source,
             "weights_used": weights,

@@ -396,6 +396,9 @@ const MlAlertBody: React.FC<{
         <KeyValueGrid
           rows={[
             ['Clinical Alert Score', alert.CAS.toFixed(2)],
+            ...(typeof alert.CVSS === 'number'
+              ? ([['CVSS-equivalent baseline', <span key="cvss" title="Depends only on attack type — never device or time. Shown for direct comparison against CAS.">{alert.CVSS.toFixed(1)} <span className="text-slate-400 dark:text-slate-600 font-normal">(clinically blind, for comparison)</span></span>]] as [string, React.ReactNode][])
+              : []),
             ['Label', alert.label],
             ['Confidence', typeof alert.confidence === 'number' ? `${(alert.confidence * 100).toFixed(1)}%` : 'n/a (rule.level fallback)'],
             ...(alert.scenario ? ([['Scoring profile', formatScenario(alert.scenario)]] as [string, React.ReactNode][]) : []),

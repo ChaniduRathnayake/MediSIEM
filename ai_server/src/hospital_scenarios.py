@@ -56,18 +56,14 @@ def _sample_port_for_tier(tier: str, rng: random.Random):
 #   ARP_Spoofing                 : CWE-300 MITM/spoofing        -> Medium(6.5)
 #   Recon                        : informational/scanning       -> Low   (3.1)
 #   Benign                       : n/a                          -> 0.0
-CVSS_BASE_BY_LABEL = {
-    "DoS_TCP": 7.5,
-    "MQTT_Publish_Flood": 7.5,
-    "MQTT_Brute_Force": 8.1,
-    "ARP_Spoofing": 6.5,
-    "Recon": 3.1,
-    "Benign": 0.0,
-}
+# Sourced from cas_config (shared/cas_config.json) rather than kept as a local
+# copy, so this offline evaluation and the live dashboard's CAS-vs-CVSS column
+# (app.py's lookup_cvss()) can never silently drift apart.
+CVSS_BASE_BY_LABEL = cas_config.CVSS_BASE_BY_LABEL
 
 
 def cvss_equivalent_score(predicted_label: str) -> float:
-    return CVSS_BASE_BY_LABEL.get(predicted_label, 5.0)  # unseen label -> Medium, conservative default
+    return cas_config.lookup_cvss(predicted_label)
 
 
 # ── Scenario definitions ────────────────────────────────────────────────────────

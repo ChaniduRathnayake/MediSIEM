@@ -18,7 +18,7 @@ import {
   Settings, ChevronDown, Menu, X, BarChart3,
   TrendingUp, Network, Zap, CheckCircle,
   Clock, AlertCircle, Database, Plus, Loader2, Mail, Lock, Pencil, Trash2, RefreshCw,
-  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge, Plug, SlidersHorizontal,
+  Tag, Filter, ShieldCheck, Globe, ClipboardCheck, Bug, ShieldAlert, KeyRound, Tv, Gauge, Plug, SlidersHorizontal, Radio,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -32,6 +32,7 @@ import type { EnrichedAlert } from '../../services/alertsApi';
 import StatCard from '../../components/StatCard';
 import SeverityBadge from '../../components/SeverityBadge';
 import AlertsPanel from './AlertsPanel';
+import DeviceEventsPanel from './DeviceEventsPanel';
 import AdminCasesPanel from './AdminCasesPanel';
 import RulesPanel from './RulesPanel';
 import SecuritySettingsPanel from './SecuritySettingsPanel';
@@ -1366,6 +1367,7 @@ const AdminDashboard: React.FC = () => {
   const navItems = [
     { label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
     { label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
+    { label: 'Events by Device', icon: <Radio className="w-4 h-4" /> },
     { label: 'Case Status', icon: <CheckCircle className="w-4 h-4" /> },
     { label: 'Devices', icon: <Server className="w-4 h-4" /> },
     { label: 'Vulnerabilities', icon: <Bug className="w-4 h-4" /> },
@@ -1642,6 +1644,8 @@ const AdminDashboard: React.FC = () => {
                       severityTotals={alertsSeverityTotals}
                     />
                   );
+                case 'Events by Device':
+                  return <DeviceEventsPanel />;
                 case 'Case Status':
                   return (
                     <AdminCasesPanel

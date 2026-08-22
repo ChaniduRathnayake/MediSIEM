@@ -32,6 +32,8 @@ const DEFAULT_AE = CAS_CONFIG.default_ae;
 const TC_TABLE = CAS_CONFIG.tc_table;
 const SHIFT_HOURS = CAS_CONFIG.shift_hours;
 const DEFAULT_WEIGHTS = CAS_CONFIG.default_weights;
+const CVSS_BASE_BY_LABEL = CAS_CONFIG.cvss_base_by_label;
+const DEFAULT_CVSS = CAS_CONFIG.default_cvss;
 
 // Attack-type base severity (varies by what the RF actually classified),
 // boosted to the ceiling by an independent known-exploited-CVE/IP-reputation
@@ -39,6 +41,14 @@ const DEFAULT_WEIGHTS = CAS_CONFIG.default_weights;
 export function lookupAe(predictedLabel, cveKnownExploited) {
   const base = Number(AE_TABLE[predictedLabel] ?? DEFAULT_AE);
   return Math.max(base, cveKnownExploited ? 10 : 0);
+}
+
+// CVSS-equivalent baseline, shown alongside CAS on the dashboard for direct
+// comparison — mirrors ai_server's cas_config.lookup_cvss() exactly. Only used
+// on the fallback paths below; when the AI server is reachable, its /predict
+// response already includes a real CVSS field this module just forwards.
+export function lookupCvss(predictedLabel) {
+  return Number(CVSS_BASE_BY_LABEL[predictedLabel] ?? DEFAULT_CVSS);
 }
 
 // Same day/evening/night hour boundaries as ai_server's cas_config.shift_for_hour()
@@ -313,6 +323,9 @@ export async function enrichAlert(alert) {
     const tcScore = lookupTc(new Date(alert['@timestamp'] || Date.now()).getHours());
     const weights = payload.cas_weights;
     const cas = weightedCas(tr, ccScore, tsScore, aeScore, tcScore, weights);
+    // No real RF label exists offline either, so CVSS (which depends only on
+    // attack type) falls to the same shared default AE does above.
+    const cvssScore = lookupCvss(null);
     return {
       ok: false,
       error: err.message,
@@ -326,6 +339,7 @@ export async function enrichAlert(alert) {
         TC_score: tcScore,
         cluster: 'unknown',
         CAS: cas,
+        CVSS: cvssScore,
         action: actionFor(cas, null),
         scenario: payload.scenario,
         weights_used: weights,

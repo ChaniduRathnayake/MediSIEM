@@ -2,7 +2,7 @@
 // Shared by the Admin console and SOC Analyst dashboard.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell, AlertTriangle, Zap, BarChart3, Filter, ChevronsUpDown, AlertCircle, Loader2, Brain, ShieldAlert, Maximize2,
+  Bell, AlertTriangle, Zap, BarChart3, Filter, ChevronsUpDown, ChevronUp, ChevronDown, AlertCircle, Loader2, Brain, ShieldAlert, Maximize2,
   Search, CheckSquare, Square, Users, X, Keyboard, Hand, BellOff, Eye, EyeOff, Clock3, Rows3, Rows4, Wand2,
 } from 'lucide-react';
 import type { EnrichedAlert, AssignedAnalyst, AlertSnoozeInfo } from '../../services/alertsApi';
@@ -30,7 +30,7 @@ const DEPARTMENT_DOT: Record<string, string> = {
   General: 'bg-slate-500',
 };
 
-const DepartmentBadge: React.FC<{ department: string }> = ({ department }) => (
+export const DepartmentBadge: React.FC<{ department: string }> = ({ department }) => (
   <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
     <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${DEPARTMENT_DOT[department] ?? 'bg-slate-600'}`} />
     <span className="text-xs text-slate-600 dark:text-slate-300">{department}</span>
@@ -82,6 +82,13 @@ const BulkSnoozeControl: React.FC<{ count: number; busy: boolean; open: boolean;
 
 type SortBy = 'cas' | 'time';
 type DetectionFilter = 'all' | 'ml' | 'rules' | 'combined';
+// Every column with a genuine single sortable value — Detection (multi-badge) and
+// Details (pure action column, no data) are left unsortable.
+type SortColumn = 'severity' | 'agent' | 'department' | 'label' | 'cluster' | 'CAS' | 'CVSS' | 'action' | 'timestamp' | 'assigned';
+const ACTION_RANK: Record<EnrichedAlert['action'], number> = { Immediate: 3, Investigate: 2, Monitor: 1 };
+// String columns default to A→Z on first click; numeric/date columns default to
+// highest/most-recent first, since that's what an analyst almost always wants first.
+const SORT_ASC_FIRST: SortColumn[] = ['agent', 'department', 'label', 'cluster', 'assigned'];
 
 interface AlertsPanelFilters {
   severityFilter: Severity | 'all';
@@ -143,7 +150,43 @@ const AlertsPanel: React.FC<{
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [actionFilter, setActionFilter] = useState<EnrichedAlert['action'] | 'all'>('all');
   const [detectionFilter, setDetectionFilter] = useState<DetectionFilter>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('cas');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('CAS');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Derived, not stateful — 'sortBy' only exists so saved views / the AI natural-language
+  // search (ParsedAlertQuery) can still express "roughly CAS-sorted" or "roughly
+  // time-sorted" without knowing about every clickable column.
+  const sortBy: SortBy = sortColumn === 'timestamp' ? 'time' : 'cas';
+  // Separate from `sortBy` above: the "Sort by" dropdown must never claim "Clinical
+  // Alert Score" is active while a column header (e.g. Department) is actually driving
+  // the order — sortBy's cas/time collapse would otherwise silently mislabel every
+  // other column as "cas".
+  const sortSelectValue = sortColumn === 'timestamp' ? 'time' : sortColumn === 'CAS' ? 'cas' : 'other';
+  const toggleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(column);
+      setSortDir(SORT_ASC_FIRST.includes(column) ? 'asc' : 'desc');
+    }
+  };
+  const sortIndicator = (column: SortColumn) =>
+    sortColumn === column
+      ? sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+      : <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+  // Single definition of the sortable-<th> markup — used for all 9 sortable columns
+  // (the 7 always-shown ones plus Detected/Assigned) so a future tweak (aria-sort,
+  // hover styling, the icon) only has to change in one place.
+  const sortableTh = (column: SortColumn, label: string) => (
+    <th key={column} className="py-2.5 px-4 text-left" aria-sort={sortColumn === column ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        onClick={() => toggleSort(column)}
+        className={`flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors ${sortColumn === column ? 'text-slate-900 dark:text-white' : ''}`}
+      >
+        {label} {sortIndicator(column)}
+      </button>
+    </th>
+  );
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailsAlert, setDetailsAlert] = useState<EnrichedAlert | null>(null);
@@ -319,10 +362,32 @@ const AlertsPanel: React.FC<{
         const haystack = `${a.agent} ${a.label} ${a.ruleDescription} ${a.department} ${a.deviceType ?? ''}`.toLowerCase();
         return haystack.includes(searchLower);
       });
-    return sortBy === 'time'
-      ? list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      : list.sort((a, b) => b.CAS - a.CAS);
-  }, [openAlerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortBy, searchLower]);
+    const sortValue = (a: EnrichedAlert): number | string => {
+      switch (sortColumn) {
+        case 'severity':
+        case 'CAS': return a.CAS;
+        case 'CVSS': return a.CVSS ?? -1;
+        case 'timestamp': return new Date(a.timestamp).getTime();
+        case 'action': return ACTION_RANK[a.action] ?? 0;
+        case 'agent': return a.agent.toLowerCase();
+        case 'department': return a.department.toLowerCase();
+        case 'label': return (a.label !== 'Unclassified' ? a.label : a.ruleDescription).toLowerCase();
+        case 'cluster': return a.cluster.toLowerCase();
+        case 'assigned': return (assignedToFor(a)?.name ?? '').toLowerCase();
+        default: return 0;
+      }
+    };
+    list.sort((a, b) => {
+      const va = sortValue(a);
+      const vb = sortValue(b);
+      const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+    // assignmentOverrides: sortValue()'s 'assigned' case reads it via assignedToFor() —
+    // without it here, sorting by Assigned goes stale the moment a claim/assign happens,
+    // since neither touches any of the other dependencies below.
+  }, [openAlerts, severityFilter, departmentFilter, actionFilter, detectionFilter, sortColumn, sortDir, searchLower, assignmentOverrides]);
 
   // Clamp focusedIndex once filters/search narrow the list, rather than let it dangle.
   useEffect(() => {
@@ -335,7 +400,8 @@ const AlertsPanel: React.FC<{
     setDepartmentFilter(f.departmentFilter);
     setActionFilter(f.actionFilter);
     setDetectionFilter(f.detectionFilter);
-    setSortBy(f.sortBy);
+    setSortColumn(f.sortBy === 'time' ? 'timestamp' : 'CAS');
+    setSortDir('desc');
     setSearch(f.search);
   };
 
@@ -611,12 +677,17 @@ const AlertsPanel: React.FC<{
           <ChevronsUpDown className="w-3.5 h-3.5" /> Sort
         </span>
         <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
+          value={sortSelectValue}
+          onChange={(e) => {
+            const v = e.target.value as SortBy;
+            setSortColumn(v === 'time' ? 'timestamp' : 'CAS');
+            setSortDir('desc');
+          }}
           className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-500/60"
         >
           <option value="cas">Clinical Alert Score</option>
           <option value="time">Most recent</option>
+          {sortSelectValue === 'other' && <option value="other" disabled>Custom (click a column header)</option>}
         </select>
 
         {(severityFilter !== 'all' || departmentFilter !== 'all' || actionFilter !== 'all' || detectionFilter !== 'all' || searchLower) && (
@@ -737,16 +808,21 @@ const AlertsPanel: React.FC<{
                       {filtered.length > 0 && selectedIds.size === filtered.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
                     </button>
                   </th>
-                  <th className="py-2.5 px-4 text-left">Severity</th>
-                  <th className="py-2.5 px-4 text-left">Device</th>
-                  <th className="py-2.5 px-4 text-left">Department</th>
-                  <th className="py-2.5 px-4 text-left">Event</th>
-                  <th className="py-2.5 px-4 text-left">Cluster</th>
-                  <th className="py-2.5 px-4 text-left">CAS</th>
-                  <th className="py-2.5 px-4 text-left">Action</th>
+                  {(
+                    [
+                      ['severity', 'Severity'],
+                      ['agent', 'Device'],
+                      ['department', 'Department'],
+                      ['label', 'Event'],
+                      ['cluster', 'Cluster'],
+                      ['CAS', 'CAS'],
+                      ['CVSS', 'CVSS'],
+                      ['action', 'Action'],
+                    ] as [SortColumn, string][]
+                  ).map(([col, label]) => sortableTh(col, label))}
                   <th className="py-2.5 px-4 text-left">Detection</th>
-                  <th className="py-2.5 px-4 text-left">Time</th>
-                  {canAssign && <th className="py-2.5 px-4 text-left">Assigned</th>}
+                  {sortableTh('timestamp', 'Detected')}
+                  {canAssign && sortableTh('assigned', 'Assigned')}
                   <th className="py-2.5 px-4 text-left">Details</th>
                 </tr>
               </thead>
@@ -815,11 +891,25 @@ const AlertsPanel: React.FC<{
                             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">{a.CAS.toFixed(1)}</span>
                           </div>
                         </td>
+                        <td className="py-3 px-4" title="CVSS-equivalent baseline — clinically blind by design: depends only on attack type, never device or time. Shown for comparison against CAS.">
+                          {typeof a.CVSS === 'number' ? (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 bg-slate-200 dark:bg-slate-800 rounded-full h-1 w-14">
+                                <div className="h-1 rounded-full bg-slate-400 dark:bg-slate-600" style={{ width: `${(a.CVSS / 10) * 100}%` }} />
+                              </div>
+                              <span className="text-xs font-mono tabular-nums text-slate-400 dark:text-slate-500">{a.CVSS.toFixed(1)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-300 dark:text-slate-700">—</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4">
                           <span className={`inline-flex text-[11px] px-1.5 py-0.5 rounded ${actionColor[a.action]}`}>{a.action}</span>
                         </td>
                         <td className="py-3 px-4"><DetectionBadges alert={a} /></td>
-                        <td className="py-3 px-4 text-xs text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap">{new Date(a.timestamp).toLocaleTimeString()}</td>
+                        <td className="py-3 px-4 text-xs text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap">
+                          {new Date(a.timestamp).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </td>
                         {canAssign && (
                           <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                             <select
