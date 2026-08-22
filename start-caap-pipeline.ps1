@@ -67,11 +67,16 @@ if (-not $indexerUp) {
 }
 
 # ─── [2/4] Flask AI server ─────────────────────────────────────────────────
-Write-Stage "[2/4] Starting Flask AI server (ai_server/src/app.py, port 5001)"
+# Bound to 0.0.0.0, not app.py's own 127.0.0.1 default -- lab VMs reach this
+# over the network as a separate host, not localhost, so a loopback-only bind
+# here silently makes /predict unreachable from every VM with no error at all
+# (the VM's flow_consumer.py just never gets a response). Cost this exact
+# failure a full debugging session once already -- don't drop this line.
+Write-Stage "[2/4] Starting Flask AI server (ai_server/src/app.py, port 5001, bound to 0.0.0.0 for VM reachability)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
     "`$host.UI.RawUI.WindowTitle = 'CAAP [2/4] Flask AI server :5001'; " +
-    "cd '$root\ai_server'; .\venv\Scripts\Activate.ps1; python src\app.py"
+    "cd '$root\ai_server'; .\venv\Scripts\Activate.ps1; `$env:AI_SERVER_HOST='0.0.0.0'; python src\app.py"
 )
 Wait-Http "http://localhost:5001/health" "Flask AI server" | Out-Null
 

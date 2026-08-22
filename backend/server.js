@@ -24,6 +24,7 @@ import passwordPolicyRoutes from './routes/passwordPolicy.js';
 import threatIntelRoutes from './routes/threatIntel.js';
 import detectionPerformanceRoutes from './routes/detectionPerformance.js';
 import settingsRoutes from './routes/settings.js';
+import assistantRoutes from './routes/assistant.js';
 import { startPipeline } from './services/alertPipeline.js';
 import { initCveIntel } from './services/cveIntelService.js';
 import MedicalDevice from './models/MedicalDevice.js';
@@ -106,6 +107,7 @@ app.use('/api/password-policy', passwordPolicyRoutes);
 app.use('/api/threat-intel', threatIntelRoutes);
 app.use('/api/detection-performance', detectionPerformanceRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'MediSIEM API is running', timestamp: new Date().toISOString() });

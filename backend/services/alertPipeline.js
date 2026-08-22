@@ -173,8 +173,15 @@ async function pollOnce() {
       recentRawIds.set(raw.id, now); // the raw alert has been consumed either way — never re-process it
 
       if (existing) {
-        existing.duplicateCount = (existing.duplicateCount || 1) + 1;
-        existing.timestamp = displayAlert.timestamp;
+        // Refresh every field from this occurrence's re-scoring (CAS, CVSS, action,
+        // label, dimension scores, SHAP, matchedRules...) rather than freezing the
+        // display on whatever the FIRST occurrence looked like — a long-lived dedup
+        // group (same signature repeating for hours) was otherwise stuck showing
+        // permanently stale data, e.g. missing a field (like CVSS) added to the
+        // scoring pipeline after the group started. `id` and the accumulated count
+        // are the only two things that must survive from the prior occurrence.
+        const duplicateCount = (existing.duplicateCount || 1) + 1;
+        Object.assign(existing, displayAlert, { id: existing.id, duplicateCount });
         signature.lastSeen = now;
         if (io) {
           io.emit('alert:new', existing);

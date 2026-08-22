@@ -25,6 +25,17 @@
   },
   "default_ae": 4,
 
+  "$comment_cvss": "CVSS-equivalent baseline, shown alongside CAS in the live dashboard for direct comparison (the whole point being that CVSS is clinically blind and CAS isn't). Same values ai_server/src/hospital_scenarios.py's offline CAAP-vs-CVSS evaluation uses (CVSS_BASE_BY_LABEL) — representative CVSS v3.1 base-score bands per attack technique's general CWE class, not a real per-CVE score, since no CVE field exists anywhere in this dataset.",
+  "cvss_base_by_label": {
+    "DoS_TCP": 7.5,
+    "MQTT_Publish_Flood": 7.5,
+    "MQTT_Brute_Force": 8.1,
+    "ARP_Spoofing": 6.5,
+    "Recon": 3.1,
+    "Benign": 0.0
+  },
+  "default_cvss": 5.0,
+
   "tc_table": { "night": 10, "evening": 6, "day": 2 },
   "shift_hours": { "day": [7, 15], "evening": [15, 23], "night": [23, 7] },
 

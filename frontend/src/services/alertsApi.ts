@@ -52,6 +52,13 @@ export interface EnrichedAlert {
   TC_score: number;
   cluster: string;
   CAS: number;
+  // CVSS-equivalent baseline, shown alongside CAS for direct comparison — a
+  // representative CVSS v3.1 base-score band per classified attack type (no
+  // real CVE field exists anywhere in this dataset), clinically blind by
+  // design: depends only on attack type, never on device or time. See
+  // ai_server/src/cas_config.py's lookup_cvss(). Absent only for alerts
+  // scored before this field existed.
+  CVSS?: number;
   action: 'Immediate' | 'Investigate' | 'Monitor';
   // Which named weight profile actually produced this CAS score — 'default',
   // one of ai_server/src/cas_config.py's SCENARIO_WEIGHT_PROFILES keys
