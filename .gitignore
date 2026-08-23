@@ -29,3 +29,8 @@ ai_server/data/
 ai_server/models/
 ai_server/reports/
 Extra_Materials/
+
+#Claude Skills
+.agents
+.claude
+.github/
