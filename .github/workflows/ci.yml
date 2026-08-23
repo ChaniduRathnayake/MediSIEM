@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      # The test suite is pure unit tests (see test/*.test.js) — none of them
+      # touch a real Mongo/Wazuh connection — but several modules read
+      # process.env at import time (config/jwt.js throws synchronously on a
+      # missing/weak JWT_SECRET), so `node --env-file=.env --test` still
+      # needs a .env present. Values below are throwaway, CI-only.
+      - name: Write a throwaway .env for the test run
+        run: |
+          cat > .env <<'EOF'
+          JWT_SECRET=ci-test-only-secret-never-used-outside-this-workflow-run
+          JWT_EXPIRES_IN=7d
+          NODE_ENV=test
+          MONGO_URI=mongodb://localhost:27017/medisiem-ci
+          WAZUH_INDEXER_URL=https://localhost:9200
+          WAZUH_INDEXER_USER=admin
+          WAZUH_INDEXER_PASS=changeme
+          WAZUH_INDEXER_INDEX=caap-alerts
+          WAZUH_INDEXER_VERIFY_SSL=false
+          CAAP_AI_URL=http://localhost:5001
+          FRONTEND_URL=http://localhost:5173
+          EOF
+      - run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npm run build
+
+  ai-server-and-ml-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Syntax/import-shape check only, not a full test run — train.py needs
+      # a real dataset and app.py needs trained model artifacts (both
+      # gitignored, see ai_server/README), and the KEV/CVE feeds ml-pipeline
+      # touches need outbound internet, which this job doesn't assume.
+      - name: Byte-compile every ai_server/ml-pipeline module
+        run: |
+          python -m py_compile \
+            ai_server/src/app.py ai_server/src/cas_config.py ai_server/src/cas_engine.py \
+            ai_server/src/eval_utils.py ai_server/src/hospital_scenarios.py ai_server/train.py \
+            ai_server/test.py ai_server/test_cas_config.py ai_server/test_real_rows.py \
+            ai_server/verify_feature_cols.py \
+            "Extra_Material/ml-pipeline/attack_simulator.py" "Extra_Material/ml-pipeline/flow_consumer.py" \
+            "Extra_Material/ml-pipeline/live_feature_extractor.py" "Extra_Material/ml-pipeline/replay_test_flows.py"
+      # Unlike app.py/train.py/test.py, this one needs no trained model
+      # artifacts and no third-party packages (cas_config.py/cas_engine.py
+      # are pure-stdlib) — a real drift guard CI can actually execute, not
+      # just syntax-check, on every push.
+      - name: Run CAS config parity/drift checks
+        run: python ai_server/test_cas_config.py

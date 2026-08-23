@@ -33,5 +33,9 @@ Extra_Materials/
 #Claude Skills
 .agents
 .claude
+<<<<<<< HEAD
 .github/
 Extra_Material/
+=======
+.github/
+>>>>>>> b9d3d2a56ab161ee7ccfb93d4d61645f3069841c
