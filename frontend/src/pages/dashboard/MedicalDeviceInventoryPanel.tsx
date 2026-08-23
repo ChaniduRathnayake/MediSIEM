@@ -19,6 +19,7 @@ import type { MedicalDevice, MedicalDeviceInput, DeviceCriticality, DeviceStatus
 const CRITICALITY_STYLES: Record<DeviceCriticality, string> = {
   low: 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300',
   medium: 'bg-amber-500/10 border-amber-500/30 text-amber-500 dark:text-amber-400',
+  elevated: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600 dark:text-yellow-400',
   high: 'bg-orange-500/10 border-orange-500/30 text-orange-500 dark:text-orange-400',
   critical: 'bg-red-500/10 border-red-500/30 text-red-500 dark:text-red-400',
 };
@@ -141,10 +142,11 @@ const MedicalDeviceFormModal: React.FC<{
           <div>
             <label className={labelClass}>Criticality</label>
             <select value={form.criticality} onChange={set('criticality')} className={inputClass}>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
+              <option value="low">Low — Administrative / non-clinical</option>
+              <option value="medium">Medium — Clinical IT infrastructure</option>
+              <option value="elevated">Elevated — Clinical data & informatics</option>
+              <option value="high">High — Direct patient monitoring / diagnostic-therapeutic</option>
+              <option value="critical">Critical — Life-sustaining / critical care</option>
             </select>
           </div>
 

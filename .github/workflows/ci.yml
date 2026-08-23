@@ -65,10 +65,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      # Syntax/import-shape check only, not a full test run — train.py needs
-      # a real dataset and app.py needs trained model artifacts (both
-      # gitignored, see ai_server/README), and the KEV/CVE feeds ml-pipeline
-      # touches need outbound internet, which this job doesn't assume.
+      # Syntax/import-shape check only for these — app.py needs trained model
+      # artifacts (gitignored, see ai_server/README) and the KEV/CVE feeds
+      # ml-pipeline touches need outbound internet, which this job doesn't
+      # assume. train.py gets a real (if tiny) execution below instead.
       - name: Byte-compile every ai_server/ml-pipeline module
         run: |
           python -m py_compile \
@@ -76,11 +76,32 @@ jobs:
             ai_server/src/eval_utils.py ai_server/src/hospital_scenarios.py ai_server/train.py \
             ai_server/test.py ai_server/test_cas_config.py ai_server/test_real_rows.py \
             ai_server/verify_feature_cols.py \
-            "Extra_Material/ml-pipeline/attack_simulator.py" "Extra_Material/ml-pipeline/flow_consumer.py" \
-            "Extra_Material/ml-pipeline/live_feature_extractor.py" "Extra_Material/ml-pipeline/replay_test_flows.py"
+            "ml-pipeline/flow_consumer.py" "ml-pipeline/live_feature_extractor.py" "ml-pipeline/replay_test_flows.py" \
+            "Extra_Material/Demo_Attack/attack_simulator.py" "Extra_Material/Demo_Attack/multi_target_attack_simulator.py"
       # Unlike app.py/train.py/test.py, this one needs no trained model
       # artifacts and no third-party packages (cas_config.py/cas_engine.py
       # are pure-stdlib) — a real drift guard CI can actually execute, not
       # just syntax-check, on every push.
       - name: Run CAS config parity/drift checks
         run: python ai_server/test_cas_config.py
+      - name: Install ai_server dependencies
+        run: pip install -r ai_server/requirements.txt
+      # Reproducibility check (roadmap 15.2): runs the REAL train.py end to
+      # end — full preprocessing, RF/IsolationForest/K-Means fit, evaluation,
+      # model_meta.json — against a tiny (~80-row, 3-class) fixture sampled
+      # from real data/{train,test} rows, via the env-var directory overrides
+      # train.py added for exactly this. Catches a schema-breaking change to
+      # feature engineering/model code (a renamed/dropped column, a step that
+      # now throws on a small class, etc.) before it ever reaches the real
+      # (gitignored, multi-GB) dataset in someone's local data/train/ — not a
+      # substitute for real accuracy validation, just "does the pipeline
+      # still run end to end". Output goes to an ephemeral CI-only directory,
+      # never ai_server/models or ai_server/reports.
+      - name: Run train.py against the CI fixture dataset (reproducibility check)
+        working-directory: ai_server
+        env:
+          TRAIN_DATA_DIR: tests/fixtures/data/train
+          TEST_DATA_DIR: tests/fixtures/data/test
+          MODEL_OUT_DIR: /tmp/ci_fixture_models
+          REPORT_OUT_DIR: /tmp/ci_fixture_reports
+        run: python train.py

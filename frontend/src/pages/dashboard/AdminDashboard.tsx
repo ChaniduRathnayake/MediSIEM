@@ -7,6 +7,9 @@ import { useDeviceMeta } from './useDeviceMeta';
 import type { DeviceGroup } from './deviceApi';
 import GroupAssignDropdown from './GroupAssignDropdown';
 import MedicalDeviceInventoryPanel from './MedicalDeviceInventoryPanel';
+import MedicalDeviceTagDropdown from './MedicalDeviceTagDropdown';
+import { getMedicalDevices } from '../../services/medicalDeviceApi';
+import type { MedicalDevice } from '../../services/medicalDeviceApi';
 import AgentDetailsModal from './AgentDetailsModal';
 import CompliancePanel from './CompliancePanel';
 import type { FrameworkTab } from './CompliancePanel';
@@ -810,13 +813,24 @@ const DevicesPanel: React.FC = () => {
   const { token } = useAuth();
   const { config, connected, connecting, agents, loadingAgents, connectionError, refresh, lastRefresh } = useWazuhContext();
   const {
-    groups, deviceMeta, createGroup, renameGroup, deleteGroup, assignGroups,
+    groups, deviceMeta, createGroup, renameGroup, deleteGroup, assignGroups, tagMedicalDevice,
   } = useDeviceMeta(token);
   const [selectedAgent, setSelectedAgent] = useState<WazuhAgent | null>(null);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [osFilter, setOsFilter] = useState<OsCategory | 'all'>('all');
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [deviceSubTab, setDeviceSubTab] = useState<'network' | 'medical'>('network');
+  const [medicalDevices, setMedicalDevices] = useState<MedicalDevice[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    // Re-fetches on every subtab switch (not just token change) so onboarding/
+    // editing a device on the 'medical' subtab is reflected in the Tag Medical
+    // Device dropdown immediately after switching back to 'network' — this
+    // component stays mounted across the switch, so without deviceSubTab in
+    // the deps that list would otherwise go stale until a token change/reload.
+    getMedicalDevices(token).then(setMedicalDevices).catch(() => {});
+  }, [token, deviceSubTab]);
 
   const metaByAgent = useMemo(() => new Map(deviceMeta.map((m) => [m.agentId, m])), [deviceMeta]);
 
@@ -978,6 +992,7 @@ const DevicesPanel: React.FC = () => {
                       <th className="py-2.5 px-5 text-left">IP</th>
                       <th className="py-2.5 px-5 text-left">OS</th>
                       <th className="py-2.5 px-5 text-left">Category</th>
+                      <th className="py-2.5 px-5 text-left">Medical Device</th>
                       <th className="py-2.5 px-5 text-left">Version</th>
                       <th className="py-2.5 px-5 text-left">Groups</th>
                       <th className="py-2.5 px-5 text-left">Last Seen</th>
@@ -1007,6 +1022,13 @@ const DevicesPanel: React.FC = () => {
                         <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 font-mono">{ag.ip ?? '—'}</td>
                         <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
                         <td className="py-3 px-5"><OsCategoryBadge category={categoryFor(ag)} /></td>
+                        <td className="py-3 px-5">
+                          <MedicalDeviceTagDropdown
+                            devices={medicalDevices}
+                            tagged={metaByAgent.get(ag.id)?.medicalDevice ?? null}
+                            onTag={(id) => tagMedicalDevice(ag.id, id, ag.name)}
+                          />
+                        </td>
                         <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 font-mono">{ag.version ?? '—'}</td>
                         <td className="py-3 px-5">
                           <GroupAssignDropdown

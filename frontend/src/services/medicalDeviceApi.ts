@@ -3,7 +3,13 @@
 
 import { BASE_URL } from './api';
 
-export type DeviceCriticality = 'low' | 'medium' | 'high' | 'critical';
+// 5-tier FDA-device-class hierarchy — see shared/cas_config.json's
+// criticality_to_cc and MediSIEM_Medical_Device_Criticality_Ranking.
+// 'elevated' (Tier 3, Clinical Data & Informatics) sits between 'medium'
+// (Tier 2, IT infrastructure) and 'high' (Tier 4, direct patient
+// monitoring/diagnostic-therapeutic) — PACS, EHR, clinical DB servers, LIS,
+// point-of-care analysers.
+export type DeviceCriticality = 'low' | 'medium' | 'elevated' | 'high' | 'critical';
 export type DeviceStatus = 'active' | 'maintenance' | 'decommissioned';
 
 export interface MedicalDevice {

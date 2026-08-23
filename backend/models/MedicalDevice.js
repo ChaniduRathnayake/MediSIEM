@@ -43,7 +43,14 @@ const MedicalDeviceSchema = new Schema(
     location: { type: String, trim: true, maxlength: 120, default: '' },
     criticality: {
       type: String,
-      enum: ['low', 'medium', 'high', 'critical'],
+      // 5-tier FDA-device-class hierarchy (21 CFR 860.3) — see
+      // shared/cas_config.json's criticality_to_cc for the CC values and
+      // MediSIEM_Medical_Device_Criticality_Ranking for the full rationale.
+      // 'elevated' = Tier 3, "Clinical Data & Informatics Systems" (PACS,
+      // EHR, clinical DB servers, LIS, point-of-care analysers) — sits
+      // between 'medium' (Tier 2, IT infrastructure) and 'high' (Tier 4,
+      // direct patient monitoring/diagnostic-therapeutic).
+      enum: ['low', 'medium', 'elevated', 'high', 'critical'],
       default: 'medium',
     },
     status: {

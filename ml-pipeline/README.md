@@ -41,11 +41,14 @@ NOT by anything in this repo), the Flask AI server, the Node backend, the
 React dashboard. `start-caap-pipeline.ps1` in the repo root checks the
 indexer is reachable, then starts the other three in order.
 
-The **lab VM** (VirtualBox/VMware, host-only or NAT network) runs the stuff
-that needs raw sockets and shouldn't touch your real network:
-`attack_simulator.py`, `live_feature_extractor.py`, and `flow_consumer.py`
-(the latter two are colocated with the capture since they share a local
-folder). The VM reaches the host's Flask server and Wazuh Indexer via the
+The **lab VM(s)** (VirtualBox/VMware, host-only or NAT network) run the stuff
+that needs raw sockets and shouldn't touch your real network: the victim VM
+runs `live_feature_extractor.py` and `flow_consumer.py` from this folder
+(colocated since they share a local output folder); the attacker VM runs
+`attack_simulator.py` from
+[`Extra_Material/Demo_Attack/`](../Extra_Material/Demo_Attack) — kept
+separate since it's attack-simulation tooling, not part of the live capture
+path. The VM(s) reach the host's Flask server and Wazuh Indexer via the
 host-only adapter's IP — `start-caap-pipeline.ps1` prints the commands with
 that IP and your real `backend/.env` credentials filled in for you.
 
@@ -76,7 +79,7 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
 2. **Python deps**, from an elevated (Administrator) shell — raw capture
    needs it:
    ```powershell
-   cd "Extra_Material\ml-pipeline"    # or just ml-pipeline if you copied it standalone
+   cd "ml-pipeline"    # or wherever you copied it
    pip install -r requirements.txt
    ```
 3. **Find your interface name**:
@@ -95,11 +98,15 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
        --indexer-user <WAZUH_INDEXER_USER from backend/.env> --indexer-pass <WAZUH_INDEXER_PASS from backend/.env>
    ```
    (`start-caap-pipeline.ps1` prints this command with both filled in for you.)
-6. **Generate traffic** (only against a target IP on this isolated lab
-   network — see the warning at the top of `attack_simulator.py`):
+6. **Generate traffic**, from the attacker VM/machine, using
+   `Extra_Material/Demo_Attack/attack_simulator.py` (only against a target IP
+   on this isolated lab network — see the warning at the top of that file):
    ```powershell
-   python attack_simulator.py --target <victim-vm-ip> --scenario all
+   python ../Extra_Material/Demo_Attack/attack_simulator.py --target <victim-vm-ip> --scenario all
    ```
+   Or `multi_target_attack_simulator.py` in the same folder to sweep every VM
+   device instead of one `--target` at a time — see
+   [`Extra_Material/Demo_Attack/README.md`](../Extra_Material/Demo_Attack/README.md).
 
 ## device_map.json
 

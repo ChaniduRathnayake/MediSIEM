@@ -148,7 +148,7 @@ async function pollOnce() {
         console.warn(
           `[alertPipeline] ⚠ ALERT ${raw.id} HAS NO CAS FIELD — this index isn't pre-enriched by flow_consumer.py. ` +
             'Falling back to a rule.level estimate, which is NOT a real RF/IsolationForest/K-Means classification. ' +
-            'Point WAZUH_INDEXER_INDEX at caap-alerts (populated by Extra_Material/ml-pipeline/flow_consumer.py) for genuine ML detections.'
+            'Point WAZUH_INDEXER_INDEX at caap-alerts (populated by ml-pipeline/flow_consumer.py) for genuine ML detections.'
         );
         const result = await enrichAlert(raw);
         if (!result.ok) {

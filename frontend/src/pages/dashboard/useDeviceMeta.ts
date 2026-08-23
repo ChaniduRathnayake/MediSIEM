@@ -4,7 +4,7 @@ import type { OsCategory } from './wazuhApi';
 import {
   DeviceGroup, DeviceMeta,
   getDeviceGroups, createDeviceGroup, updateDeviceGroup, deleteDeviceGroup,
-  getDeviceMeta, setAgentGroups, setAgentOsCategoryOverride,
+  getDeviceMeta, setAgentGroups, setAgentOsCategoryOverride, setAgentMedicalDeviceTag,
 } from './deviceApi';
 
 export interface UseDeviceMetaReturn {
@@ -21,6 +21,7 @@ export interface UseDeviceMetaReturn {
 
   assignGroups:  (agentId: string, groups: string[], agentName?: string) => Promise<void>;
   setOsOverride: (agentId: string, osCategory: OsCategory | null) => Promise<void>;
+  tagMedicalDevice: (agentId: string, medicalDeviceId: string | null, agentName?: string) => Promise<void>;
 }
 
 export function useDeviceMeta(token: string | null): UseDeviceMetaReturn {
@@ -117,9 +118,21 @@ export function useDeviceMeta(token: string | null): UseDeviceMetaReturn {
     });
   }, [token]);
 
+  const tagMedicalDevice = useCallback(async (agentId: string, medicalDeviceId: string | null, agentName?: string) => {
+    if (!token) throw new Error('Not authenticated.');
+    const updated = await setAgentMedicalDeviceTag(token, agentId, medicalDeviceId, agentName);
+    setDeviceMeta((prev) => {
+      const idx = prev.findIndex((d) => d.agentId === agentId);
+      if (idx === -1) return [...prev, updated];
+      const next = [...prev];
+      next[idx] = updated;
+      return next;
+    });
+  }, [token]);
+
   return {
     groups, deviceMeta, loading, error, refresh,
     createGroup, renameGroup, deleteGroup,
-    assignGroups, setOsOverride,
+    assignGroups, setOsOverride, tagMedicalDevice,
   };
 }

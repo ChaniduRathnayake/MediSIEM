@@ -28,14 +28,18 @@ Thumbs.db
 ai_server/data/
 ai_server/models/
 ai_server/reports/
+# retrain_pipeline.py's staging/backup output — same idea as models/ above,
+# generated artifacts rather than source.
+ai_server/models_staging/
+ai_server/reports_staging/
+ai_server/models_backup_*/
+ai_server/reports_backup_*/
 Extra_Materials/
 
 #Claude Skills
 .agents
 .claude
-<<<<<<< HEAD
-.github/
-Extra_Material/
-=======
-.github/
->>>>>>> b9d3d2a56ab161ee7ccfb93d4d61645f3069841c
+
+# Python bytecode
+__pycache__/
+*.pyc

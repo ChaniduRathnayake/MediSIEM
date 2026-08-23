@@ -13,12 +13,20 @@ export interface DeviceGroup {
   createdAt: string;
 }
 
+export interface TaggedMedicalDevice {
+  id: string;
+  deviceName: string;
+  deviceType: string;
+  department: string;
+}
+
 export interface DeviceMeta {
   id: string;
   agentId: string;
   agentName?: string;
   groups: string[];
   osCategoryOverride: OsCategory | null;
+  medicalDevice: TaggedMedicalDevice | null;
 }
 
 async function request<T>(path: string, token: string, options?: RequestInit): Promise<T> {
@@ -93,6 +101,19 @@ export async function setAgentOsCategoryOverride(
   const data = await request<{ device: DeviceMeta }>(`/devices/${agentId}/os-category`, token, {
     method: 'PATCH',
     body: JSON.stringify({ osCategory }),
+  });
+  return data.device;
+}
+
+export async function setAgentMedicalDeviceTag(
+  token: string,
+  agentId: string,
+  medicalDeviceId: string | null,
+  agentName?: string
+): Promise<DeviceMeta> {
+  const data = await request<{ device: DeviceMeta }>(`/devices/${agentId}/medical-device`, token, {
+    method: 'PUT',
+    body: JSON.stringify({ medicalDeviceId, agentName }),
   });
   return data.device;
 }

@@ -1,6 +1,6 @@
 // Bridges a raw Wazuh alert to the CAAP Flask AI server (/predict) and returns an
 // enriched alert with CAS score + action. Fallback path only — the primary path is
-// Extra_Material/ml-pipeline/flow_consumer.py writing pre-enriched docs straight into caap-alerts;
+// ml-pipeline/flow_consumer.py writing pre-enriched docs straight into caap-alerts;
 // this only runs when an alert has no CAS field, using zero-filled features (and a
 // rule.level-derived TR instead of RF confidence) when there's no real flow data.
 
@@ -164,7 +164,7 @@ const FLOW_FEATURE_KEYS = [
 ];
 
 // Raw flow-record column names for destination port / protocol — same
-// candidate list as Extra_Material/ml-pipeline/flow_consumer.py's
+// candidate list as ml-pipeline/flow_consumer.py's
 // DST_PORT_CANDIDATES, so the CC dimension's port-based device-profile
 // lookup (app.py's lookup_cc()) gets real device signal on this path too,
 // not just the primary flow_consumer.py path.

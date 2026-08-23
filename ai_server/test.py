@@ -17,6 +17,15 @@ from cas_engine import score_alert
 
 warnings.filterwarnings("ignore")
 
+# Windows consoles default stdout to the system codepage (cp1252), which
+# can't encode the ✓/✗/⚠/✅ markers this script prints throughout — crashes
+# on a stock Windows shell (this project's primary platform) instead of just
+# displaying oddly.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 TEST_DIR   = "data/test"
 MODEL_DIR  = "models"
 

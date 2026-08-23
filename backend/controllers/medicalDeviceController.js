@@ -3,7 +3,7 @@ import DeviceGroup from '../models/DeviceGroup.js';
 import { logAudit } from '../utils/auditLog.js';
 import { invalidateDeviceInventoryCache } from '../config/deviceInventory.js';
 
-const CRITICALITY_LEVELS = ['low', 'medium', 'high', 'critical'];
+const CRITICALITY_LEVELS = ['low', 'medium', 'elevated', 'high', 'critical'];
 const STATUSES = ['active', 'maintenance', 'decommissioned'];
 
 async function validateGroups(groups) {

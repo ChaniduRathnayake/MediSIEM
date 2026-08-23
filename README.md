@@ -50,8 +50,8 @@ weighting rationale and a live CAS calculator.
 | [`backend/`](backend) | Node.js/Express API — auth, users, devices, compliance, Wazuh proxy, live CAAP alert pipeline (Socket.IO) |
 | [`frontend/`](frontend) | React 19 + Vite + Tailwind SOC dashboard (admin & user views, Wazuh browser, compliance panels) |
 | [`ai_server/`](ai_server) | Flask model-serving API for CAAP (`/predict`) + offline training scripts + `reports/` (charts/metrics from the train/test evaluation) |
-| [`Extra_Material/ml-pipeline/`](Extra_Material/ml-pipeline) | Live network-flow capture, a custom 45-column CICIoT2023/IoMT-2024 feature extractor, and an attack simulator for the lab VM |
-| [`Extra_Material/`](Extra_Material) | Presentation-facing package — live-demo pipeline and the solution guide |
+| [`ml-pipeline/`](ml-pipeline) | Live network-flow capture pipeline — a custom 45-column CICIoT2023/IoMT-2024 feature extractor + the flow consumer that scores and indexes real captured traffic. Runs on the lab victim VM(s), not the host. |
+| [`Extra_Material/`](Extra_Material) | Presentation-facing package — the attack simulation lab (`Demo_Attack/`) and demo runbooks |
 | [`medisiem-integration/`](medisiem-integration) | Reference copy of the patch kit used to wire the live CAAP pipeline into `backend`/`frontend`/`ml-pipeline` (already merged — kept for reference) |
 | [`start-caap-pipeline.ps1`](start-caap-pipeline.ps1) | One-shot script that brings up the AI server, backend, and frontend in order |
 | [`WAZUH_SETUP.md`](WAZUH_SETUP.md) | Wazuh Docker connectivity troubleshooting (proxy chain, ports, host values) |
@@ -82,9 +82,10 @@ weighting rationale and a live CAS calculator.
   Isolation Forest (anomaly/time-sensitivity), K-Means (traffic context), SHAP
   explainability, combined into the CAS score with an action recommendation
   (`Immediate` / `Investigate` / `Monitor`)
-- **Live traffic capture & simulation lab** (`Extra_Material/ml-pipeline`) — Scapy-based
-  attack simulator and a from-scratch flow feature extractor for generating
-  realistic training/demo data on an isolated VM
+- **Live traffic capture & simulation lab** (`ml-pipeline/` + `Extra_Material/Demo_Attack/`) —
+  a from-scratch flow feature extractor for generating realistic training/demo
+  data on an isolated VM, plus a Scapy-based attack simulator (single-target
+  and multi-target/whole-subnet variants)
 
 ## Prerequisites
 
@@ -97,7 +98,7 @@ weighting rationale and a live CAS calculator.
   Docker port mapping and connectivity checks.
 - (Optional, for the live-traffic demo) A second isolated VM (VirtualBox/VMware)
   with [Npcap](https://npcap.com/#download) installed, for packet capture and
-  attack simulation — see [`Extra_Material/ml-pipeline/README.md`](Extra_Material/ml-pipeline/README.md).
+  attack simulation — see [`ml-pipeline/README.md`](ml-pipeline/README.md).
 
 ## Quick start
 
@@ -154,19 +155,26 @@ data, run the capture/simulation tools inside an **isolated lab VM** (they use
 raw sockets and shouldn't run on your main host):
 
 ```powershell
-cd "Extra_Material\ml-pipeline"    # or just ml-pipeline if you copied it standalone
+# victim VM — capture + scoring
+cd "ml-pipeline"    # or wherever you copied it
 pip install -r requirements.txt
 python live_feature_extractor.py --iface "<interface>" --out-dir .\cicflowmeter_output
 python flow_consumer.py --flow-dir .\cicflowmeter_output `
     --caap-url http://<host-ip>:5001 --indexer-url https://<host-ip>:9200 `
     --indexer-user <WAZUH_INDEXER_USER> --indexer-pass <WAZUH_INDEXER_PASS>
+
+# attacker VM — simulated traffic
+cd "Extra_Material\Demo_Attack"    # or wherever you copied it
 python attack_simulator.py --target <victim-vm-ip> --scenario all
+# or, to sweep every VM device in one run: python multi_target_attack_simulator.py --scenario all
 ```
 
-`start-caap-pipeline.ps1` prints these commands pre-filled with your host-only
-adapter IP and `backend/.env` credentials. Full setup (Npcap, finding your
-interface name, network topology) is in
-[`Extra_Material/ml-pipeline/README.md`](Extra_Material/ml-pipeline/README.md).
+`start-caap-pipeline.ps1` prints the capture/consumer commands pre-filled with
+your host-only adapter IP and `backend/.env` credentials. Full setup (Npcap,
+finding your interface name, network topology) is in
+[`ml-pipeline/README.md`](ml-pipeline/README.md); the attack tooling is
+documented in
+[`Extra_Material/Demo_Attack/README.md`](Extra_Material/Demo_Attack/README.md).
 
 Then open **http://localhost:5173** and log in — alerts appear in the admin
 dashboard in real time as `flow_consumer.py` indexes them.

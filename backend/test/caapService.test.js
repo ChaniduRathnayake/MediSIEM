@@ -22,9 +22,16 @@ describe('ruleLevelToTrScore', () => {
 });
 
 describe('CRITICALITY_TO_CC', () => {
+  // 5-tier FDA-device-class hierarchy (21 CFR 860.3) — see
+  // MediSIEM_Medical_Device_Criticality_Ranking. 'elevated' (Tier 3,
+  // Clinical Data & Informatics — PACS/EHR/LIS/clinical DB servers) sits
+  // between 'medium' (Tier 2, IT infrastructure) and 'high' (Tier 4, direct
+  // patient monitoring/diagnostic-therapeutic) on the same 10/8/6/4/2 scale
+  // device_profiles already used in shared/cas_config.json.
   test('maps every MedicalDevice.criticality value onto the same 1-10 CC scale app.py uses', () => {
     assert.equal(CRITICALITY_TO_CC.critical, 10);
-    assert.equal(CRITICALITY_TO_CC.high, 7);
+    assert.equal(CRITICALITY_TO_CC.high, 8);
+    assert.equal(CRITICALITY_TO_CC.elevated, 6);
     assert.equal(CRITICALITY_TO_CC.medium, 4);
     assert.equal(CRITICALITY_TO_CC.low, 2);
   });

@@ -3,7 +3,8 @@
 
   "default_weights": { "TR": 0.25, "CC": 0.30, "TS": 0.25, "AE": 0.10, "TC": 0.10 },
 
-  "criticality_to_cc": { "critical": 10, "high": 7, "medium": 4, "low": 2 },
+  "$comment_criticality": "5-tier FDA-device-class hierarchy per MediSIEM_Medical_Device_Criticality_Ranking (21 CFR 860.3 Class III/II/II-I/I/I) — matches device_profiles' own cc scale below exactly (10/8/6/4/2), so a device onboarded through the admin inventory and one resolved by port/protocol land on the same CC for the same real-world criticality. 'elevated' (Tier 3, CC=6) is the FDA Class II/I 'Clinical Data & Informatics Systems' tier — PACS/imaging workstations, EHR/clinical portals, clinical DB servers, LIS, point-of-care analysers: devices that inform care indirectly (data/records) rather than directly monitoring or treating a patient. Was previously folded into 'medium'/'high' before that tier had a name.",
+  "criticality_to_cc": { "critical": 10, "high": 8, "elevated": 6, "medium": 4, "low": 2 },
 
   "cc_lookup_by_device_type": {
     "ICU Ventilator": 10,

@@ -78,7 +78,7 @@ const TOOLS = [
           type: 'OBJECT',
           properties: {
             department: { type: 'STRING' },
-            criticality: { type: 'STRING', description: 'low, medium, high, or critical' },
+            criticality: { type: 'STRING', description: 'low, medium, elevated, high, or critical' },
           },
         },
       },

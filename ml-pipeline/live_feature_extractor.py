@@ -21,7 +21,7 @@ if not hasattr(statistics, "fmean"):
     statistics.fmean = lambda data: sum(data) / len(data) if data else 0.0
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-FEATURE_COLS_PATH = os.path.join(SCRIPT_DIR, "..", "..", "ai_server", "models", "feature_cols.pkl")
+FEATURE_COLS_PATH = os.path.join(SCRIPT_DIR, "..", "ai_server", "models", "feature_cols.pkl")
 
 APP_PORT_MAP = {
     80: "HTTP", 8080: "HTTP",

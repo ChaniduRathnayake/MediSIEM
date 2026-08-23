@@ -15,10 +15,19 @@ import sys
 import numpy as np
 import pandas as pd
 
+# Windows consoles default stdout to the system codepage (cp1252), which
+# can't encode the ✓/✗/⚠/✅ markers this script prints — crashes on a stock
+# Windows shell (this project's primary platform) instead of just displaying
+# oddly.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(SCRIPT_DIR, "models")
 REPORT_DIR = os.path.join(SCRIPT_DIR, "reports")
-DEFAULT_INPUT = os.path.join(SCRIPT_DIR, "..", "Extra_Material", "ml-pipeline", "cicflowmeter_output", "live_flows.csv")
+DEFAULT_INPUT = os.path.join(SCRIPT_DIR, "..", "ml-pipeline", "cicflowmeter_output", "live_flows.csv")
 
 # A live batch mean this many training-stdevs away from the training mean
 # is flagged — 3 sigma is the conventional "this isn't just noise" cutoff.
@@ -27,6 +36,17 @@ Z_THRESHOLD = 3.0
 # outside training mean +/- 3*std, independent of where the batch mean sits
 # (catches a bimodal/heavy-tailed shift a mean-only z-score can miss).
 OUT_OF_RANGE_THRESHOLD = 0.20
+# Share of features that must be individually flagged before the *run* counts
+# as drifted overall — also gates the exit code (see EXIT CODES below), so a
+# scheduler/cron job can act on this without parsing the JSON report itself.
+DRIFT_RATE_THRESHOLD = 0.20
+
+# EXIT CODES (for scheduled_drift_check.py / cron / Task Scheduler / CI use):
+#   0 = ran successfully, drift_rate below DRIFT_RATE_THRESHOLD
+#   1 = couldn't run at all (no baseline / no input CSV — see load_baseline())
+#   2 = ran successfully, drift_rate AT/ABOVE DRIFT_RATE_THRESHOLD
+#   3 = ran, but too few live rows to trust a drift signal (inconclusive)
+EXIT_OK, EXIT_ERROR, EXIT_DRIFTED, EXIT_INSUFFICIENT_ROWS = 0, 1, 2, 3
 
 
 def load_baseline():
@@ -49,7 +69,7 @@ def load_live_batch(input_path: str, feature_columns: list[str]) -> pd.DataFrame
     if not os.path.exists(input_path):
         sys.exit(
             f"\n  ✗ No captured-flow CSV found at: {os.path.abspath(input_path)}\n"
-            f"  → Run 'Extra_Material/ml-pipeline/live_feature_extractor.py' (or point --input at a\n"
+            f"  → Run 'ml-pipeline/live_feature_extractor.py' (or point --input at a\n"
             f"    different captured-flow CSV, e.g. from replay_test_flows.py) first.\n"
         )
     df = pd.read_csv(input_path, low_memory=False)
@@ -85,7 +105,7 @@ def out_of_range_fraction(live_values: pd.Series, train_mean: float, train_std: 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", default=DEFAULT_INPUT, help="Captured-flow CSV to check (default: Extra_Material/ml-pipeline/cicflowmeter_output/live_flows.csv)")
+    parser.add_argument("--input", default=DEFAULT_INPUT, help="Captured-flow CSV to check (default: ml-pipeline/cicflowmeter_output/live_flows.csv)")
     parser.add_argument("--min-rows", type=int, default=20, help="Minimum live rows required before computing drift (fewer = too noisy to trust)")
     args = parser.parse_args()
 
@@ -113,6 +133,12 @@ def main():
             "status": "insufficient_rows",
             "min_rows_required": args.min_rows,
         }
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        report_path = os.path.join(REPORT_DIR, f"drift_report_{datetime.date.today().isoformat()}.json")
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        print(f"\n  ✓ Saved → {report_path}\n")
+        sys.exit(EXIT_INSUFFICIENT_ROWS)
     else:
         print(f"\n  {'Feature':<20} {'Train mean':>12} {'Live mean':>12} {'Z-score':>9} {'Out-of-range':>13}  {'Status'}")
         print("  " + "-" * 88)
@@ -151,7 +177,7 @@ def main():
         drift_rate = len(drifted) / len(features_report) if features_report else 0.0
         print("\n" + "=" * 68)
         print(f"  {len(drifted)} / {len(features_report)} feature(s) flagged as drifted ({drift_rate:.1%})")
-        if drift_rate >= 0.2:
+        if drift_rate >= DRIFT_RATE_THRESHOLD:
             print("  ⚠️  20%+ of features drifted — consider retraining with recent captured traffic")
             print("     appended to data/train/ (see GET /api/alerts/training-feedback-export for")
             print("     analyst-confirmed labels), or re-examine whether live_feature_extractor.py's")
@@ -178,6 +204,7 @@ def main():
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     print(f"\n  ✓ Saved → {report_path}\n")
+    sys.exit(EXIT_DRIFTED if drift_rate >= DRIFT_RATE_THRESHOLD else EXIT_OK)
 
 
 if __name__ == "__main__":

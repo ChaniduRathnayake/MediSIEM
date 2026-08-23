@@ -45,7 +45,7 @@ CLUSTER_LABELS = {0: "idle", 1: "active"}  # verified against models/kmeans.pkl'
 # backend/services/caapService.js (Node fallback paths), so this table can no
 # longer silently drift from either of them. Keys MUST match the device_type
 # strings actually produced by backend/config/deviceInventory.js and
-# Extra_Material/ml-pipeline/device_map.json.
+# ml-pipeline/device_map.json.
 CC_LOOKUP = cas_config.CC_LOOKUP
 DEFAULT_CC = cas_config.DEFAULT_CC  # unknown device types treated as lowest criticality
 
@@ -75,7 +75,7 @@ rf_model = joblib.load(os.path.join(MODEL_DIR, "random_forest.pkl"))
 iso_forest = joblib.load(os.path.join(MODEL_DIR, "isolation_forest.pkl"))
 kmeans = joblib.load(os.path.join(MODEL_DIR, "kmeans.pkl"))
 label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
-# NOTE on sequence-awareness: Extra_Material/ml-pipeline/live_feature_extractor.py also
+# NOTE on sequence-awareness: ml-pipeline/live_feature_extractor.py also
 # captures a `recent_flow_count` column (rolling count of a device's own
 # recent flows — see that module's docstring) on every row it writes, as a
 # pragmatic step toward catching slow multi-stage activity. It is NOT in
@@ -115,6 +115,22 @@ except FileNotFoundError:
 # files but changes nothing about scoring behavior unless you actually drop
 # one in — every existing deployment keeps using the single global
 # iso_forest exactly as before.
+#
+# STATUS (thesis roadmap 15.3): deliberately not populated. The dataset has
+# no real device-type-differentiated signal to train distinct baselines
+# from — device-type assignment everywhere else in this project (see
+# hospital_scenarios.py) is a SIMULATED port-based label for evaluation
+# purposes, not a property of the underlying flow rows, so "ICU ventilator
+# normal traffic" and "workstation normal traffic" are literally the same
+# Benign_train.pcap.csv rows today. Fitting per-device IF models against
+# random splits of that would report a false-positive-rate improvement that
+# isn't real. This loading mechanism stays ready for whenever real
+# device-segmented traffic exists — e.g. real per-device captures from
+# ml-pipeline/live_feature_extractor.py, labeled by which physical device
+# type each capture actually came from, accumulated long enough to fit a
+# baseline per class. Simulating a split of the existing dataset instead is
+# not a substitute; it would just refit the same distribution under a
+# different name.
 #
 # To add one: train an IsolationForest on IF_FEATURES for just that device
 # class's normal traffic (same feature order/scaling as isolation_forest.pkl
@@ -543,9 +559,28 @@ def index():
 # Routes
 # --------------------------------------------------------------------------
 
+def _read_retrain_status():
+    """Surfaces scheduled_drift_check.py's models/retrain_status.json (if
+    present) on /health — the point is that "the model needs retraining"
+    shows up on the running system itself, not only in a report file someone
+    has to remember to open (thesis roadmap 15.2)."""
+    path = os.path.join(MODEL_DIR, "retrain_status.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "models_loaded": True, "model_version": MODEL_VERSION})
+    resp = {"status": "ok", "models_loaded": True, "model_version": MODEL_VERSION}
+    retrain_status = _read_retrain_status()
+    if retrain_status is not None:
+        resp["retrain_status"] = retrain_status
+    return jsonify(resp)
 
 
 @app.route("/predict", methods=["POST"])

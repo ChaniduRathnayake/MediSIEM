@@ -3,9 +3,15 @@
 Tailored to a 3-machine setup: **Windows PC** (host — Docker Wazuh stack,
 Flask AI server, Node backend, React dashboard) + **Ubuntu VM** and
 **RedHat VM** (both already running a Wazuh agent). See
-[README.md](README.md) for how the pipeline works and why there's no
-CICFlowMeter step; this doc is just "what to type, in what order" for that
-exact topology.
+[../../ml-pipeline/README.md](../../ml-pipeline/README.md) for how the
+capture/scoring pipeline works and why there's no CICFlowMeter step; this doc
+is just "what to type, in what order" for that exact topology. The live
+capture components (`flow_consumer.py`, `live_feature_extractor.py`,
+`device_map.json`, `run_victim_capture.sh`) live in `ml-pipeline/` at the repo
+root; the attack tooling used in step 3 (`attack_simulator.py`,
+`run_attack.sh`) lives right here in `Extra_Material/Demo_Attack/` alongside
+this doc — see [README.md](README.md) for the multi-target variant that
+attacks every VM device in one run instead of a single `--target`.
 
 Two dashboard surfaces will both be doing something during the demo:
 
@@ -28,10 +34,11 @@ Two dashboard surfaces will both be doing something during the demo:
 ## 0. Give the victim a clinical identity (for a CAS score worth showing)
 
 Without this, flows from an unrecognized IP fall back to `Unknown
-Device`/`General` in [device_map.json](device_map.json) — CAS still
-computes, just with a flat clinical-criticality term. On the **Windows
-host**, open `Extra_Material/ml-pipeline/device_map.json` and add the
-Ubuntu VM's real IP (find it on the VM with `ip -4 addr show`):
+Device`/`General` in
+[../../ml-pipeline/device_map.json](../../ml-pipeline/device_map.json) — CAS
+still computes, just with a flat clinical-criticality term. On the **Windows
+host**, open `ml-pipeline/device_map.json` and add the Ubuntu VM's real IP
+(find it on the VM with `ip -4 addr show`):
 
 ```json
 {
@@ -69,11 +76,11 @@ the firewall, not the script.
 
 ## 2. Ubuntu VM (victim) — start capture + scoring
 
-Get `Extra_Material/ml-pipeline/` onto the VM (git clone the repo, or
-`scp -r "Extra_Material/ml-pipeline" user@ubuntu-vm:~/`), then:
+Get `ml-pipeline/` onto the VM (git clone the repo, or
+`scp -r "ml-pipeline" user@ubuntu-vm:~/`), then:
 
 ```bash
-cd "Extra_Material/ml-pipeline"    # or just ml-pipeline if you scp'd it standalone
+cd "ml-pipeline"    # or wherever you scp'd it
 pip3 install -r requirements.txt
 ip -brief link                                    # find your interface name, e.g. enp0s3
 chmod +x run_victim_capture.sh
@@ -89,11 +96,15 @@ required for raw sockets).
 ## 3. RedHat VM (attacker) — launch the simulated attack
 
 ```bash
-cd "Extra_Material/ml-pipeline"    # or just ml-pipeline if you scp'd it standalone
-pip3 install -r requirements.txt
+cd "Extra_Material/Demo_Attack"    # or wherever you scp'd it
+pip3 install -r ../../ml-pipeline/requirements.txt   # or just: pip3 install scapy
 chmod +x run_attack.sh
 sudo ./run_attack.sh <ubuntu-victim-ip> all
 ```
+
+To hit every VM device on the lab network in one run instead of a single
+target, use `multi_target_attack_simulator.py` (or its `run_multi_attack.sh`
+wrapper) in this same folder instead — see [README.md](README.md).
 
 `all` cycles through every scenario (ARP spoof, port scan, SYN flood,
 benign) — good for a "watch the CAS score rise and fall with the traffic"

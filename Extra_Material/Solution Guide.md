@@ -105,7 +105,8 @@ arbitrary internal opinion; it's traceable to a real regulatory source.
                                │  devices, ...) │
                                └───────────────┘
 
-     [isolated lab VM — Extra_Material/ml-pipeline/, not started by the app]
+  [isolated lab VM(s) — ml-pipeline/ (capture) + Extra_Material/Demo_Attack/
+                         (attack), not started by the app]
    attack_simulator.py → live_feature_extractor.py → flow_consumer.py
         (simulated traffic)   (packet capture)      (predicts + indexes
                                                        into caap-alerts)
@@ -217,10 +218,10 @@ field-validated deployment outcome.
 ## 8. Running the live demo
 
 The full step-by-step runbook lives in
-[`Extra_Material/ml-pipeline/DEMO_RUNBOOK.md`](ml-pipeline/DEMO_RUNBOOK.md),
+[`Extra_Material/Demo_Attack/DEMO_RUNBOOK.md`](Demo_Attack/DEMO_RUNBOOK.md),
 with a presentation-facing companion (talking points, fallback plan, and an
 anticipated-questions cheat sheet) in
-[`Extra_Material/ml-pipeline/PP2_DEMO_SCRIPT.md`](ml-pipeline/PP2_DEMO_SCRIPT.md).
+[`Extra_Material/Demo_Attack/PP2_DEMO_SCRIPT.md`](Demo_Attack/PP2_DEMO_SCRIPT.md).
 Short version:
 
 1. **Windows host**: `powershell -ExecutionPolicy Bypass -File .\start-caap-pipeline.ps1`
@@ -232,21 +233,29 @@ Short version:
    indexes into `caap-alerts`.
 3. **Attacker VM**: runs `run_attack.sh <victim-ip> all` — cycles ARP spoof →
    port scan → SYN flood → benign, so the CAS score visibly rises and falls
-   on the dashboard as the attack progresses.
+   on the dashboard as the attack progresses. `multi_target_attack_simulator.py`
+   (same folder) does the same across every VM device in one run instead of a
+   single target.
 4. Watch the SOC live feed and the Wazuh browser tab side by side — same
    underlying activity, one view scored by signature severity alone, the
    other factoring in device type, anomaly, exploitation, and time of day.
 
 If a live network demo isn't practical in the room (Wi-Fi, VM networking,
-projector constraints), `Extra_Material/ml-pipeline/replay_test_flows.py`
+projector constraints), `ml-pipeline/replay_test_flows.py`
 replays real held-out test rows through the real models into the same
 dashboard — genuine model output, no live capture required.
 
 ## 9. What's in `Extra_Material/`
 
+The live-demo pipeline is split by role: the packet-capture/scoring side
+(`live_feature_extractor.py`, `flow_consumer.py`, `device_map.json`,
+`run_victim_capture.sh`) lives in `ml-pipeline/` at the repo root, not under
+`Extra_Material/`, since it's genuine pipeline code rather than
+presentation-only material. What's actually in this folder:
+
 | Item | What it's for |
 |---|---|
-| `ml-pipeline/` | The full live-demo pipeline — attack simulator, live packet-capture feature extractor, flow consumer, and the two runnable demo scripts. Self-contained; runs from wherever this folder is copied to. |
+| `Demo_Attack/` | Attack-simulation tooling — `attack_simulator.py`/`run_attack.sh` (single target) and `multi_target_attack_simulator.py`/`run_multi_attack.sh` (every VM device in one run), plus `DEMO_RUNBOOK.md` and `PP2_DEMO_SCRIPT.md`. Self-contained; runs from wherever this folder is copied to. |
 | `Solution Guide.md` | This file. |
 | `CAS_Scoring_Viva_Guide.docx` | A deep-dive, defense-ready reference on the CAS formula alone — every dimension's exact computation, the three-method weight justification (AHP, standards mapping, sensitivity analysis), worked examples, and an extensive Viva Q&A section. See §2 above for the short version; this is the full one. |
 

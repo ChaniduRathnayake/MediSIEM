@@ -1,4 +1,4 @@
-// Read-only reference for the live-demo runbook (Extra_Material/ml-pipeline/DEMO_RUNBOOK.md).
+// Read-only reference for the live-demo runbook (Extra_Material/Demo_Attack/DEMO_RUNBOOK.md).
 // Deliberately not a "run" button — the underlying scripts need root and raw
 // packet capture on separate attacker/victim VMs the backend has no business
 // touching; wiring a web button to them would turn this into a standing
@@ -111,11 +111,11 @@ const PlaybooksPanel: React.FC = () => (
     <Step n={0} title="Give the victim a clinical identity" machine="Windows host">
       <p className="text-xs text-slate-500 dark:text-slate-400">
         Optional but recommended — without it, flows from an unrecognized IP score with a flat clinical-criticality term.
-        Edit <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">Extra_Material/ml-pipeline/device_map.json</code>{' '}
+        Edit <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">ml-pipeline/device_map.json</code>{' '}
         before step 2, since it's loaded once at startup:
       </p>
       <CopyBlock
-        label="Extra_Material/ml-pipeline/device_map.json"
+        label="ml-pipeline/device_map.json"
         command={`{\n  "<ubuntu-vm-ip>": { "device_type": "ICU Ventilator", "department": "ICU" },\n  "_default": { "device_type": "Unknown Device", "department": "General" }\n}`}
       />
     </Step>
@@ -131,15 +131,21 @@ const PlaybooksPanel: React.FC = () => (
 
     <Step n={2} title="Start capture + scoring" machine="Ubuntu VM (victim)">
       <CopyBlock
-        command={`pip3 install -r "Extra_Material/ml-pipeline/requirements.txt"\nip -brief link   # find your interface, e.g. enp0s3\ncd "Extra_Material/ml-pipeline"\nchmod +x run_victim_capture.sh\nsudo ./run_victim_capture.sh <interface> <windows-host-ip> admin <indexer-pass>`}
+        command={`pip3 install -r "ml-pipeline/requirements.txt"\nip -brief link   # find your interface, e.g. enp0s3\ncd "ml-pipeline"\nchmod +x run_victim_capture.sh\nsudo ./run_victim_capture.sh <interface> <windows-host-ip> admin <indexer-pass>`}
       />
       <p className="text-xs text-slate-500 dark:text-slate-400">Leave this running — it's the capture + scoring process for the whole demo.</p>
     </Step>
 
     <Step n={3} title="Launch the simulated attack" machine="RedHat VM (attacker)">
       <CopyBlock
-        command={`pip3 install -r "Extra_Material/ml-pipeline/requirements.txt"\ncd "Extra_Material/ml-pipeline"\nchmod +x run_attack.sh\nsudo ./run_attack.sh <ubuntu-victim-ip> all`}
+        command={`pip3 install -r "ml-pipeline/requirements.txt"\ncd "Extra_Material/Demo_Attack"\nchmod +x run_attack.sh\nsudo ./run_attack.sh <ubuntu-victim-ip> all`}
       />
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        To hit every VM device on the lab network in one run instead of a single target, use{' '}
+        <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">multi_target_attack_simulator.py</code>{' '}
+        (or its <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">run_multi_attack.sh</code> wrapper)
+        in the same folder instead.
+      </p>
       <p className="text-xs text-slate-500 dark:text-slate-400">
         <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">all</code> cycles ARP spoof → port scan → SYN
         flood → benign — good for a "watch the CAS score rise and fall" narrative. Swap in{' '}

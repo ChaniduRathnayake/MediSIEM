@@ -1,7 +1,7 @@
 // Read-only device inventory for SOC analysts — same data as the Admin
 // "Devices" tab, minus any editing (no group management, no OS override).
 import React, { useMemo, useState } from 'react';
-import { Server, Loader2, AlertCircle, Tag, Filter } from 'lucide-react';
+import { Server, Loader2, AlertCircle, Tag, Filter, Stethoscope } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
 import { useDeviceMeta } from './useDeviceMeta';
 import {
@@ -185,6 +185,7 @@ const DevicesReadOnlyPanel: React.FC<{ token: string | null }> = ({ token }) => 
                   <th className="py-2.5 px-5 text-left">IP</th>
                   <th className="py-2.5 px-5 text-left">OS</th>
                   <th className="py-2.5 px-5 text-left">Category</th>
+                  <th className="py-2.5 px-5 text-left">Medical Device</th>
                   <th className="py-2.5 px-5 text-left">Groups</th>
                   <th className="py-2.5 px-5 text-left">Last Seen</th>
                   <th className="py-2.5 px-5 text-right"></th>
@@ -205,6 +206,22 @@ const DevicesReadOnlyPanel: React.FC<{ token: string | null }> = ({ token }) => 
                       <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 font-mono">{ag.ip ?? '—'}</td>
                       <td className="py-3 px-5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatOs(ag.os)}</td>
                       <td className="py-3 px-5"><OsCategoryBadge category={categoryFor(ag)} /></td>
+                      <td className="py-3 px-5">
+                        {(() => {
+                          const medicalDevice = metaByAgent.get(ag.id)?.medicalDevice;
+                          return medicalDevice ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs whitespace-nowrap max-w-[200px]"
+                              title={`${medicalDevice.deviceType} · ${medicalDevice.department}`}
+                            >
+                              <Stethoscope className="w-2.5 h-2.5 flex-shrink-0" />
+                              <span className="truncate">{medicalDevice.deviceName}</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-700 dark:text-slate-700">—</span>
+                          );
+                        })()}
+                      </td>
                       <td className="py-3 px-5">
                         {groupsFor(ag).length === 0 ? (
                           <span className="text-xs text-slate-700">—</span>

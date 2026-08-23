@@ -14,6 +14,14 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+# Windows consoles default stdout to the system codepage (cp1252), which
+# can't encode the ✓/✗ markers below — crashes the script before printing
+# any results on a stock Windows shell (this project's primary platform).
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 # Extra fields /predict needs that aren't in the CSVs themselves.
 # Edit these if you want to test different device/time scenarios.
 EXTRA_FIELDS = {

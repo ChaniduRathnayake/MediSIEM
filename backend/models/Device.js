@@ -28,6 +28,15 @@ const DeviceSchema = new Schema(
       enum: ['windows', 'linux', 'macos', 'network', 'iot', 'unknown', null],
       default: null,
     },
+    // Manual link to the clinical asset this agent actually is (Devices page
+    // "Tag Medical Device") — takes precedence over MedicalDevice.key
+    // name/IP matching in config/deviceInventory.js, since an admin explicitly
+    // identifying the device is more reliable than a hostname heuristic.
+    medicalDeviceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'MedicalDevice',
+      default: null,
+    },
   },
   {
     timestamps: true,

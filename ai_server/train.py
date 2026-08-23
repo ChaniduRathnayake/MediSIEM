@@ -6,7 +6,7 @@
 # Author: R.M.C.B. Rathnayake | IT22061270 | SLIIT Cyber Security
 # Usage: python train.py  ->  models/*.pkl, reports/*.png, reports/classification_report.txt
 
-import os, re, warnings, time, glob, datetime, json, hashlib
+import os, re, sys, warnings, time, glob, datetime, json, hashlib
 import joblib
 import numpy as np
 import pandas as pd
@@ -14,6 +14,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+# Windows consoles default stdout to the system codepage (cp1252), which
+# can't encode the ✓/✗/⚠/✅ markers this script prints throughout — would
+# crash a multi-hour training run partway through on a stock Windows shell
+# (this project's primary platform) instead of just displaying oddly.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
 
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.cluster import KMeans
@@ -29,10 +38,14 @@ from sklearn.utils.class_weight import compute_sample_weight
 warnings.filterwarnings("ignore")
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-TRAIN_DIR  = "data/train"
-TEST_DIR   = "data/test"
-MODEL_DIR  = "models"
-REPORT_DIR = "reports"
+# Env-var overrides (defaults unchanged for the normal `python train.py` flow)
+# so CI can point TRAIN/TEST_DIR at a tiny committed fixture set instead of the
+# real (gitignored) dataset, and retrain_pipeline.py can point MODEL/REPORT_DIR
+# at a staging directory instead of overwriting the live deployed models.
+TRAIN_DIR  = os.environ.get("TRAIN_DATA_DIR", "data/train")
+TEST_DIR   = os.environ.get("TEST_DATA_DIR", "data/test")
+MODEL_DIR  = os.environ.get("MODEL_OUT_DIR", "models")
+REPORT_DIR = os.environ.get("REPORT_OUT_DIR", "reports")
 N_CLUSTERS = 2
 
 # Verified against the actual fitted kmeans.pkl centroids (Tot sum/Tot size/AVG/
