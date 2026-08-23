@@ -36,6 +36,10 @@ LIVE_MODEL_DIR = os.environ.get("LIVE_MODEL_DIR", os.path.join(SCRIPT_DIR, "mode
 LIVE_REPORT_DIR = os.environ.get("LIVE_REPORT_DIR", os.path.join(SCRIPT_DIR, "reports"))
 STAGING_MODEL_DIR = os.environ.get("STAGING_MODEL_DIR", os.path.join(SCRIPT_DIR, "models_staging"))
 STAGING_REPORT_DIR = os.environ.get("STAGING_REPORT_DIR", os.path.join(SCRIPT_DIR, "reports_staging"))
+# Every promote() keeps a timestamped copy of what it replaces; they all land
+# here instead of loose in SCRIPT_DIR so a run of promotions doesn't clutter
+# ai_server/ with one models_backup_*/reports_backup_* pair per run.
+BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(SCRIPT_DIR, "backups"))
 
 
 def load_meta(model_dir: str):
@@ -69,14 +73,15 @@ def run_training(train_dir: str, test_dir: str) -> int:
 def promote():
     """Backs up the current live models/reports (if any), then moves staging
     into their place. Backup lets a bad promotion be rolled back by hand."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
     if os.path.isdir(LIVE_MODEL_DIR):
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        backup_dir = os.path.join(SCRIPT_DIR, f"models_backup_{ts}")
+        backup_dir = os.path.join(BACKUP_DIR, f"models_backup_{ts}")
         shutil.move(LIVE_MODEL_DIR, backup_dir)
-        print(f"[retrain_pipeline] Backed up previous models/ -> {os.path.basename(backup_dir)}/")
+        print(f"[retrain_pipeline] Backed up previous models/ -> {os.path.relpath(backup_dir, SCRIPT_DIR)}/")
     if os.path.isdir(LIVE_REPORT_DIR):
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        backup_dir = os.path.join(SCRIPT_DIR, f"reports_backup_{ts}")
+        backup_dir = os.path.join(BACKUP_DIR, f"reports_backup_{ts}")
         shutil.move(LIVE_REPORT_DIR, backup_dir)
 
     shutil.move(STAGING_MODEL_DIR, LIVE_MODEL_DIR)

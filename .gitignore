@@ -32,8 +32,7 @@ ai_server/reports/
 # generated artifacts rather than source.
 ai_server/models_staging/
 ai_server/reports_staging/
-ai_server/models_backup_*/
-ai_server/reports_backup_*/
+ai_server/backups/
 Extra_Materials/
 
 #Claude Skills
