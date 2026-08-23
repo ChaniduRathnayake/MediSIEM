@@ -1,0 +1,11 @@
+{
+  "_comment": "Map simulated/real device IPs to clinical metadata. TODO: replace with real hospital asset inventory, ideally the same source of truth as backend/config/deviceInventory.js.",
+  "192.168.56.10": { "device_type": "ICU Ventilator", "department": "ICU" },
+  "192.168.56.11": { "device_type": "Infusion Pump", "department": "ICU" },
+  "192.168.56.12": { "device_type": "Cardiac Monitor", "department": "Cardiology" },
+  "192.168.56.13": { "device_type": "CT/MRI System", "department": "Radiology" },
+  "192.168.16.134": { "device_type": "Cardiac Monitor", "department": "Cardiology" },
+  "192.168.16.132": { "device_type": "Infusion Pump", "department": "ICU" },
+  "192.168.16.1": { "device_type": "Workstation", "department": "General" },
+  "_default": { "device_type": "Unknown Device", "department": "General" }
+}
