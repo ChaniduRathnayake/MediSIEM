@@ -43,6 +43,7 @@ import IntegrationsSettingsPanel from './IntegrationsSettingsPanel';
 import CasWeightsSettingsPanel from './CasWeightsSettingsPanel';
 import PlaybooksPanel from './PlaybooksPanel';
 import DetectionPerformancePanel from './DetectionPerformancePanel';
+import IpReputationPanel from './ip-reputation/IpReputationPanel';
 import AuditLogPanel from './AuditLogPanel';
 import PasswordChecklist from '../../components/PasswordChecklist';
 import { apiGetPasswordPolicy } from '../../services/passwordPolicyApi';
@@ -1679,6 +1680,8 @@ const AdminDashboard: React.FC = () => {
                   );
                 case 'Vulnerabilities':
                   return <VulnerabilitiesPanel />;
+                case 'IP Reputation':
+                  return <IpReputationPanel />;
                 case 'Detection Performance':
                   return <DetectionPerformancePanel />;
                 case 'Playbooks':

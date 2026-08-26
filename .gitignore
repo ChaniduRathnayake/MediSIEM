@@ -33,11 +33,15 @@ ai_server/reports/
 ai_server/models_staging/
 ai_server/reports_staging/
 ai_server/backups/
-Extra_Materials/
+Extra_Material/
+ip-reputation-Componets/
 
 #Claude Skills
 .agents
 .claude
+
+# IP Reputation research artifacts (300MB+ of models/experiment data, kept local only)
+ip_reputation_server/ip-reputation-Componets/
 
 # Python bytecode
 __pycache__/

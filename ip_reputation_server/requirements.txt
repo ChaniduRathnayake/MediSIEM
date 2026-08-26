@@ -1,0 +1,12 @@
+# Trimmed to the service's actual runtime imports (verified via `grep -r "^import\|^from"
+# across app.py/config.py/database.py/models/routers/services`). The original file this
+# replaced was a raw `pip freeze` of the author's full Jupyter/notebook dev environment
+# (142 packages — matplotlib, jupyterlab, scikit-learn, xgboost, etc., none of which this
+# FastAPI service imports) and was also missing python-dotenv despite config.py importing
+# it, so a fresh `pip install -r requirements.txt` would have failed at startup.
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+pydantic==2.13.4
+pymongo==4.17.0
+httpx==0.28.1
+python-dotenv

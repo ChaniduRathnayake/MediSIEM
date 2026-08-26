@@ -51,9 +51,10 @@ weighting rationale and a live CAS calculator.
 | [`frontend/`](frontend) | React 19 + Vite + Tailwind SOC dashboard (admin & user views, Wazuh browser, compliance panels) |
 | [`ai_server/`](ai_server) | Flask model-serving API for CAAP (`/predict`) + offline training scripts + `reports/` (charts/metrics from the train/test evaluation) |
 | [`ml-pipeline/`](ml-pipeline) | Live network-flow capture pipeline — a custom 45-column CICIoT2023/IoMT-2024 feature extractor + the flow consumer that scores and indexes real captured traffic. Runs on the lab victim VM(s), not the host. |
+| [`ip_reputation_server/`](ip_reputation_server) | FastAPI microservice backing the dashboard's **IP Reputation** tab — AbuseIPDB/VirusTotal enrichment, internal allow/watch/block lists, analyst verdicts, and MIRS correlation against locally observed flow evidence. Proxied by `backend/routes/ipReputation.js`, never called directly from the browser. Its `ip-reputation-Componets/` subfolder holds the DDoS-detection research pipeline (RF/Isolation Forest/XGBoost/LightGBM, progressive pp2–pp10 validation stages) — the model-training side behind the "Local ML & Context" / MIRS evidence in the tab above; not imported by the FastAPI app directly, it feeds evidence via the flow collector in the original lab deployment. |
 | [`Extra_Material/`](Extra_Material) | Presentation-facing package — the attack simulation lab (`Demo_Attack/`) and demo runbooks |
 | [`medisiem-integration/`](medisiem-integration) | Reference copy of the patch kit used to wire the live CAAP pipeline into `backend`/`frontend`/`ml-pipeline` (already merged — kept for reference) |
-| [`start-caap-pipeline.ps1`](start-caap-pipeline.ps1) | One-shot script that brings up the AI server, backend, and frontend in order |
+| [`start-caap-pipeline.ps1`](start-caap-pipeline.ps1) | One-shot script that brings up the AI server, IP Reputation service, backend, and frontend in order |
 | [`WAZUH_SETUP.md`](WAZUH_SETUP.md) | Wazuh Docker connectivity troubleshooting (proxy chain, ports, host values) |
 | [`CAAP_Weight_Justification.html`](CAAP_Weight_Justification.html) | Interactive writeup + calculator for the CAS weighting scheme |
 
@@ -86,6 +87,13 @@ weighting rationale and a live CAS calculator.
   a from-scratch flow feature extractor for generating realistic training/demo
   data on an isolated VM, plus a Scapy-based attack simulator (single-target
   and multi-target/whole-subnet variants)
+- **IP Reputation** (`ip_reputation_server`) — investigate any IP: AbuseIPDB +
+  VirusTotal enrichment, an explainable MedShield reputation score, internal
+  allow/watch/block lists, analyst verdicts/notes/investigation cases, a
+  Threat Hunt view, and MIRS — a correlated risk score fusing that external
+  reputation with locally observed RF/Isolation Forest/healthcare-context
+  evidence (see `ip_reputation_server/ip-reputation-Componets/`) and matching
+  Wazuh alerts
 
 ## Prerequisites
 
@@ -126,7 +134,19 @@ python train.py                  # produces ai_server/models/*.pkl
 python src/app.py                # http://localhost:5001
 ```
 
-### 3. Frontend
+### 3. IP Reputation service
+
+```bash
+cd ip_reputation_server
+python -m venv venv
+.\venv\Scripts\Activate.ps1     # (Windows) or: source venv/bin/activate
+pip install -r requirements.txt
+# .env needs ABUSEIPDB_API_KEY / VIRUSTOTAL_API_KEY + MONGO_URI to be useful —
+# the tab still loads without them, just with enrichment marked "not configured"
+python -m uvicorn app:app --port 8088   # http://localhost:8088
+```
+
+### 4. Frontend
 
 ```bash
 cd frontend
@@ -134,7 +154,7 @@ npm install
 npm run dev                # http://localhost:5173 (proxies /api/* to :5000)
 ```
 
-### 4. All at once (Windows)
+### 5. All at once (Windows)
 
 Once `backend/.env` is configured and the AI server's models are trained, the
 whole host side can be brought up in order with one script (also verifies the
@@ -144,11 +164,12 @@ Wazuh Indexer is reachable first):
 powershell -ExecutionPolicy Bypass -File .\start-caap-pipeline.ps1
 ```
 
-This starts the Flask AI server (`:5001`), Node backend (`:5000`), and React
-dashboard (`:5173`) each in their own window, then prints the exact commands
-to run inside the lab VM for live traffic capture (step 5 below).
+This starts the Flask AI server (`:5001`), IP Reputation service (`:8088`),
+Node backend (`:5000`), and React dashboard (`:5173`) each in their own
+window, then prints the exact commands to run inside the lab VM for live
+traffic capture (step 6 below).
 
-### 5. (Optional) Live traffic capture & attack simulation lab
+### 6. (Optional) Live traffic capture & attack simulation lab
 
 For end-to-end CAAP scoring on real captured traffic instead of static test
 data, run the capture/simulation tools inside an **isolated lab VM** (they use
@@ -206,6 +227,7 @@ All routes are mounted under `/api` on the backend (`:5000`).
 | `/api/wazuh` | protected | Proxies the Wazuh Manager API — agents, alerts, vulnerabilities, SCA checks, agent details |
 | `/api/compliance` | protected | HIPAA/GDPR rollups and File Integrity Monitoring, via the Wazuh Indexer |
 | `/api/alerts` | protected | CAS-ranked live alert feed + analyst assignment |
+| `/api/ip-reputation` | protected | Proxies `ip_reputation_server` (`:8088`) — reputation lookup, intelligence lists, analyst verdicts/cases, MIRS correlation, audit trail |
 | `/api/health` | none | Health check |
 
 Live alerts are additionally pushed to connected clients over **Socket.IO** as
@@ -232,6 +254,9 @@ WAZUH_INDEXER_VERIFY_SSL=false
 CAAP_AI_URL=http://localhost:5001
 ALERT_POLL_INTERVAL_MS=5000
 ALERT_BUFFER_SIZE=500
+
+# IP Reputation FastAPI microservice (ip_reputation_server/app.py)
+IP_REPUTATION_SERVICE_URL=http://localhost:8088
 ```
 
 Wazuh **Manager API** credentials (used by `/api/wazuh/*`) are supplied
@@ -244,4 +269,5 @@ per-request from the dashboard's connection panel rather than stored in
 - **Frontend**: React 19, Vite, TypeScript, Tailwind CSS 4, React Router 7, Axios, Socket.IO client
 - **AI server**: Python, Flask, scikit-learn (Random Forest, Isolation Forest, K-Means), SHAP
 - **ML pipeline**: Python, Scapy (packet capture / traffic simulation), pandas
+- **IP Reputation service**: Python, FastAPI, PyMongo, httpx (AbuseIPDB/VirusTotal clients)
 - **SIEM backbone**: Wazuh (manager + indexer, run via Docker separately from this repo)

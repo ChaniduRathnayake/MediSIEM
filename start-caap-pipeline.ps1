@@ -2,12 +2,15 @@
 #
 # Brings up the CAAP live pipeline's HOST-side services, in order, each in its
 # own labeled window so you can watch every stage during a demo:
-#   [1/4] Wazuh Indexer check   -- your existing single-node-wazuh stack, NOT
+#   [1/5] Wazuh Indexer check   -- your existing single-node-wazuh stack, NOT
 #                                  started by this script (it's managed
 #                                  separately -- this just confirms it's up)
-#   [2/4] Flask AI server       -- ai_server/src/app.py, real RF/IF/K-Means /predict
-#   [3/4] Node backend          -- backend/server.js, polls the indexer, Socket.IO push
-#   [4/4] React dashboard       -- frontend/, live alert table
+#   [2/5] Flask AI server       -- ai_server/src/app.py, real RF/IF/K-Means /predict
+#   [3/5] IP Reputation service -- ip_reputation_server/app.py, AbuseIPDB/VirusTotal
+#                                  + MIRS correlation backing the IP Reputation tab
+#   [4/5] Node backend          -- backend/server.js, polls the indexer, Socket.IO push,
+#                                  proxies /api/ip-reputation/* to [3/5]
+#   [5/5] React dashboard       -- frontend/, live alert table
 #
 # attack_simulator.py, live_feature_extractor.py, and flow_consumer.py are NOT
 # started by this script -- per your lab setup they run inside an isolated VM
@@ -55,8 +58,8 @@ $indexerUser = Read-EnvVar "WAZUH_INDEXER_USER" "admin"
 $indexerPass = Read-EnvVar "WAZUH_INDEXER_PASS" "changeme"
 $indexerUrl  = Read-EnvVar "WAZUH_INDEXER_URL" "https://localhost:9200"
 
-# ─── [1/4] Wazuh Indexer (managed separately -- just verify it's reachable) ──
-Write-Stage "[1/4] Checking Wazuh Indexer at $indexerUrl"
+# ─── [1/5] Wazuh Indexer (managed separately -- just verify it's reachable) ──
+Write-Stage "[1/5] Checking Wazuh Indexer at $indexerUrl"
 $indexerUp = Wait-Http $indexerUrl "Wazuh Indexer" 15 @("-u", "$($indexerUser):$($indexerPass)")
 if (-not $indexerUp) {
     Write-Host "    Not reachable with the current backend/.env credentials." -ForegroundColor Red
@@ -72,28 +75,37 @@ if (-not $indexerUp) {
 # here silently makes /predict unreachable from every VM with no error at all
 # (the VM's flow_consumer.py just never gets a response). Cost this exact
 # failure a full debugging session once already -- don't drop this line.
-Write-Stage "[2/4] Starting Flask AI server (ai_server/src/app.py, port 5001, bound to 0.0.0.0 for VM reachability)"
+Write-Stage "[2/5] Starting Flask AI server (ai_server/src/app.py, port 5001, bound to 0.0.0.0 for VM reachability)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "`$host.UI.RawUI.WindowTitle = 'CAAP [2/4] Flask AI server :5001'; " +
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [2/5] Flask AI server :5001'; " +
     "cd '$root\ai_server'; .\venv\Scripts\Activate.ps1; `$env:AI_SERVER_HOST='0.0.0.0'; python src\app.py"
 )
 Wait-Http "http://localhost:5001/health" "Flask AI server" | Out-Null
 
-# ─── [3/4] Node backend ────────────────────────────────────────────────────
-Write-Stage "[3/4] Starting Node backend (backend/server.js, port 5000)"
+# ─── [3/5] IP Reputation FastAPI service ────────────────────────────────────
+Write-Stage "[3/5] Starting IP Reputation service (ip_reputation_server/app.py, port 8088)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "`$host.UI.RawUI.WindowTitle = 'CAAP [3/4] Node backend :5000'; " +
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [3/5] IP Reputation service :8088'; " +
+    "cd '$root\ip_reputation_server'; .\venv\Scripts\Activate.ps1; python -m uvicorn app:app --host 0.0.0.0 --port 8088"
+)
+Wait-Http "http://localhost:8088/api/health" "IP Reputation service" | Out-Null
+
+# ─── [4/5] Node backend ────────────────────────────────────────────────────
+Write-Stage "[4/5] Starting Node backend (backend/server.js, port 5000)"
+Start-Process powershell -ArgumentList @(
+    "-NoExit", "-Command",
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [4/5] Node backend :5000'; " +
     "cd '$root\backend'; npm run dev"
 )
 Wait-Http "http://localhost:5000/api/health" "Node backend" | Out-Null
 
-# ─── [4/4] React dashboard ──────────────────────────────────────────────────
-Write-Stage "[4/4] Starting React dashboard (frontend/, port 5173)"
+# ─── [5/5] React dashboard ──────────────────────────────────────────────────
+Write-Stage "[5/5] Starting React dashboard (frontend/, port 5173)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "`$host.UI.RawUI.WindowTitle = 'CAAP [4/4] React dashboard :5173'; " +
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [5/5] React dashboard :5173'; " +
     "cd '$root\frontend'; npm run dev -- --host"
 )
 
