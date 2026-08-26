@@ -5,22 +5,29 @@ The classifier is deliberately rule-based and deterministic. No ML, no
 probabilities, no opacity. Same input always produces same output, and every
 decision is fully explainable via the matched_rule field on the Decision.
 
-Decision logic (v1.0):
+Decision logic (v1.1 — CAS-driven, CVSS retired from decision-making):
 
   IF criticality_score < 5  (non_critical asset):
-      Tier 1 — pick action by CVSS band:
-          cvss < 4   → log_only
-          cvss < 7   → block_port
-          else       → isolate_host
-  ELIF threat is extreme  (cvss >= 9 OR category in extreme set):
+      Tier 1 — pick action by CAS band:
+          cas < 4   → log_only
+          cas < 7   → block_port
+          else      → isolate_host
+  ELIF threat is extreme  (cas >= 9 OR category in extreme set):
       Tier 3 — await_clinician_approval (proposed: isolate_host)
   ELSE:
       Tier 2 — monitored_mode
 
-"Extreme" threat is defined as cvss_score >= EXTREME_CVSS_THRESHOLD (9.0,
-the CVSS critical band) OR threat.category in EXTREME_THREAT_CATEGORIES.
-Thresholds are named constants so they can be tuned without hunting through
-the code.
+"Extreme" threat is defined as cas_score >= EXTREME_CAS_THRESHOLD (9.0) OR
+threat.category in EXTREME_THREAT_CATEGORIES. Thresholds are named
+constants so they can be tuned without hunting through the code.
+
+v1.1 change: threat.cvss_score is no longer read anywhere in this module.
+MediSIEM's CAAP-blended cas_score (technical risk + attack exploitability +
+time context, not just raw attack-type severity) is the only numeric
+severity signal the classifier consults; technical_severity remains the
+categorical fallback for producers with neither score. cvss_score is still
+accepted on the schema and echoed back for display (see docs/alert-schema.md),
+it just no longer drives any decision.
 
 Fail-safe: if criticality_score is missing or invalid, the classifier
 substitutes score=10 / band=life_critical and flags fail_safe_applied=True.
@@ -35,17 +42,12 @@ from .rationale import build_rationale
 
 
 # Tunable constants — change in one place, not scattered through the code.
-EXTREME_CVSS_THRESHOLD = 9.0
-# Same 0-10 scale as CVSS, so the extreme-threat cutoff and the Tier 1 CVSS_*
-# band constants below apply unchanged to cas_score — no separate thresholds
-# needed while CAS and CVSS share a scale and a "9+ is extreme" semantic.
 EXTREME_CAS_THRESHOLD = 9.0
 EXTREME_THREAT_CATEGORIES = {"ransomware", "active_exploitation"}
 
-# CVSS band thresholds used to pick Tier 1 actions. Also used for cas_score
-# when present (see _pick_tier1_action) — same 0-10 scale, same bands.
-CVSS_LOW_MAX = 4.0    # cvss < 4.0 → log_only
-CVSS_MEDIUM_MAX = 7.0 # cvss < 7.0 → block_port
+# CAS band thresholds used to pick Tier 1 actions (0-10 scale).
+CAS_LOW_MAX = 4.0    # cas < 4.0 → log_only
+CAS_MEDIUM_MAX = 7.0 # cas < 7.0 → block_port
 
 # Criticality score thresholds (v1.0: 1–10 scale).
 PROTECTED_SCORE_MIN = 5         # cc_score >= 5 → protected (clinical_support or life_critical)
@@ -92,13 +94,13 @@ def _is_extreme_threat(alert: Alert) -> bool:
 
     Numeric severity, in preference order:
       1. cas_score >= EXTREME_CAS_THRESHOLD, when the producer supplies one
-         (MediSIEM's CAAP-blended score — the validated signal takes over
-         from the raw CVSS baseline the moment it's available).
-      2. cvss_score >= EXTREME_CVSS_THRESHOLD, when no cas_score is present.
-      3. technical_severity == "critical", when neither numeric score is
-         present ("critical" maps to CVSS 9-10 per the schema's severity
-         table; a producer sending only the categorical field is still
-         telling us the threat is in the extreme band).
+         (MediSIEM's CAAP-blended score — folds in technical risk, attack
+         exploitability, and time context, not just raw attack-type
+         severity). This is the only numeric signal the classifier reads;
+         cvss_score is never consulted, even when present.
+      2. technical_severity == "critical", when no cas_score is present
+         (a producer sending only the categorical field is still telling us
+         the threat is in the extreme band).
 
     Category hard override (independent of which numeric signal was used,
     or whether one was available at all): a known-dangerous category always
@@ -110,8 +112,6 @@ def _is_extreme_threat(alert: Alert) -> bool:
 
     if threat.cas_score is not None:
         numeric_extreme = threat.cas_score >= EXTREME_CAS_THRESHOLD
-    elif threat.cvss_score is not None:
-        numeric_extreme = threat.cvss_score >= EXTREME_CVSS_THRESHOLD
     else:
         numeric_extreme = threat.technical_severity == "critical"
 
