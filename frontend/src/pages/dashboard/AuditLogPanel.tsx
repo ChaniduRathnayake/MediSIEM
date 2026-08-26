@@ -26,6 +26,13 @@ const auditActionLabel = (action: AuditLogEntry['action']) => {
     case 'enable_mfa': return 'Enabled two-factor auth';
     case 'disable_mfa': return 'Disabled two-factor auth';
     case 'reset_password': return 'Reset password';
+    case 'export_training_feedback': return 'Exported training feedback';
+    case 'add_alert_note': return 'Added case note';
+    case 'snooze_alert': return 'Snoozed alert';
+    case 'unsnooze_alert': return 'Unsnoozed alert';
+    case 'require_mfa': return 'Required two-factor auth';
+    case 'unrequire_mfa': return 'Unrequired two-factor auth';
+    case 'admin_reset_mfa': return 'Reset user 2FA enrollment';
     default: return 'Updated';
   }
 };
@@ -42,6 +49,8 @@ const auditActionBadge = (action: AuditLogEntry['action']) => {
     case 'unassign_alert':
     case 'delete_medical_device':
     case 'disable_mfa':
+    case 'unrequire_mfa':
+    case 'unsnooze_alert':
       return 'text-red-400 bg-red-500/10 border-red-500/30';
     case 'update_device_groups':
     case 'update_device_os_category':
@@ -49,10 +58,15 @@ const auditActionBadge = (action: AuditLogEntry['action']) => {
     case 'assign_alert':
     case 'update_medical_device':
     case 'update_medical_device_groups':
+    case 'snooze_alert':
+    case 'require_mfa':
       return 'text-violet-400 bg-violet-500/10 border-violet-500/30';
     case 'close_alert':
     case 'update_settings':
     case 'reset_password':
+    case 'admin_reset_mfa':
+    case 'export_training_feedback':
+    case 'add_alert_note':
       return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
     default:
       return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
@@ -100,10 +114,10 @@ const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
           cmp = auditActionLabel(a.action).localeCompare(auditActionLabel(b.action));
           break;
         case 'actor':
-          cmp = (a.actor.name || a.actor.email || '').localeCompare(b.actor.name || b.actor.email || '');
+          cmp = (a.actor?.name || a.actor?.email || '').localeCompare(b.actor?.name || b.actor?.email || '');
           break;
         case 'target':
-          cmp = (a.target.name || a.target.email || '').localeCompare(b.target.name || b.target.email || '');
+          cmp = (a.target?.name || a.target?.email || '').localeCompare(b.target?.name || b.target?.email || '');
           break;
         case 'when':
           cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
@@ -167,8 +181,8 @@ const AuditLogPanel: React.FC<{ token: string | null }> = ({ token }) => {
                       {auditActionLabel(log.action)}
                     </span>
                   </td>
-                  <td className="py-3 px-5 text-sm text-slate-900 dark:text-white">{log.actor.name || log.actor.email || '—'}</td>
-                  <td className="py-3 px-5 text-sm text-slate-500 dark:text-slate-400">{log.target.name || log.target.email || '—'}</td>
+                  <td className="py-3 px-5 text-sm text-slate-900 dark:text-white">{log.actor?.name || log.actor?.email || '—'}</td>
+                  <td className="py-3 px-5 text-sm text-slate-500 dark:text-slate-400">{log.target?.name || log.target?.email || '—'}</td>
                   <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500">{log.details}</td>
                   <td className="py-3 px-5 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
                     {new Date(log.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}

@@ -47,7 +47,7 @@ export function severityCounts<T>(items: T[], severityOf: (item: T) => Severity)
 }
 
 export interface TimeBucket {
-  time: string; // short label, e.g. "14:00"
+  time: string; // short label, e.g. "23 Aug, 14:00" — includes the date since a 24h window commonly crosses midnight
   CRITICAL: number;
   HIGH: number;
   MEDIUM: number;
@@ -91,7 +91,7 @@ export function bucketAlertsByHour<T>(
   const buckets: TimeBucket[] = Array.from({ length: hours }, (_, i) => {
     const bucketStart = anchor - (hours - 1 - i) * bucketMs;
     return {
-      time: new Date(bucketStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: new Date(bucketStart).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
       CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0,
     };
   });

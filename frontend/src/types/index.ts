@@ -41,10 +41,11 @@ export interface AuditLogEntry {
     | 'onboard_medical_device' | 'update_medical_device'
     | 'update_medical_device_groups' | 'delete_medical_device'
     | 'update_settings' | 'enable_mfa' | 'disable_mfa' | 'reset_password'
+    | 'export_training_feedback'
     | 'add_alert_note' | 'snooze_alert' | 'unsnooze_alert'
     | 'require_mfa' | 'unrequire_mfa' | 'admin_reset_mfa';
-  actor: { id: string; name?: string; email?: string };
-  target: { id?: string; name?: string; email?: string };
+  actor?: { id: string; name?: string; email?: string };
+  target?: { id?: string; name?: string; email?: string };
   details: string;
   createdAt: string;
 }

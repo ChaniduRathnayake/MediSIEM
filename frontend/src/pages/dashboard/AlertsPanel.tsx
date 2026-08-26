@@ -150,7 +150,7 @@ const AlertsPanel: React.FC<{
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [actionFilter, setActionFilter] = useState<EnrichedAlert['action'] | 'all'>('all');
   const [detectionFilter, setDetectionFilter] = useState<DetectionFilter>('all');
-  const [sortColumn, setSortColumn] = useState<SortColumn>('CAS');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('timestamp');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   // Derived, not stateful — 'sortBy' only exists so saved views / the AI natural-language
   // search (ParsedAlertQuery) can still express "roughly CAS-sorted" or "roughly

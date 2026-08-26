@@ -77,13 +77,18 @@ jobs:
             ai_server/test.py ai_server/test_cas_config.py ai_server/test_real_rows.py \
             ai_server/verify_feature_cols.py \
             "ml-pipeline/flow_consumer.py" "ml-pipeline/live_feature_extractor.py" "ml-pipeline/replay_test_flows.py" \
-            "Extra_Material/Demo_Attack/attack_simulator.py" "Extra_Material/Demo_Attack/multi_target_attack_simulator.py"
+            "Extra_Material/Demo_Attack/attack_simulator.py" "Extra_Material/Demo_Attack/multi_target_attack_simulator.py" \
+            "Extra_Material/Test_Cases/test_cas_vs_cvss_scenarios.py"
       # Unlike app.py/train.py/test.py, this one needs no trained model
       # artifacts and no third-party packages (cas_config.py/cas_engine.py
       # are pure-stdlib) — a real drift guard CI can actually execute, not
       # just syntax-check, on every push.
       - name: Run CAS config parity/drift checks
         run: python ai_server/test_cas_config.py
+      # Executable counterpart of Extra_Material/Test_Cases/CAS_vs_CVSS_Test_Cases.md
+      # — same no-model-artifacts, pure-stdlib property as the parity check above.
+      - name: Run CAS-vs-CVSS scenario regression tests
+        run: python Extra_Material/Test_Cases/test_cas_vs_cvss_scenarios.py
       - name: Install ai_server dependencies
         run: pip install -r ai_server/requirements.txt
       # Reproducibility check (roadmap 15.2): runs the REAL train.py end to
