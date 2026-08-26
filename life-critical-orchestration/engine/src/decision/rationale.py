@@ -136,16 +136,18 @@ def _tier3_statement(band: CriticalityBand) -> str:
 # ---------- Threat-signal helper ----------
 
 def _threat_signal_statement(alert: Alert, extreme_threat: bool) -> str:
-    """Describe the threat severity signal used by the classifier."""
+    """Describe the threat severity signal used by the classifier.
+
+    Mirrors the classifier's own preference order exactly: cas_score, then
+    the categorical fallback. cvss_score is deliberately never named here as
+    a decision basis (v1.1 retired it from decision-making) — if present
+    it's shown elsewhere as a display-only field, not cited as "why."
+    """
     threat = alert.threat
     bits = []
 
-    # Mirrors the classifier's own preference order: cas_score first, then
-    # cvss_score, then the categorical fallback.
     if threat.cas_score is not None:
         bits.append(f"Threat CAS score (MediSIEM CAAP): {threat.cas_score}.")
-    elif threat.cvss_score is not None:
-        bits.append(f"Threat CVSS score: {threat.cvss_score}.")
     elif threat.technical_severity is not None:
         bits.append(f"Threat severity: {threat.technical_severity}.")
     else:
@@ -159,8 +161,6 @@ def _threat_signal_statement(alert: Alert, extreme_threat: bool) -> str:
         )
     elif extreme_threat and threat.cas_score is not None and threat.cas_score >= 9.0:
         bits.append("CAS score is in the extreme band (>=9.0).")
-    elif extreme_threat and threat.cas_score is None and threat.cvss_score is not None and threat.cvss_score >= 9.0:
-        bits.append("CVSS score is in the extreme band (>=9.0).")
 
     return " ".join(bits)
 

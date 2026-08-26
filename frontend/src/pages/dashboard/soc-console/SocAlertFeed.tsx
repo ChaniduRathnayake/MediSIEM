@@ -79,11 +79,6 @@ const SocAlertFeed: React.FC<{
                 <div className="flex items-baseline justify-between gap-2 mb-1">
                   <span className="text-soc-text text-sm font-bold truncate">{alert.asset.asset_id}</span>
                   <span className="flex items-center gap-1 shrink-0">
-                    {alert._live && (
-                      <span className="text-soc-accent text-[9px] uppercase tracking-wider font-bold border border-soc-accent/50 px-1 rounded-sm">
-                        live
-                      </span>
-                    )}
                     <span className="text-soc-muted text-[10px] uppercase tracking-wider">
                       T{alert._expectedTier ?? '?'}
                     </span>
@@ -94,7 +89,7 @@ const SocAlertFeed: React.FC<{
                 </div>
                 <div className="flex gap-3 text-[10px] text-soc-muted mt-1">
                   <span>cc={alert.clinical_context.criticality_score ?? '?'}</span>
-                  <span>cvss={alert.threat.cvss_score ?? '?'}</span>
+                  <span>cas={alert.threat.cas_score ?? '?'}</span>
                   <span className="truncate">{alert.asset.department || ''}</span>
                 </div>
               </button>

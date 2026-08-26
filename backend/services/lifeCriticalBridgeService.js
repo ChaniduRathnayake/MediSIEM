@@ -65,9 +65,19 @@ function clampCriticality(ccScore) {
   return Math.min(10, Math.max(1, rounded));
 }
 
+// Readable name preferred over the raw IP, per explicit instruction — a real
+// Wazuh agent.id (unique, stable) still wins when present. NOTE: for the
+// flow_consumer.py live-capture path, agent.name is device_map.json's
+// device_type (e.g. "ICU Ventilator"), which is NOT guaranteed unique across
+// two physical units of the same device type — the pending-approval tray,
+// audit log, and Shuffle actions all key off asset_id, so two same-type
+// devices alerting concurrently would currently be tracked as one asset.
+// Not a concern for a single-device demo; worth a real per-device key (e.g.
+// device_map.json entries keyed by a unique asset tag, not just IP) before
+// this runs against a multi-device fleet.
 function buildEnrichedAlert(raw, displayAlert) {
   const assetId = String(
-    raw.agent?.id ?? raw.agent?.ip ?? raw.agent?.name ?? displayAlert.agent ?? 'unknown-asset'
+    raw.agent?.id ?? raw.agent?.name ?? displayAlert.deviceType ?? displayAlert.agent ?? raw.agent?.ip ?? 'unknown-asset'
   );
 
   return {

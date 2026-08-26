@@ -91,32 +91,33 @@ What kind of threat this is and how severe.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `category` | string | no | Threat category (e.g. `"brute_force"`, `"ransomware"`, `"active_exploitation"`, `"data_exfiltration"`, `"lateral_movement"`). |
-| `technical_severity` | enum: `"low"` / `"medium"` / `"high"` / `"critical"` | yes (one of `technical_severity` or `cvss_score`, unless `cas_score` is present) | Categorical severity. |
-| `cvss_score` | number (0.0–10.0) | yes (one of `technical_severity` or `cvss_score`, unless `cas_score` is present) | CVSS v3 base score. |
-| `cas_score` | number (0.0–10.0) | no | MediSIEM CAAP's blended severity score — same 0–10 scale as `cvss_score`, NOT 0–1. Folds in technical risk, attack exploitability, and time context on top of raw attack severity. **When present, this is the authoritative severity signal** — the engine reads it instead of `cvss_score` (see *Decision logic* below). |
+| `cas_score` | number (0.0–10.0) | yes (one of `cas_score` or `technical_severity`) | MediSIEM CAAP's blended severity score — 0–10 scale. Folds in technical risk, attack exploitability, and time context on top of raw attack severity. **The sole numeric decision signal (v1.1)** — see *Decision logic* below. |
 | `cas_breakdown` | object | no | Display-only sub-scores behind `cas_score` (`TR`/`CC`/`TS`/`AE`/`TC`). The engine never reads this. |
+| `technical_severity` | enum: `"low"` / `"medium"` / `"high"` / `"critical"` | yes (one of `cas_score` or `technical_severity`) | Categorical severity — the only fallback when no `cas_score` is supplied. |
+| `cvss_score` | number (0.0–10.0) | no | CVSS v3 base score. **Retired from decision-making as of v1.1** — accepted and echoed back for display only (e.g. the SOC console's Threat panel); the engine never reads it to classify a threat. Kept for producers that still send it and for historical/audit records predating v1.1. |
 | `indicators` | object | no | Free-form indicators of compromise (IPs, ports, hashes, etc.). |
 
 **Severity mapping (decision engine convention):**
 
-| `cvss_score` | `technical_severity` |
-|--------------|----------------------|
+| `cas_score` | `technical_severity` |
+|-------------|----------------------|
 | 0.0–3.9 | `low` |
 | 4.0–6.9 | `medium` |
 | 7.0–8.9 | `high` |
 | 9.0–10.0 | `critical` |
 
-The decision engine prefers `cas_score` if present; otherwise `cvss_score`;
-otherwise falls back to `technical_severity`.
+The decision engine reads `cas_score` if present; otherwise falls back to
+`technical_severity`. `cvss_score` is never read for this decision (v1.1).
 
 **Extreme threat (engine-internal classification):**
 
 The engine treats a threat as **extreme** when **either** of the following
 is true:
 
-- The numeric severity signal clears 9.0 — `cas_score` when present,
-  otherwise `cvss_score`. (`cas_score` fully replaces `cvss_score` for this
-  check the moment a producer supplies one; the two are never combined.) OR
+- `cas_score >= 9.0`, when a producer supplies one — the sole numeric
+  decision signal as of v1.1 (`cvss_score` is never consulted, even when
+  present alongside or instead of `cas_score`). With no `cas_score` at all,
+  the engine falls back to `technical_severity == "critical"`. OR
 - `category` is one of: `"ransomware"`, `"active_exploitation"` — this
   check is independent of which numeric signal was used, or whether either
   was available at all. A known-dangerous category always escalates, even
@@ -274,8 +275,9 @@ enrichment module produced an alert.
 ## Decision logic (how the engine consumes the schema)
 
 The engine reads only `criticality_score` (from `clinical_context`),
-`cvss_score` / `technical_severity` (from `threat`), and `category`
-(from `threat`). It produces a tier decision and an action.
+`cas_score` / `technical_severity` (from `threat`), and `category`
+(from `threat`). It produces a tier decision and an action. `cvss_score`
+is accepted and echoed back for display but never read here (v1.1).
 
 ### Action vocabulary
 
@@ -293,7 +295,7 @@ Asset criticality (rows) gates whether the asset is treated as protected
 at all. Threat severity (columns) drives the Tier 1 action choice and the
 Tier 2 / Tier 3 split for protected assets.
 
-| `criticality_score` (band) | low CVSS (<4) | medium (4–6.9) | high (7–8.9) | extreme (≥9 OR ransomware / active_exploitation) |
+| `criticality_score` (band) | low CAS (<4) | medium (4–6.9) | high (7–8.9) | extreme (≥9 OR ransomware / active_exploitation) |
 |----------------------------|---------------|----------------|--------------|--------------------------------------------------|
 | 1–4 (`non_critical`)       | **Tier 1** `log_only`     | **Tier 1** `block_port`   | **Tier 1** `isolate_host` | **Tier 1** `isolate_host` |
 | 5–7 (`clinical_support`)   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | **Tier 3** `await_clinician_approval` |
@@ -303,15 +305,17 @@ Tier 2 / Tier 3 split for protected assets.
 
 ```
 IF criticality_score < 5:
-    pick action by CVSS band:
-        cvss < 4   → Tier 1, log_only
-        cvss < 7   → Tier 1, block_port
-        else       → Tier 1, isolate_host
-ELIF threat is extreme (cvss_score >= 9 OR category in {ransomware, active_exploitation}):
+    pick action by CAS band:
+        cas < 4   → Tier 1, log_only
+        cas < 7   → Tier 1, block_port
+        else      → Tier 1, isolate_host
+ELIF threat is extreme (cas_score >= 9 OR category in {ransomware, active_exploitation}):
     → Tier 3, await_clinician_approval
 ELSE:
     → Tier 2, monitored_mode
 ```
+
+(No `cas_score` at all → substitute `technical_severity` at the same bands: `critical`→extreme, `high`→"high", `medium`→"medium", `low`→"low". `cvss_score` is never consulted.)
 
 Both `clinical_support` (5–7) and `life_critical` (8–10) follow the
 **same** escalation path. The band distinction exists for dashboard
@@ -390,7 +394,7 @@ decision chain for accountability (NFR-01).
 | `alert_id` | **Reject** the alert (cannot be audited). |
 | `timestamp` | Substitute current UTC time, log a warning. |
 | `source.siem` | Default to `"unknown"`. |
-| `threat.cvss_score` AND `threat.technical_severity` | **Treat as `critical` severity** (cautious). |
+| `threat.cas_score` AND `threat.technical_severity` (both missing) | No numeric severity signal — Tier 1 defaults to `isolate_host` (most cautious), Tier 2/3 split defaults to non-extreme unless `category` is a hard-override match. |
 | `asset.asset_id` | **Reject** the alert (cannot be tracked). |
 | `clinical_context.criticality_score` | **Treat as `life_critical` / score 10** (cautious default). See *Fail-safe rule*. |
 | `enrichment_meta` (entire block) | Log a warning; proceed normally. |
@@ -443,7 +447,7 @@ A complete, valid Tier 2 alert:
   "threat": {
     "category": "brute_force",
     "technical_severity": "high",
-    "cvss_score": 7.5,
+    "cas_score": 7.5,
     "indicators": {
       "source_ip": "192.168.1.42",
       "destination_port": 22
@@ -474,4 +478,4 @@ A complete, valid Tier 2 alert:
 
 This alert is classified by the engine as **Tier 2 → `monitored_mode`**:
 asset is `life_critical` (score 10 → 8–10 band), threat is `high` but
-not extreme (CVSS 7.5 < 9, category `brute_force` is not extreme).
+not extreme (CAS 7.5 < 9, category `brute_force` is not extreme).

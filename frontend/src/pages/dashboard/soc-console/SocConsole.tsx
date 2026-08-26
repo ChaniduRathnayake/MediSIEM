@@ -6,17 +6,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Radio, WifiOff } from 'lucide-react';
 import {
-  apiGetLifeCriticalStatus, apiGetRecentDecisions, apiDecideAlert,
+  apiGetLifeCriticalStatus, apiGetRecentDecisions,
 } from '../../../services/lifeCriticalApi';
 import type { LifeCriticalDecision, LifeCriticalDecisionItem } from '../../../services/lifeCriticalApi';
 import type { StubAlert } from './socTypes';
-import { socSampleAlerts } from './socSampleAlerts';
 import SocAlertFeed from './SocAlertFeed';
 import SocDecisionDetail from './SocDecisionDetail';
 import SocPendingApprovalTray from './SocPendingApprovalTray';
 import SocAuditTimeline from './SocAuditTimeline';
 
-const LIVE_POLL_INTERVAL_MS = 3000;
+// The original standalone app used 3000ms — fine for a lone app with only
+// these two endpoints on its own server. Embedded in MediSIEM, this shares
+// a single global rate limit (300 req/15min across ALL of /api/*, see
+// backend/server.js) with every other panel/poll in the whole dashboard.
+// Two separate 3s intervals alone would be ~600 req/15min — well over
+// budget by itself. 10s, combined into one tick below, keeps this console's
+// footprint modest.
+const LIVE_POLL_INTERVAL_MS = 10000;
 
 function liveItemToStubAlert(item: LifeCriticalDecisionItem): StubAlert {
   const a = item.alert;
@@ -38,14 +44,30 @@ function fingerprint(a: StubAlert): string {
   return [
     a.asset?.asset_id || '',
     a.source?.rule_description || '',
-    a.threat?.cvss_score ?? '',
+    a.threat?.cas_score ?? '',
     a.clinical_context?.criticality_score ?? '',
     a.threat?.category || '',
     a._expectedTier ?? '',
   ].join('|');
 }
 
-const SocHeaderBar: React.FC<{ engineStatus: 'checking' | 'online' | 'offline' }> = ({ engineStatus }) => {
+type EngineStatus = 'checking' | 'online' | 'offline' | 'unknown';
+
+const STATUS_LABEL: Record<EngineStatus, string> = {
+  checking: 'checking',
+  online: 'online',
+  // Distinguished from 'offline' deliberately — this is "the engine itself
+  // reported unreachable" (the backend's own /status check succeeded and
+  // said engineReachable:false), not the same as failing to even ask.
+  offline: 'offline',
+  // The status *request itself* failed — auth expired, rate-limited, a
+  // network blip — never conflate this with "the engine is down": the
+  // engine could be perfectly healthy while this session just can't
+  // currently reach MediSIEM's own backend to ask it.
+  unknown: 'unknown',
+};
+
+const SocHeaderBar: React.FC<{ engineStatus: EngineStatus; statusDetail?: string | null }> = ({ engineStatus, statusDetail }) => {
   const statusColor = engineStatus === 'online' ? 'text-tier-1' : engineStatus === 'offline' ? 'text-tier-3' : 'text-soc-muted';
   return (
     <header className="border-b border-soc-border bg-soc-panel px-6 py-3 flex items-center justify-between">
@@ -53,17 +75,18 @@ const SocHeaderBar: React.FC<{ engineStatus: 'checking' | 'online' | 'offline' }
         <h1 className="text-soc-accent text-lg font-bold">Life-Critical SOC Console</h1>
         <span className="text-soc-muted text-xs">R26-CS-008 • PP1</span>
       </div>
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-2 text-xs" title={statusDetail || undefined}>
         {engineStatus === 'online' ? <Radio className="w-3.5 h-3.5 text-tier-1" /> : <WifiOff className="w-3.5 h-3.5 text-tier-3" />}
         <span className="text-soc-muted">engine:</span>
-        <span className={`${statusColor} font-bold uppercase`}>{engineStatus}</span>
+        <span className={`${statusColor} font-bold uppercase`}>{STATUS_LABEL[engineStatus]}</span>
       </div>
     </header>
   );
 };
 
 const SocConsole: React.FC<{ token: string }> = ({ token }) => {
-  const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>('checking');
+  const [statusDetail, setStatusDetail] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<StubAlert | null>(null);
   const [decision, setDecision] = useState<LifeCriticalDecision | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
@@ -71,45 +94,44 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
   const [liveItems, setLiveItems] = useState<LifeCriticalDecisionItem[]>([]);
   const [trayRefreshKey, setTrayRefreshKey] = useState(0);
 
-  const checkStatus = useCallback(async () => {
+  // Combined into a single tick (was two separate 3s intervals) — halves the
+  // request volume for the same information, see the interval comment above.
+  const refresh = useCallback(async () => {
     try {
       const s = await apiGetLifeCriticalStatus(token);
       setEngineStatus(s.engineReachable ? 'online' : 'offline');
-    } catch {
-      setEngineStatus('offline');
+      setStatusDetail(s.engineReachable ? null : s.error || 'Engine reported unreachable.');
+    } catch (err) {
+      // The status *request* failed (auth expired, rate-limited, network
+      // blip) — this says nothing about whether the engine itself is up.
+      // Conflating this with 'offline' is exactly the bug that made a
+      // healthy engine look down during a transient MediSIEM-side hiccup.
+      setEngineStatus('unknown');
+      setStatusDetail(err instanceof Error ? err.message : 'Could not reach MediSIEM\'s backend to check.');
     }
-  }, [token]);
-
-  const pollLive = useCallback(async () => {
     try {
       const { items } = await apiGetRecentDecisions(token, 50);
       setLiveItems(items);
     } catch {
-      // Engine offline / proxy unreachable — status banner already covers this.
+      // Engine offline / proxy unreachable / rate-limited — status badge above already covers this.
     }
   }, [token]);
 
   useEffect(() => {
-    checkStatus();
-    pollLive();
-    const statusId = setInterval(checkStatus, LIVE_POLL_INTERVAL_MS);
-    const liveId = setInterval(pollLive, LIVE_POLL_INTERVAL_MS);
-    return () => {
-      clearInterval(statusId);
-      clearInterval(liveId);
-    };
-  }, [checkStatus, pollLive]);
+    refresh();
+    const id = setInterval(refresh, LIVE_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
 
-  // Merge live decisions with the bundled stubs — live wins on a fingerprint
-  // collision, sorted tier desc / cc desc / cvss desc / newest first. Ported
-  // from App.jsx's feedAlerts useMemo.
+  // Live decisions only — the bundled pre-CAS demo stubs (life-critical-orchestration's
+  // original 12 sample alerts) never carry a cas_score at all, so they're filtered out
+  // entirely rather than shown with a fabricated/missing value. Sorted tier desc / cc
+  // desc / cas desc / newest first. Adapted from App.jsx's feedAlerts useMemo.
   const feedAlerts = useMemo<StubAlert[]>(() => {
-    const taggedLive = liveItems.map(liveItemToStubAlert);
-    const taggedStubs: StubAlert[] = socSampleAlerts.map((a) => ({ ...a, _sortTimestamp: a.timestamp || '' }));
+    const taggedLive = liveItems.map(liveItemToStubAlert).filter((a) => typeof a.threat?.cas_score === 'number');
 
-    const merged = [...taggedLive, ...taggedStubs];
     const seen = new Map<string, StubAlert>();
-    for (const item of merged) {
+    for (const item of taggedLive) {
       const key = fingerprint(item);
       if (!seen.has(key)) seen.set(key, item);
     }
@@ -124,42 +146,23 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
       const ccA = effectiveCC(a);
       const ccB = effectiveCC(b);
       if (ccB !== ccA) return ccB - ccA;
-      const cvssA = a.threat?.cvss_score ?? -1;
-      const cvssB = b.threat?.cvss_score ?? -1;
-      if (cvssB !== cvssA) return cvssB - cvssA;
+      const casA = a.threat?.cas_score ?? -1;
+      const casB = b.threat?.cas_score ?? -1;
+      if (casB !== casA) return casB - casA;
       return (b._sortTimestamp || '').localeCompare(a._sortTimestamp || '');
     });
 
     return deduped;
   }, [liveItems]);
 
-  async function handleSelectAlert(alert: StubAlert) {
+  // feedAlerts is now live-only (every entry has cas_score + _liveDecision by
+  // construction — see the filter above), so this always has a decision on
+  // hand already; no on-demand /decide classification needed anymore.
+  function handleSelectAlert(alert: StubAlert) {
     setSelectedAlert(alert);
     setDecideError(null);
-
-    if (alert._live && alert._liveDecision) {
-      setDecision(alert._liveDecision);
-      setBusy(false);
-      return;
-    }
-
-    const prior = liveItems.find((x) => x.alert.alert_id === alert.alert_id);
-    if (prior) {
-      setDecision(prior.decision);
-      setBusy(false);
-      return;
-    }
-
-    setDecision(null);
-    setBusy(true);
-    try {
-      const result = await apiDecideAlert(token, alert as unknown as Record<string, unknown>);
-      setDecision(result);
-    } catch (err) {
-      setDecideError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    setDecision(alert._liveDecision ?? null);
+    setBusy(false);
   }
 
   function handleSelectPendingItem(item: LifeCriticalDecisionItem) {
@@ -171,7 +174,7 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
 
   return (
     <div className="h-[calc(100vh-4rem)] min-h-[600px] flex flex-col font-mono bg-soc-bg text-soc-text rounded-xl overflow-hidden border border-soc-border">
-      <SocHeaderBar engineStatus={engineStatus} />
+      <SocHeaderBar engineStatus={engineStatus} statusDetail={statusDetail} />
       <SocPendingApprovalTray token={token} refreshKey={decision?.decision_id} onSelectItem={handleSelectPendingItem} />
 
       <main className="flex-1 grid grid-cols-3 gap-px bg-soc-border overflow-hidden">
@@ -180,7 +183,7 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
             <h2 className="text-xs uppercase tracking-wider text-soc-muted">
               Alert Feed
               <span className="ml-2 text-soc-muted normal-case">
-                ({feedAlerts.length}{liveItems.length > 0 ? ` • ${liveItems.length} live` : ' samples'})
+                ({feedAlerts.length} CAS-scored)
               </span>
             </h2>
           </div>

@@ -3,7 +3,7 @@
 # and indexes the result into OpenSearch's "caap-alerts" index — the Node
 # backend polls that index and pushes to the dashboard over Socket.IO.
 # Requires: pip install pandas requests watchdog
-# Usage: python flow_consumer.py --flow-dir ./cicflowmeter_output --caap-url http://localhost:5001 \
+# Usage: python flow_consumer.py --flow-dir ./cicflowmeter_output --caap-url http://127.0.0.1:5001 \
 #     --indexer-url https://localhost:9200 --indexer-user admin --indexer-pass changeme
 
 import argparse
@@ -131,7 +131,15 @@ class FlowFileHandler(FileSystemEventHandler):
 def main():
     parser = argparse.ArgumentParser(description="CAAP live flow consumer")
     parser.add_argument("--flow-dir", required=True, help="Directory CICFlowMeter writes live CSV output to")
-    parser.add_argument("--caap-url", default="http://localhost:5001")
+    # 127.0.0.1, not localhost: on this project's dev machines, "localhost" can
+    # resolve to ::1 first, and Docker Desktop's WSL2 relay (wslrelay.exe) has
+    # been observed squatting on ::1:5001 for an unrelated reason — silently
+    # swallowing every /predict call (caught by the except below, which just
+    # skips the row) with zero visible error besides a console line easy to
+    # miss. Forcing IPv4 here sidesteps that landmine entirely. Confirmed via
+    # `python -c "import requests; requests.get('http://localhost:5001/health')"`
+    # returning a Go-style 404 instead of ai_server's real Flask response.
+    parser.add_argument("--caap-url", default="http://127.0.0.1:5001")
     parser.add_argument("--indexer-url", default="https://localhost:9200")
     parser.add_argument("--indexer-user", default="admin")
     parser.add_argument("--indexer-pass", default="changeme")

@@ -162,16 +162,17 @@ def _extract_block_target(alert: Alert) -> Tuple[Optional[str], Optional[list]]:
 
 def _pick_tier1_action(alert: Alert) -> Tuple[str, str]:
     """
-    For a non-critical asset, pick the appropriate Tier 1 action by numeric
-    severity band (cas_score preferred, cvss_score fallback).
+    For a non-critical asset, pick the appropriate Tier 1 action by CAS band.
+    cvss_score is never read here — technical_severity is the only fallback
+    for a producer that hasn't supplied a cas_score.
 
     Returns (action, matched_rule_suffix).
 
-    Band mapping (same 0-10 scale for either signal):
-      score < 4.0           → log_only
-      4.0 <= score < 7.0    → block_port
-      score >= 7.0          → isolate_host
-      (no numeric score)    → fall back to technical_severity, same bands
+    Band mapping (0-10 scale):
+      cas < 4.0           → log_only
+      4.0 <= cas < 7.0    → block_port
+      cas >= 7.0          → isolate_host
+      (no cas_score)      → fall back to technical_severity, same bands
 
     For non-critical assets the engine will always pick *some* disruptive
     action; the only question is how aggressive. When in doubt about
@@ -180,17 +181,13 @@ def _pick_tier1_action(alert: Alert) -> Tuple[str, str]:
     """
     threat = alert.threat
 
-    # Prefer cas_score (MediSIEM's blended severity) over the raw CVSS
-    # baseline when the producer supplies one; same bands either way.
-    score = threat.cas_score if threat.cas_score is not None else threat.cvss_score
-    basis = "cas" if threat.cas_score is not None else "cvss"
-
-    if score is not None:
-        if score < CVSS_LOW_MAX:
-            return "log_only", f"low_{basis}"
-        if score < CVSS_MEDIUM_MAX:
-            return "block_port", f"medium_{basis}"
-        return "isolate_host", f"high_or_extreme_{basis}"
+    if threat.cas_score is not None:
+        cas = threat.cas_score
+        if cas < CAS_LOW_MAX:
+            return "log_only", "low_cas"
+        if cas < CAS_MEDIUM_MAX:
+            return "block_port", "medium_cas"
+        return "isolate_host", "high_or_extreme_cas"
 
     # Fall back to categorical severity using the same band structure
     sev = threat.technical_severity

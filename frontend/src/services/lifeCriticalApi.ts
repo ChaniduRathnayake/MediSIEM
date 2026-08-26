@@ -103,11 +103,28 @@ export interface ShuffleAction {
   extra?: Record<string, unknown>;
 }
 
+// Any of these calls can hit a non-JSON response the backend itself didn't
+// produce — express-rate-limit's default 429 body is plain text ("Too many
+// requests..."), and a proxy/timeout error can return HTML. Parsing that with
+// res.json() throws "Unexpected token 'T', ... is not valid JSON", which is
+// meaningless to a user. Read as text first and translate the common cases.
+async function parseResponse(res: Response): Promise<any> {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    if (res.status === 429) {
+      throw new Error('Too many requests to the server right now — this panel polls periodically, so it will recover on its own shortly.');
+    }
+    throw new Error(`Unexpected response from server (HTTP ${res.status}): ${text.slice(0, 150)}`);
+  }
+}
+
 async function getJson<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const json = await res.json();
+  const json = await parseResponse(res);
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json;
 }
@@ -145,7 +162,7 @@ export async function apiDecideAlert(token: string, alert: Record<string, unknow
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(alert),
   });
-  const json = await res.json();
+  const json = await parseResponse(res);
   if (!res.ok) throw new Error(json.error || 'Classification failed');
   return json;
 }
@@ -167,7 +184,7 @@ export async function apiSubmitClinicianDecision(
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ decisionId, approved }),
   });
-  const json = await res.json();
+  const json = await parseResponse(res);
   if (!res.ok) throw new Error(json.error || 'Clinician decision failed');
   return json;
 }

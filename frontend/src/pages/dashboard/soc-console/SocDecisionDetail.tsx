@@ -146,8 +146,7 @@ const SocDecisionDetail: React.FC<{
         <Section title="Threat">
           <div className="space-y-2">
             <Field label="Category" value={threat.category} />
-            <Field label="CAS score" value={threat.cas_score} />
-            <Field label="CVSS" value={threat.cvss_score} />
+            <Field label="CAS score" value={threat.cas_score} accent />
             <Field label="Technical severity" value={threat.technical_severity} />
             <Field label="SIEM rule" value={alert.source?.rule_description} mono={false} />
           </div>
