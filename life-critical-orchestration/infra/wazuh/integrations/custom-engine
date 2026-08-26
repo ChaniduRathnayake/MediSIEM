@@ -1,0 +1,12 @@
+#!/bin/sh
+# Wazuh custom integration wrapper -> forwards matching alerts to the
+# enrichment shim. Uses the manager's bundled Python if present.
+WPYTHON_BIN="framework/python/bin/python3"
+DIR_NAME="$(cd "$(dirname "$0")"; pwd -P)"
+WAZUH_PATH="$(cd "${DIR_NAME}/.."; pwd -P)"
+if [ -x "${WAZUH_PATH}/${WPYTHON_BIN}" ]; then
+    PYTHON_BIN="${WAZUH_PATH}/${WPYTHON_BIN}"
+else
+    PYTHON_BIN="python3"
+fi
+"${PYTHON_BIN}" "${DIR_NAME}/custom-engine.py" "$@"

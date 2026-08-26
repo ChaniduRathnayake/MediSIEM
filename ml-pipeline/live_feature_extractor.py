@@ -56,6 +56,7 @@ class FlowWindow:
 
     def __init__(self, first_src_ip):
         self.forward_ip = first_src_ip  # direction convention: first packet's src = "forward"
+        self.other_ip = None  # the flow's other endpoint — set on the first packet, below
         self.timestamps = []
         self.lengths = []
         self.directions = []  # True = forward, False = backward
@@ -68,6 +69,10 @@ class FlowWindow:
 
     def add(self, pkt, ts):
         ip = pkt[IP]
+        if self.other_ip is None:
+            # Whichever address isn't our "forward" (first packet's src) side
+            # is the flow's destination from the monitored device's perspective.
+            self.other_ip = ip.dst if ip.src == self.forward_ip else ip.src
         length = len(pkt)
         self.timestamps.append(ts)
         self.lengths.append(length)
@@ -198,6 +203,10 @@ def compute_features(win: FlowWindow, src_ip: str) -> dict:
 
     result = {col: row.get(col, 0.0) for col in FEATURE_COLUMNS}
     result["Src IP"] = src_ip
+    # Destination IP — not an ML feature (excluded from FEATURE_COLUMNS same as
+    # Src IP), but needed downstream for graded response targeting (throttle /
+    # selective_block / quarantine) in the life-critical-orchestration engine.
+    result["Dst IP"] = win.other_ip or ""
     return result
 
 
@@ -218,7 +227,7 @@ class LiveExtractor:
     def _init_csv(self):
         is_new = not os.path.exists(self.out_path)
         self._file = open(self.out_path, "a", newline="", encoding="utf-8")
-        self._writer = csv.DictWriter(self._file, fieldnames=FEATURE_COLUMNS + ["Src IP", "recent_flow_count"])
+        self._writer = csv.DictWriter(self._file, fieldnames=FEATURE_COLUMNS + ["Src IP", "Dst IP", "recent_flow_count"])
         if is_new:
             self._writer.writeheader()
             self._file.flush()

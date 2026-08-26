@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-05-04T08:32:05.000+0000",
+  "id": "1714809125.345678",
+  "rule": {
+    "id": "31151",
+    "level": 10,
+    "description": "Suspicious outbound connection from medical device",
+    "groups": ["intrusion", "network_anomaly"],
+    "mitre": {
+      "id": ["T1071"],
+      "tactic": ["Command and Control"],
+      "technique": ["Application Layer Protocol"]
+    }
+  },
+  "agent": {
+    "id": "008",
+    "name": "icu-ventilator-03.hospital.local",
+    "ip": "10.0.5.23"
+  },
+  "data": {
+    "dst_ip": "185.220.101.45",
+    "dst_port": 443,
+    "protocol": "TLS",
+    "bytes_transferred": 2048576,
+    "cvss_score": 7.5
+  },
+  "decoder": {
+    "name": "firewall-pfsense"
+  },
+  "location": "/var/log/pfsense/filter.log"
+}

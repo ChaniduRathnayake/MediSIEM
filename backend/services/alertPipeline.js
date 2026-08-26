@@ -7,6 +7,7 @@ import { lookupDevice } from '../config/deviceInventory.js';
 import DetectionRule from '../models/DetectionRule.js';
 import { sendImmediateCasAlert } from './notificationService.js';
 import AlertLog from '../models/AlertLog.js';
+import { pushToLifeCriticalEngine } from './lifeCriticalBridgeService.js';
 
 const {
   ALERT_POLL_INTERVAL_MS = '5000',
@@ -115,10 +116,39 @@ async function toDisplayAlert(raw, enrichment) {
     deviceCriticality: deviceMeta.criticality,
     ruleDescription: raw.rule?.description || 'Unknown event',
     ruleLevel: raw.rule?.level ?? null,
+    // Destination side of the flow — present for real captured traffic
+    // (ml-pipeline/flow_consumer.py's top-level dst_ip, or the fallback
+    // path's alert.data.flow) and used by lifeCriticalBridgeService.js to
+    // give the orchestration engine's graded responses (throttle /
+    // selective_block / quarantine) an actual target instead of none.
+    dstIp: raw.dst_ip || raw.flow?.['Dst IP'] || raw.data?.flow?.['Dst IP'] || null,
+    dstPort: raw.flow?.['Dst Port'] ?? raw.data?.flow?.['Dst Port'] ?? null,
+    ruleId: raw.rule?.id != null ? String(raw.rule.id) : null,
+    ruleGroups: raw.rule?.groups ?? null,
     mitre: raw.rule?.mitre
       ? { id: raw.rule.mitre.id || [], tactic: raw.rule.mitre.tactic || [], technique: raw.rule.mitre.technique || [] }
       : null,
   };
+}
+
+// wazuhIndexerService.js's fetchNewAlerts(null) runs match_all (not range-bounded)
+// on a cold start — every process restart re-fetches up to `size` of the OLDEST
+// alerts in the index as if they were newly arriving. Worse: since match_all sorts
+// ascending and pages by `size` (100), a backlog bigger than one page takes several
+// 5-second polls to work through — only the very first of those polls has
+// lastTimestamp === null, so a flag captured once per poll fails to cover polls
+// 2..N of the same backfill. The reliable signal is the alert's OWN timestamp: an
+// alert older than this is backlog, not a new event, regardless of which poll or
+// which restart surfaced it. Side effects meant for genuinely new events — real
+// email/Slack/Teams notifications, and Tier 3 clinician-approval pushes to the
+// decision engine — must never fire for it. Confirmed happening in practice:
+// repeated dev restarts replayed ~420 historical alerts into the engine 3 times
+// each (1671 audit entries for 428 distinct alerts) before this fix.
+const ALERT_STALENESS_THRESHOLD_MS = 2 * 60 * 1000;
+
+function isStaleAlert(raw, now) {
+  const ts = new Date(raw['@timestamp'] || 0).getTime();
+  return !Number.isFinite(ts) || now - ts > ALERT_STALENESS_THRESHOLD_MS;
 }
 
 async function pollOnce() {
@@ -160,6 +190,18 @@ async function pollOnce() {
       const displayAlert = await toDisplayAlert(raw, enrichment);
       displayAlert.matchedRules = evaluateRules(displayAlert, rules);
 
+      // Fire-and-forget — the life-critical orchestration engine (Tier 1/2/3
+      // response decisioning) is a downstream consumer, never a dependency of
+      // the alert pipeline. A down/unreachable engine must never delay or
+      // drop an alert here. Skipped for backlog/stale alerts (see
+      // isStaleAlert above) — these are historical, not new events, and must
+      // not mint a fresh Tier 3 approval request.
+      if (!isStaleAlert(raw, now)) {
+        pushToLifeCriticalEngine(raw, displayAlert).catch((err) =>
+          console.warn(`[alertPipeline] life-critical engine push failed for alert ${displayAlert.id}:`, err.message)
+        );
+      }
+
       // If the same signature is still "live", fold into it (bump duplicateCount, re-emit
       // under the SAME id) instead of adding a new row.
       const key = dedupKey(displayAlert);
@@ -198,15 +240,27 @@ async function pollOnce() {
           io.emit('alert:new', displayAlert);
           io.emit('alerts:stats', { totalCount, severityTotals });
         }
-        sendImmediateCasAlert(displayAlert).catch((err) =>
-          console.warn('[alertPipeline] Immediate-CAS notification failed:', err.message)
-        );
+        // Also skipped for backlog/stale alerts — a restart (or catching up
+        // through a large backlog across several polls) must not re-send real
+        // email/Slack/Teams notifications for alerts that were already seen
+        // and notified on before the process went down.
+        if (!isStaleAlert(raw, now)) {
+          sendImmediateCasAlert(displayAlert).catch((err) =>
+            console.warn('[alertPipeline] Immediate-CAS notification failed:', err.message)
+          );
+        }
 
         // Fire-and-forget — a slow Mongo write should never delay the live push above.
+        // $set explicitly: lifeCriticalBridgeService.js's own fire-and-forget
+        // write to this same alertId now races with this one (both fire from
+        // this same "new alert" branch), so an un-prefixed update object here
+        // — which Mongoose/Mongo treats as a full document replacement, not a
+        // partial update — could silently wipe out lifeCriticalTier/Action/
+        // DecisionId depending on which write lands second.
         AlertLog.findOneAndUpdate(
           { alertId: displayAlert.id },
           {
-            alertId: displayAlert.id,
+            $set: {
             timestamp: displayAlert.timestamp,
             CAS: displayAlert.CAS ?? null,
             action: displayAlert.action ?? null,
@@ -219,6 +273,8 @@ async function pollOnce() {
             ruleDescription: displayAlert.ruleDescription ?? null,
             mitreTactic: displayAlert.mitre?.tactic ?? [],
             matchedRuleNames: (displayAlert.matchedRules ?? []).map((r) => r.name),
+            },
+            $setOnInsert: { alertId: displayAlert.id },
           },
           { upsert: true }
         ).catch((err) => console.warn('[alertPipeline] AlertLog write failed:', err.message));

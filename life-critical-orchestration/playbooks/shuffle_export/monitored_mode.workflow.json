@@ -1,0 +1,64 @@
+{
+  "_comment": "Architectural artifact for PP2. Representative Shuffle workflow JSON for the standalone Monitored Mode path (Tier 2). For Tier 3, the same three steps are embedded in tier3_dispatch.workflow.json — they run BEFORE the clinician dispatch so the asset is contained immediately.",
+  "name": "Monitored Mode — Tier 2 Non-Disruptive Containment",
+  "description": "Triggered when the engine emits a Tier 2 monitored_mode decision. Runs the three §4.3 components: deep telemetry collection, shadow auditing, and a positive zero-interference assertion. No traffic is blocked and no configuration is locked.",
+  "id": "wf-monitored-mode-pp2",
+  "owner": "life-critical-orchestration",
+  "is_valid": true,
+  "default_return_value": "ok",
+  "actions": [
+    {
+      "id": "act-receive",
+      "name": "Receive Decision",
+      "app_name": "webhook",
+      "app_version": "1.0.0",
+      "label": "engine-decision-in",
+      "parameters": [
+        { "name": "path", "value": "/playbook/run" },
+        { "name": "method", "value": "POST" }
+      ]
+    },
+    {
+      "id": "act-deep-telemetry",
+      "name": "Component 1 — Deep Telemetry",
+      "app_name": "wazuh",
+      "app_version": "1.0.0",
+      "label": "raise-log-verbosity",
+      "parameters": [
+        { "name": "agent_id", "value": "$exec.asset_id" },
+        { "name": "verbosity", "value": "verbose" },
+        { "name": "packet_capture", "value": true },
+        { "name": "duration_minutes", "value": 60 }
+      ]
+    },
+    {
+      "id": "act-shadow-audit",
+      "name": "Component 2 — Shadow Auditing",
+      "app_name": "shadow_audit",
+      "app_version": "1.0.0",
+      "label": "start-baseline-diff",
+      "parameters": [
+        { "name": "asset_id", "value": "$exec.asset_id" },
+        { "name": "baseline", "value": "clinical_baseline_v1" },
+        { "name": "diff_window_seconds", "value": 300 }
+      ]
+    },
+    {
+      "id": "act-zero-interference",
+      "name": "Component 3 — Zero Interference (assertion)",
+      "app_name": "audit",
+      "app_version": "1.0.0",
+      "label": "assert-zero-interference",
+      "parameters": [
+        { "name": "asset_id", "value": "$exec.asset_id" },
+        { "name": "blocked_ports", "value": "[]" },
+        { "name": "config_locks", "value": "[]" }
+      ]
+    }
+  ],
+  "branches": [
+    { "source_id": "act-receive", "destination_id": "act-deep-telemetry" },
+    { "source_id": "act-deep-telemetry", "destination_id": "act-shadow-audit" },
+    { "source_id": "act-shadow-audit", "destination_id": "act-zero-interference" }
+  ]
+}

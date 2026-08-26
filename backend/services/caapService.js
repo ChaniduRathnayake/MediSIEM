@@ -308,6 +308,10 @@ export async function enrichAlert(alert) {
     if (srcIp) prediction.src_ip = srcIp;
     if (__ipReputationScore !== null && __ipReputationScore !== undefined) prediction.ipReputationScore = __ipReputationScore;
     if (__flowFeatures) prediction.flow = __flowFeatures;
+    // Carried through so downstream consumers (lifeCriticalBridgeService.js's
+    // category mapping) see the same known-exploited signal AE_score already
+    // used, instead of re-deriving it from the AE_score value.
+    prediction.cveKnownExploited = payload.cve_known_exploited;
 
     return { ok: true, enrichment: prediction };
   } catch (err) {
@@ -341,6 +345,7 @@ export async function enrichAlert(alert) {
         CAS: cas,
         CVSS: cvssScore,
         action: actionFor(cas, null),
+        cveKnownExploited: payload.cve_known_exploited,
         scenario: payload.scenario,
         weights_used: weights,
         explanation:

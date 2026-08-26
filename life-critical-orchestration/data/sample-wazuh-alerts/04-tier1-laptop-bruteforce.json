@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-05-04T08:33:18.000+0000",
+  "id": "1714809198.456789",
+  "rule": {
+    "id": "5712",
+    "level": 10,
+    "description": "SSH brute-force attempt — multiple failed logins",
+    "groups": ["authentication_failed", "brute_force", "authentication_failures"],
+    "mitre": {
+      "id": ["T1110"],
+      "tactic": ["Credential Access"],
+      "technique": ["Brute Force"]
+    }
+  },
+  "agent": {
+    "id": "021",
+    "name": "admin-laptop-14.hospital.local",
+    "ip": "10.0.20.114"
+  },
+  "data": {
+    "src_ip": "203.0.113.42",
+    "failed_attempts": 47,
+    "username_targeted": "administrator",
+    "cvss_score": 7.2
+  },
+  "decoder": {
+    "name": "sshd"
+  },
+  "location": "/var/log/auth.log"
+}

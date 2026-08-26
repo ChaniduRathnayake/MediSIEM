@@ -19,6 +19,9 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+.agents
+.claude/
+.github/
 
 # Editor
 .vscode/
@@ -35,6 +38,8 @@ ai_server/reports_staging/
 ai_server/backups/
 Extra_Material/
 ip-reputation-Componets/
+medshield_final89/
+
 
 #Claude Skills
 .agents
@@ -42,6 +47,7 @@ ip-reputation-Componets/
 
 # IP Reputation research artifacts (300MB+ of models/experiment data, kept local only)
 ip_reputation_server/ip-reputation-Componets/
+ip reputation/
 
 # Python bytecode
 __pycache__/

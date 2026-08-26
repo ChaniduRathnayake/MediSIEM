@@ -1,0 +1,164 @@
+{
+  "tier": 1,
+  "description": "Non-critical assets (cc_score < 5). Standard disruptive containment is safe because no patient-facing functions are affected. Tier 1 actions are graduated by threat severity: log_only (low CVSS), block_port (medium), isolate_host (high or extreme). The 4 stubs below cover all three graduated actions.",
+  "alerts": [
+    {
+      "alert_id": "alert-2026-05-03-1001",
+      "timestamp": "2026-05-03T08:14:33Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "5712",
+        "rule_description": "SSHD brute force attempt from external IP",
+        "rule_level": 10
+      },
+      "threat": {
+        "category": "brute_force",
+        "technical_severity": "high",
+        "cvss_score": 7.2,
+        "indicators": {
+          "source_ip": "203.0.113.45",
+          "destination_port": 22,
+          "failed_attempts": 47
+        }
+      },
+      "asset": {
+        "asset_id": "ADM-LAPTOP-014",
+        "hostname": "admin-laptop-14.hospital.local",
+        "ip_address": "10.0.20.114",
+        "asset_type": "workstation",
+        "device_category": "laptop",
+        "department": "Administration",
+        "patient_facing": false
+      },
+      "clinical_context": {
+        "criticality_score": 2,
+        "patient_dependency": "none",
+        "time_sensitivity": 1.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T08:14:34Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-1002",
+      "timestamp": "2026-05-03T11:42:09Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "31151",
+        "rule_description": "Suspicious binary execution detected",
+        "rule_level": 9
+      },
+      "threat": {
+        "category": "malware_execution",
+        "technical_severity": "medium",
+        "cvss_score": 5.4,
+        "indicators": {
+          "process_name": "svch0st.exe",
+          "user": "cafe-staff-02"
+        }
+      },
+      "asset": {
+        "asset_id": "CAF-PC-002",
+        "hostname": "cafeteria-pc-02.hospital.local",
+        "ip_address": "10.0.30.52",
+        "asset_type": "workstation",
+        "device_category": "desktop",
+        "department": "Infrastructure",
+        "patient_facing": false
+      },
+      "clinical_context": {
+        "criticality_score": 1,
+        "patient_dependency": "none",
+        "time_sensitivity": 1.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T11:42:10Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-1003",
+      "timestamp": "2026-05-03T14:22:17Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "100502",
+        "rule_description": "Outbound connection to known C2 infrastructure",
+        "rule_level": 7
+      },
+      "threat": {
+        "category": "c2_communication",
+        "technical_severity": "low",
+        "cvss_score": 3.5,
+        "indicators": {
+          "destination_ip": "198.51.100.77",
+          "destination_port": 443,
+          "threat_intel_ref": "ti-mal-2087"
+        }
+      },
+      "asset": {
+        "asset_id": "PRINT-SRV-01",
+        "hostname": "print-server-01.hospital.local",
+        "ip_address": "10.0.40.10",
+        "asset_type": "server",
+        "device_category": "print_server",
+        "department": "Infrastructure",
+        "patient_facing": false
+      },
+      "clinical_context": {
+        "criticality_score": 3,
+        "patient_dependency": "low",
+        "time_sensitivity": 2.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T14:22:18Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-1004",
+      "timestamp": "2026-05-03T16:55:48Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "5710",
+        "rule_description": "Possible privilege escalation attempt",
+        "rule_level": 11
+      },
+      "threat": {
+        "category": "privilege_escalation",
+        "technical_severity": "high",
+        "cvss_score": 7.8,
+        "indicators": {
+          "user": "training-user-03",
+          "target_account": "local-admin"
+        }
+      },
+      "asset": {
+        "asset_id": "TRAIN-PC-007",
+        "hostname": "training-room-pc-07.hospital.local",
+        "ip_address": "10.0.50.107",
+        "asset_type": "workstation",
+        "device_category": "desktop",
+        "department": "Administration",
+        "patient_facing": false
+      },
+      "clinical_context": {
+        "criticality_score": 4,
+        "patient_dependency": "low",
+        "time_sensitivity": 1.0,
+        "shift": "evening"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T16:55:49Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    }
+  ]
+}

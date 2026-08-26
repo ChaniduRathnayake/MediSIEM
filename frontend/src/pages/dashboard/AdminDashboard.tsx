@@ -1685,7 +1685,7 @@ const AdminDashboard: React.FC = () => {
                 case 'Detection Performance':
                   return <DetectionPerformancePanel />;
                 case 'Playbooks':
-                  return <PlaybooksPanel />;
+                  return <PlaybooksPanel token={token} />;
                 case 'HIPAA':
                   return <CompliancePanel framework="hipaa" />;
                 case 'GDPR':

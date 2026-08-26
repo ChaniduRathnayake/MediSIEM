@@ -27,6 +27,7 @@ with open(DEVICE_MAP_PATH) as f:
 
 # Column names CICFlowMeter typically uses for source IP — check yours matches one of these.
 SRC_IP_CANDIDATES = ["Src IP", "Source IP", "src_ip"]
+DST_IP_CANDIDATES = ["Dst IP", "Destination IP", "dst_ip"]
 DST_PORT_CANDIDATES = ["Dst Port", "Destination Port", "dst_port"]
 
 
@@ -77,6 +78,8 @@ class FlowFileHandler(FileSystemEventHandler):
     def _handle_row(self, row: dict):
         src_ip_col = find_column(row, SRC_IP_CANDIDATES)
         src_ip = str(row.get(src_ip_col, "")) if src_ip_col else ""
+        dst_ip_col = find_column(row, DST_IP_CANDIDATES)
+        dst_ip = str(row.get(dst_ip_col, "")) if dst_ip_col else ""
         device = lookup_device(src_ip)
 
         # Build the /predict payload: every numeric flow column, as-is, plus clinical metadata.
@@ -102,6 +105,7 @@ class FlowFileHandler(FileSystemEventHandler):
         doc = {
             "@timestamp": datetime.now(timezone.utc).isoformat(),
             "src_ip": src_ip,
+            "dst_ip": dst_ip,
             "agent": {"name": device["device_type"], "ip": src_ip, "department": device["department"]},
             "flow": row,
             **enrichment,

@@ -1,0 +1,126 @@
+{
+  "tier": 3,
+  "description": "Protected assets (cc_score >= 5) at extreme risk (CVSS >= 9.0 OR ransomware/active-exploitation indicators). Monitored Mode alone is insufficient. Disruptive containment may be necessary, but it requires clinician authorisation before execution. Tier 3 is a two-phase flow: the playbook applies Monitored Mode to the asset immediately while dispatching the approval request. If approved -> isolate_host. If denied -> stay in Monitored Mode (FR-06). The 3 stubs include one alert on a clinical_support (5-7) asset to demonstrate that the escalation works regardless of which protected band the asset is in.",
+  "alerts": [
+    {
+      "alert_id": "alert-2026-05-03-3001",
+      "timestamp": "2026-05-03T07:48:22Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "87105",
+        "rule_description": "Ransomware encryption behaviour detected",
+        "rule_level": 15
+      },
+      "threat": {
+        "category": "ransomware",
+        "technical_severity": "critical",
+        "cvss_score": 9.8,
+        "indicators": {
+          "files_modified_per_minute": 412,
+          "extensions_observed": [".locked", ".encrypted"],
+          "ransom_note_path": "/tmp/READ_ME_NOW.txt"
+        }
+      },
+      "asset": {
+        "asset_id": "RAD-LINAC-001",
+        "hostname": "rad-linac-01.hospital.local",
+        "ip_address": "10.0.9.5",
+        "asset_type": "medical_device",
+        "device_category": "linear_accelerator",
+        "department": "Radiology",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 10,
+        "patient_dependency": "life_critical",
+        "time_sensitivity": 5.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T07:48:23Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-3002",
+      "timestamp": "2026-05-03T11:32:41Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "61603",
+        "rule_description": "Active exploitation of remote code execution vulnerability",
+        "rule_level": 14
+      },
+      "threat": {
+        "category": "active_exploitation",
+        "technical_severity": "critical",
+        "cvss_score": 9.6,
+        "indicators": {
+          "cve": "CVE-2025-49801",
+          "exploit_pattern_match": true,
+          "shell_spawned": true
+        }
+      },
+      "asset": {
+        "asset_id": "ICU-VENT-007",
+        "hostname": "icu-ventilator-07.hospital.local",
+        "ip_address": "10.0.5.27",
+        "asset_type": "medical_device",
+        "device_category": "ventilator",
+        "department": "ICU",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 9,
+        "patient_dependency": "life_critical",
+        "time_sensitivity": 5.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T11:32:42Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-3003",
+      "timestamp": "2026-05-03T17:09:15Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "100403",
+        "rule_description": "Lateral movement detected: medical subnet -> medical subnet",
+        "rule_level": 13
+      },
+      "threat": {
+        "category": "lateral_movement",
+        "technical_severity": "critical",
+        "cvss_score": 9.1,
+        "indicators": {
+          "source_asset": "ICU-VENT-007",
+          "destination_asset": "OR-ANAES-002",
+          "method": "credential_reuse"
+        }
+      },
+      "asset": {
+        "asset_id": "OR-ANAES-002",
+        "hostname": "or-anaesthesia-02.hospital.local",
+        "ip_address": "10.0.6.22",
+        "asset_type": "medical_device",
+        "device_category": "anaesthesia_machine",
+        "department": "Ward",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 6,
+        "patient_dependency": "high",
+        "time_sensitivity": 4.0,
+        "shift": "evening"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T17:09:16Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "subscriptions": {
+    "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb": {
+      "subscriber_id": "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb",
+      "subscription": {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/dlkrVT9xaNY:APA91bGS5yPR5J7-R9z0s_kk6ofZqzndBTUbDz9w3uGM9vLS4T1FRm2zyOcrI4P5ydrZwDHUGng_OZV0_zPogUxBODLrA0UCGgNlQqfx31B7huPm3dn6HvGy1V258rAa4j_Ba9_N0WUZ",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BM4Aei6j_YVcPMjeE_wFCHkv4hrKEkXmZj92-kWdkvFouoRRy_FEL0YTdEsHJIS109Yy34eK1K3uQ0othZS7my4",
+          "auth": "YniaBgf2qLp6KbfjgAQGOQ"
+        }
+      },
+      "label": "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb",
+      "updated_at": "2026-07-12T13:10:14.693821+00:00"
+    }
+  },
+  "on_call": "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb"
+}

@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-05-04T08:34:22.000+0000",
+  "id": "1714809262.567890",
+  "rule": {
+    "id": "31530",
+    "level": 12,
+    "description": "Outbound connection to known malicious IP",
+    "groups": ["intrusion", "ids"],
+    "mitre": {
+      "id": ["T1071"],
+      "tactic": ["Command and Control"],
+      "technique": ["Application Layer Protocol"]
+    }
+  },
+  "agent": {
+    "id": "099",
+    "name": "unregistered-device-99.hospital.local",
+    "ip": "10.0.99.99"
+  },
+  "data": {
+    "dst_ip": "194.180.48.18",
+    "ioc_match": "abuse.ch malware C2",
+    "cvss_score": 8.1
+  },
+  "decoder": {
+    "name": "ids-suricata"
+  },
+  "location": "/var/log/suricata/eve.json"
+}

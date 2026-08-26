@@ -10,6 +10,21 @@
   --animate-fade-in: fade-in 0.4s ease-out both;
   --animate-scale-in: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-shimmer: shimmer 1.8s linear infinite;
+
+  /* Ported verbatim from life-critical-orchestration/frontend/tailwind.config.js's
+     "SOC console palette" — used only by the Playbooks tab's soc-console/ components,
+     which replicate that app's dark terminal-style UI exactly rather than MediSIEM's
+     own light/dark slate theme. */
+  --font-mono-soc: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --color-soc-bg: #0b0f14;
+  --color-soc-panel: #111821;
+  --color-soc-border: #1f2a37;
+  --color-soc-muted: #64748b;
+  --color-soc-text: #e2e8f0;
+  --color-soc-accent: #22d3ee;
+  --color-tier-1: #22c55e;
+  --color-tier-2: #f59e0b;
+  --color-tier-3: #ef4444;
 }
 
 @keyframes fade-up {

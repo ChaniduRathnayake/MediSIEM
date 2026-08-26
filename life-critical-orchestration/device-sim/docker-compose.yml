@@ -1,0 +1,49 @@
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    container_name: iomt-broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  clinical-receiver:
+    build: ./clinical-receiver
+    container_name: iomt-clinical-receiver
+    environment:
+      HL7_PORT: "2575"
+    volumes:
+      - ./data:/data
+
+  vitals-monitor:
+    build: ./vitals-monitor
+    container_name: iomt-vitals-monitor
+    depends_on:
+      - broker
+      - clinical-receiver
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+    environment:
+      MQTT_HOST: broker
+      MQTT_PORT: "1883"
+      MQTT_KEEPALIVE: "3"
+      DEVICE_ID: ICU-VENT-003
+      PUBLISH_INTERVAL: "1.0"
+      HL7_ENABLED: "true"
+      HL7_HOST: clinical-receiver
+      HL7_PORT: "2575"
+
+  heartbeat-logger:
+    build: ./heartbeat-logger
+    container_name: iomt-heartbeat-logger
+    depends_on:
+      - broker
+    environment:
+      MQTT_HOST: broker
+      MQTT_PORT: "1883"
+      PUBLISH_INTERVAL: "1.0"
+      INTERRUPTION_FACTOR: "3.0"
+    volumes:
+      - ./data:/data

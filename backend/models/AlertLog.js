@@ -26,6 +26,13 @@ const AlertLogSchema = new Schema(
     ruleDescription: { type: String, default: null },
     mitreTactic: { type: [String], default: [] },
     matchedRuleNames: { type: [String], default: [] },
+    // Populated asynchronously by lifeCriticalBridgeService.js once the
+    // decision engine responds — null until then, and permanently null for
+    // alerts scored before this integration existed or while the engine is
+    // unreachable.
+    lifeCriticalTier: { type: Number, default: null },
+    lifeCriticalAction: { type: String, default: null },
+    lifeCriticalDecisionId: { type: String, default: null },
   },
   {
     timestamps: true,

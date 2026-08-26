@@ -26,6 +26,7 @@ import detectionPerformanceRoutes from './routes/detectionPerformance.js';
 import settingsRoutes from './routes/settings.js';
 import assistantRoutes from './routes/assistant.js';
 import ipReputationRoutes from './routes/ipReputation.js';
+import lifeCriticalOrchestrationRoutes from './routes/lifeCriticalOrchestration.js';
 import { startPipeline } from './services/alertPipeline.js';
 import { initCveIntel } from './services/cveIntelService.js';
 import MedicalDevice from './models/MedicalDevice.js';
@@ -110,6 +111,7 @@ app.use('/api/detection-performance', detectionPerformanceRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/ip-reputation', ipReputationRoutes);
+app.use('/api/life-critical', lifeCriticalOrchestrationRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'MediSIEM API is running', timestamp: new Date().toISOString() });

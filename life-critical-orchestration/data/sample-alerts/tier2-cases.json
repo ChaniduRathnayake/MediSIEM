@@ -1,0 +1,204 @@
+{
+  "tier": 2,
+  "description": "Protected assets (cc_score >= 5) at standard risk (threat is not extreme). Disruptive containment would harm patient care, so the engine selects Monitored Mode: deep telemetry, shadow auditing, zero interference. SOC is alerted immediately. The 5 stubs cover both clinical_support (5-7) and life_critical (8-10) bands; both follow the same Tier 2 path because asset criticality alone does not gate Tier 2 vs Tier 3 (only threat severity does).",
+  "alerts": [
+    {
+      "alert_id": "alert-2026-05-03-2001",
+      "timestamp": "2026-05-03T09:03:11Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "92052",
+        "rule_description": "Multiple authentication failures from internal source",
+        "rule_level": 10
+      },
+      "threat": {
+        "category": "brute_force",
+        "technical_severity": "high",
+        "cvss_score": 7.5,
+        "indicators": {
+          "source_ip": "10.0.5.99",
+          "destination_port": 22,
+          "failed_attempts": 12
+        }
+      },
+      "asset": {
+        "asset_id": "ICU-VENT-003",
+        "hostname": "icu-ventilator-03.hospital.local",
+        "ip_address": "10.0.5.23",
+        "asset_type": "medical_device",
+        "device_category": "ventilator",
+        "department": "ICU",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 10,
+        "patient_dependency": "life_critical",
+        "time_sensitivity": 5.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T09:03:12Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-2002",
+      "timestamp": "2026-05-03T10:17:44Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "31104",
+        "rule_description": "Unusual network protocol usage on medical device",
+        "rule_level": 9
+      },
+      "threat": {
+        "category": "anomalous_traffic",
+        "technical_severity": "medium",
+        "cvss_score": 6.4,
+        "indicators": {
+          "destination_ip": "10.0.5.40",
+          "protocol": "smb",
+          "device_protocol_expected": "hl7"
+        }
+      },
+      "asset": {
+        "asset_id": "ICU-PUMP-008",
+        "hostname": "icu-infusion-pump-08.hospital.local",
+        "ip_address": "10.0.5.40",
+        "asset_type": "medical_device",
+        "device_category": "infusion_pump",
+        "department": "ICU",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 9,
+        "patient_dependency": "life_critical",
+        "time_sensitivity": 5.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T10:17:45Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-2003",
+      "timestamp": "2026-05-03T12:45:02Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "100201",
+        "rule_description": "Outbound connection to suspicious domain",
+        "rule_level": 8
+      },
+      "threat": {
+        "category": "suspicious_communication",
+        "technical_severity": "medium",
+        "cvss_score": 5.9,
+        "indicators": {
+          "destination_domain": "stats-cdn.example.net",
+          "connection_count": 3
+        }
+      },
+      "asset": {
+        "asset_id": "OR-MONITOR-002",
+        "hostname": "or-monitor-02.hospital.local",
+        "ip_address": "10.0.6.15",
+        "asset_type": "medical_device",
+        "device_category": "patient_monitor",
+        "department": "Ward",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 7,
+        "patient_dependency": "high",
+        "time_sensitivity": 4.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T12:45:03Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-2004",
+      "timestamp": "2026-05-03T13:20:38Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "554",
+        "rule_description": "File integrity monitoring: unauthorised binary modification",
+        "rule_level": 10
+      },
+      "threat": {
+        "category": "tampering",
+        "technical_severity": "high",
+        "cvss_score": 7.9,
+        "indicators": {
+          "modified_path": "/opt/dialysis/control.bin",
+          "modified_by": "unknown"
+        }
+      },
+      "asset": {
+        "asset_id": "DIAL-UNIT-004",
+        "hostname": "dialysis-unit-04.hospital.local",
+        "ip_address": "10.0.7.34",
+        "asset_type": "medical_device",
+        "device_category": "dialysis_machine",
+        "department": "ICU",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 9,
+        "patient_dependency": "life_critical",
+        "time_sensitivity": 5.0,
+        "shift": "day"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T13:20:39Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    },
+    {
+      "alert_id": "alert-2026-05-03-2005",
+      "timestamp": "2026-05-03T15:11:55Z",
+      "source": {
+        "siem": "wazuh",
+        "rule_id": "5503",
+        "rule_description": "Unusual port scan activity from internal device",
+        "rule_level": 9
+      },
+      "threat": {
+        "category": "reconnaissance",
+        "technical_severity": "medium",
+        "cvss_score": 5.4,
+        "indicators": {
+          "source_ip": "10.0.8.12",
+          "ports_scanned": 178,
+          "scan_window_seconds": 90
+        }
+      },
+      "asset": {
+        "asset_id": "ER-DEFIB-001",
+        "hostname": "er-defib-01.hospital.local",
+        "ip_address": "10.0.8.12",
+        "asset_type": "medical_device",
+        "device_category": "defibrillator",
+        "department": "Ward",
+        "patient_facing": true
+      },
+      "clinical_context": {
+        "criticality_score": 6,
+        "patient_dependency": "medium",
+        "time_sensitivity": 4.0,
+        "shift": "evening"
+      },
+      "enrichment_meta": {
+        "enriched_at": "2026-05-03T15:11:56Z",
+        "enricher_version": "stub-1.0.0",
+        "confidence": 1.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+response,downtime_s,disrupted,scope,reversible,contains,mode
+isolate,14.02,True,whole device,yes,full cut,real
+selective_block,0.0,False,one flow,yes,drop flagged flow,real
+throttle,0.0,False,one flow,yes,slow flagged flow,real
+quarantine,5.01,True,non-clinical,yes,block lateral movement,real
+monitored_mode,0.0,False,none,n/a,observe only,real

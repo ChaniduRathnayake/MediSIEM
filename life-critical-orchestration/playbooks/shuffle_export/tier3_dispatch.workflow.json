@@ -1,0 +1,123 @@
+{
+  "_comment": "Architectural artifact for PP2. This is a representative Shuffle workflow JSON for the Tier 3 dispatch path. For PP1 the live demo runs against the Python sim at playbooks/shuffle_sim/; this file documents the SHAPE of the real Shuffle workflow that PP2 will import into a running Shuffle instance and connect to real systems (Twilio for clinician notifications, Wazuh API for telemetry adjustments, etc.). Field names follow Shuffle 1.4.x conventions.",
+  "name": "Tier 3 Dispatch — Clinician Approval Flow",
+  "description": "Triggered when the engine emits await_clinician_approval. Applies Monitored Mode immediately AND dispatches an approval request to a clinician. On clinician webhook callback, escalates to isolate_host or stays in Monitored Mode per FR-06.",
+  "id": "wf-tier3-dispatch-pp2",
+  "owner": "life-critical-orchestration",
+  "is_valid": true,
+  "default_return_value": "ok",
+  "actions": [
+    {
+      "id": "act-receive",
+      "name": "Receive Decision",
+      "app_name": "webhook",
+      "app_version": "1.0.0",
+      "label": "engine-decision-in",
+      "_comment": "POST from engine when SHUFFLE_WEBHOOK_URL is set",
+      "parameters": [
+        { "name": "path", "value": "/playbook/run" },
+        { "name": "method", "value": "POST" }
+      ]
+    },
+    {
+      "id": "act-deep-telemetry",
+      "name": "Component 1 — Deep Telemetry",
+      "app_name": "wazuh",
+      "app_version": "1.0.0",
+      "label": "raise-log-verbosity",
+      "_comment": "PP2: call Wazuh manager API to raise rule verbosity + enable PCAP",
+      "parameters": [
+        { "name": "agent_id", "value": "$exec.asset_id" },
+        { "name": "verbosity", "value": "verbose" },
+        { "name": "packet_capture", "value": true },
+        { "name": "duration_minutes", "value": 60 }
+      ]
+    },
+    {
+      "id": "act-shadow-audit",
+      "name": "Component 2 — Shadow Auditing",
+      "app_name": "shadow_audit",
+      "app_version": "1.0.0",
+      "label": "start-baseline-diff",
+      "_comment": "PP2: signal the shadow-audit pipeline to start a behavioural diff",
+      "parameters": [
+        { "name": "asset_id", "value": "$exec.asset_id" },
+        { "name": "baseline", "value": "clinical_baseline_v1" },
+        { "name": "diff_window_seconds", "value": 300 }
+      ]
+    },
+    {
+      "id": "act-zero-interference",
+      "name": "Component 3 — Zero Interference (assertion)",
+      "app_name": "audit",
+      "app_version": "1.0.0",
+      "label": "assert-zero-interference",
+      "_comment": "Positive assertion: explicitly records that no traffic was blocked and no configurations were locked. This is the safety story.",
+      "parameters": [
+        { "name": "asset_id", "value": "$exec.asset_id" },
+        { "name": "blocked_ports", "value": "[]" },
+        { "name": "config_locks", "value": "[]" }
+      ]
+    },
+    {
+      "id": "act-dispatch-clinician",
+      "name": "Dispatch — Clinician Approval Request",
+      "app_name": "twilio",
+      "app_version": "1.0.0",
+      "label": "send-approval-sms",
+      "_comment": "PP2: real notification via Twilio (or hospital pager). PP1 sim just logs the dispatch.",
+      "parameters": [
+        { "name": "to", "value": "$env.CLINICIAN_PHONE" },
+        { "name": "body", "value": "TIER 3 alert on $exec.asset_id. Proposed action if approved: $exec.proposed_action_if_approved. Approve/deny via the dashboard." }
+      ]
+    },
+    {
+      "id": "act-wait-callback",
+      "name": "Wait — Clinician Webhook Response",
+      "app_name": "webhook",
+      "app_version": "1.0.0",
+      "label": "wait-for-clinician",
+      "_comment": "Workflow pauses here until the clinician responds via the dashboard. Sends the response to /clinician-decision on this same workflow.",
+      "parameters": [
+        { "name": "path", "value": "/clinician-decision" },
+        { "name": "method", "value": "POST" },
+        { "name": "timeout_minutes", "value": 30 }
+      ]
+    },
+    {
+      "id": "act-branch-approved",
+      "name": "If approved — Escalate to Isolate Host",
+      "app_name": "wazuh",
+      "app_version": "1.0.0",
+      "label": "isolate-host",
+      "_comment": "Only runs when the clinician approves. Calls Wazuh's active-response to drop the asset off the network.",
+      "parameters": [
+        { "name": "agent_id", "value": "$exec.asset_id" },
+        { "name": "active_response", "value": "host-deny" }
+      ]
+    },
+    {
+      "id": "act-callback-engine",
+      "name": "Callback — Notify Engine",
+      "app_name": "http",
+      "app_version": "1.0.0",
+      "label": "notify-engine-clinician-decision",
+      "_comment": "Always runs (regardless of approve/deny) so the engine's audit log captures the final outcome.",
+      "parameters": [
+        { "name": "url", "value": "$env.ENGINE_URL/clinician-decision" },
+        { "name": "method", "value": "POST" },
+        { "name": "body", "value": "{\"decision_id\":\"$exec.decision_id\",\"approved\":$exec.approved,\"clinician_id\":\"$exec.clinician_id\"}" }
+      ]
+    }
+  ],
+  "branches": [
+    { "source_id": "act-receive", "destination_id": "act-deep-telemetry" },
+    { "source_id": "act-deep-telemetry", "destination_id": "act-shadow-audit" },
+    { "source_id": "act-shadow-audit", "destination_id": "act-zero-interference" },
+    { "source_id": "act-zero-interference", "destination_id": "act-dispatch-clinician" },
+    { "source_id": "act-dispatch-clinician", "destination_id": "act-wait-callback" },
+    { "source_id": "act-wait-callback", "destination_id": "act-branch-approved", "condition": "$exec.approved == true" },
+    { "source_id": "act-branch-approved", "destination_id": "act-callback-engine" },
+    { "source_id": "act-wait-callback", "destination_id": "act-callback-engine", "condition": "$exec.approved == false" }
+  ]
+}

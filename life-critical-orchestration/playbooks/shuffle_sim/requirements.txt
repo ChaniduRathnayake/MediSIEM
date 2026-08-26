@@ -1,0 +1,14 @@
+# Shuffle SOAR simulator dependencies
+# Install with:  pip install -r requirements.txt
+
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+httpx==0.27.2
+
+# Web Push (Workstream E) — sends VAPID-signed pushes to the on-call device.
+# Pulls in cryptography, which generate_vapid.py also uses.
+pywebpush==2.0.1
+
+# Testing
+pytest==8.3.3

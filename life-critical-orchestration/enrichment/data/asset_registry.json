@@ -1,0 +1,183 @@
+{
+  "_meta": {
+    "version": "stub-1.0.0",
+    "description": "Hospital asset registry stub. Maps Wazuh agent hostnames/IPs to clinical context. Mirrors the 12 assets in data/sample-alerts/ exactly so a Wazuh-injected alert about asset X is enriched identically to the bundled stub for asset X. To be replaced by teammate's real enrichment service; the contract here is the producer side of docs/alert-schema.md.",
+    "lookup_keys": [
+      "hostname",
+      "ip_address"
+    ],
+    "miss_behaviour": "Return None \u2014 the engine's fail-safe (missing criticality_score => treat as life_critical) takes over. This is intentionally conservative."
+  },
+  "assets": [
+    {
+      "asset_id": "ADM-LAPTOP-014",
+      "hostname": "admin-laptop-14.hospital.local",
+      "ip_address": "10.0.20.114",
+      "asset_type": "workstation",
+      "device_category": "laptop",
+      "department": "Administration",
+      "patient_facing": false,
+      "criticality_score": 2,
+      "patient_dependency": "none",
+      "time_sensitivity": 1.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "CAF-PC-002",
+      "hostname": "cafeteria-pc-02.hospital.local",
+      "ip_address": "10.0.30.52",
+      "asset_type": "workstation",
+      "device_category": "desktop",
+      "department": "Infrastructure",
+      "patient_facing": false,
+      "criticality_score": 1,
+      "patient_dependency": "none",
+      "time_sensitivity": 1.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "PRINT-SRV-01",
+      "hostname": "print-server-01.hospital.local",
+      "ip_address": "10.0.40.10",
+      "asset_type": "server",
+      "device_category": "print_server",
+      "department": "Infrastructure",
+      "patient_facing": false,
+      "criticality_score": 3,
+      "patient_dependency": "low",
+      "time_sensitivity": 2.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "TRAIN-PC-007",
+      "hostname": "training-room-pc-07.hospital.local",
+      "ip_address": "10.0.50.107",
+      "asset_type": "workstation",
+      "device_category": "desktop",
+      "department": "Administration",
+      "patient_facing": false,
+      "criticality_score": 4,
+      "patient_dependency": "low",
+      "time_sensitivity": 1.0,
+      "shift": "evening"
+    },
+    {
+      "asset_id": "ICU-VENT-003",
+      "hostname": "icu-ventilator-03.hospital.local",
+      "ip_address": "10.0.5.23",
+      "asset_type": "medical_device",
+      "device_category": "ventilator",
+      "department": "ICU",
+      "patient_facing": true,
+      "criticality_score": 10,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "ICU-PUMP-008",
+      "hostname": "icu-infusion-pump-08.hospital.local",
+      "ip_address": "10.0.5.40",
+      "asset_type": "medical_device",
+      "device_category": "infusion_pump",
+      "department": "ICU",
+      "patient_facing": true,
+      "criticality_score": 9,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "OR-MONITOR-002",
+      "hostname": "or-monitor-02.hospital.local",
+      "ip_address": "10.0.6.15",
+      "asset_type": "medical_device",
+      "device_category": "patient_monitor",
+      "department": "Ward",
+      "patient_facing": true,
+      "criticality_score": 7,
+      "patient_dependency": "high",
+      "time_sensitivity": 4.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "DIAL-UNIT-004",
+      "hostname": "dialysis-unit-04.hospital.local",
+      "ip_address": "10.0.7.34",
+      "asset_type": "medical_device",
+      "device_category": "dialysis_machine",
+      "department": "ICU",
+      "patient_facing": true,
+      "criticality_score": 9,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "ER-DEFIB-001",
+      "hostname": "er-defib-01.hospital.local",
+      "ip_address": "10.0.8.12",
+      "asset_type": "medical_device",
+      "device_category": "defibrillator",
+      "department": "Ward",
+      "patient_facing": true,
+      "criticality_score": 6,
+      "patient_dependency": "medium",
+      "time_sensitivity": 4.0,
+      "shift": "evening"
+    },
+    {
+      "asset_id": "RAD-LINAC-001",
+      "hostname": "rad-linac-01.hospital.local",
+      "ip_address": "10.0.9.5",
+      "asset_type": "medical_device",
+      "device_category": "linear_accelerator",
+      "department": "Radiology",
+      "patient_facing": true,
+      "criticality_score": 10,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "ICU-VENT-007",
+      "hostname": "icu-ventilator-07.hospital.local",
+      "ip_address": "10.0.5.27",
+      "asset_type": "medical_device",
+      "device_category": "ventilator",
+      "department": "ICU",
+      "patient_facing": true,
+      "criticality_score": 9,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day"
+    },
+    {
+      "asset_id": "OR-ANAES-002",
+      "hostname": "or-anaesthesia-02.hospital.local",
+      "ip_address": "10.0.6.22",
+      "asset_type": "medical_device",
+      "device_category": "anaesthesia_machine",
+      "department": "Ward",
+      "patient_facing": true,
+      "criticality_score": 6,
+      "patient_dependency": "high",
+      "time_sensitivity": 4.0,
+      "shift": "evening"
+    },
+    {
+      "asset_id": "ICU-VENT-003",
+      "hostname": "iomt-vitals-monitor",
+      "ip_address": "172.20.0.3",
+      "asset_type": "medical_device",
+      "device_category": "ventilator",
+      "department": "ICU",
+      "patient_facing": true,
+      "criticality_score": 10,
+      "patient_dependency": "life_critical",
+      "time_sensitivity": 5.0,
+      "shift": "day",
+      "_note": "Alias: maps the emulated device's Wazuh agent identity to ICU-VENT-003."
+    }
+  ]
+}

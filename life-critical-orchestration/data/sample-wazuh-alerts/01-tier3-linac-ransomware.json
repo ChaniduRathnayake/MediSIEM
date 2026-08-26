@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-05-04T08:30:00.000+0000",
+  "id": "1714809000.123456",
+  "rule": {
+    "id": "87105",
+    "level": 15,
+    "description": "Ransomware encryption behaviour detected",
+    "groups": ["malware", "ransomware", "syscheck"],
+    "mitre": {
+      "id": ["T1486"],
+      "tactic": ["Impact"],
+      "technique": ["Data Encrypted for Impact"]
+    }
+  },
+  "agent": {
+    "id": "012",
+    "name": "rad-linac-01.hospital.local",
+    "ip": "10.0.9.5"
+  },
+  "data": {
+    "files_modified_per_minute": 412,
+    "extensions_observed": [".locked", ".encrypted"],
+    "ransom_note_path": "/tmp/READ_ME_NOW.txt",
+    "cvss_score": 9.8
+  },
+  "decoder": {
+    "name": "syscheck_integrity_changed"
+  },
+  "location": "syscheck"
+}
