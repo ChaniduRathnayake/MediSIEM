@@ -11,11 +11,9 @@ router = APIRouter(
 )
 
 
-@router.post("/ingest")
-async def ingest_ml_event(data: dict):
+def _build_event(data: dict) -> dict:
     """
-    Persist the complete Ubuntu MedShield flow assessment used by the
-    Windows IP Investigation / correlation UI.
+    Map one Ubuntu MedShield flow assessment into the stored document shape.
 
     Important: do not replace missing evidence with zero. A missing MIRS,
     context score, or reputation score means "not available", not "safe".
@@ -26,6 +24,10 @@ async def ingest_ml_event(data: dict):
 
     event = {
         "timestamp": timestamp,
+        # Real BSON Date (unlike "timestamp", which is the collector's own
+        # string) so the events_collection TTL index (database.py) can
+        # actually expire old flow telemetry.
+        "ingested_at": datetime.now(timezone.utc),
         "flow_id": data.get("flow_id"),
         "src_ip": data.get("src_ip"),
         "dest_ip": data.get("dest_ip"),
@@ -87,11 +89,47 @@ async def ingest_ml_event(data: dict):
         if field in data:
             event[field] = data.get(field)
 
+    return event
+
+
+@router.post("/ingest")
+async def ingest_ml_event(data: dict):
+    """Persist a single flow assessment. Kept for any caller that isn't
+    the batching collector (see /ingest-batch for the high-volume path)."""
+
+    event = _build_event(data)
     result = events_collection.insert_one(event)
 
     return {
         "status": "stored",
         "event_id": str(result.inserted_id),
-        "mirs_stored": mirs is not None,
+        "mirs_stored": event["MIRS"] is not None,
         "ml_fusion_enabled": event["ml_fusion_enabled"],
+    }
+
+
+@router.post("/ingest-batch")
+async def ingest_ml_events_batch(payload: dict):
+    """
+    Persist many flow assessments in one round trip.
+
+    A live Suricata capture calls /ingest once per flow — at realistic
+    traffic volume that's tens of individual insert round trips per second,
+    which was enough to saturate a free-tier Atlas cluster's write I/O and
+    starve concurrent reads (the live feed, investigations) into timing
+    out. The collector batches events client-side and posts them here as
+    one insert_many() — a single write operation instead of dozens, with no
+    change to what ends up stored.
+    """
+
+    events = payload.get("events") or []
+    if not events:
+        return {"status": "stored", "count": 0}
+
+    documents = [_build_event(data) for data in events]
+    result = events_collection.insert_many(documents, ordered=False)
+
+    return {
+        "status": "stored",
+        "count": len(result.inserted_ids),
     }

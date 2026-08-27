@@ -84,7 +84,7 @@ def _nested_breakdown(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def fetch_local_ml_records(
-    limit: int = 100,
+    limit: int = 1000,
 ) -> List[Dict[str, Any]]:
     """Read the latest flow assessments ingested by the Ubuntu collector."""
 
@@ -116,7 +116,7 @@ async def fetch_local_ml_records(
 
 async def correlate_ip_with_local_ml(
     ip: str,
-    limit: int = 100,
+    limit: int = 1000,
 ) -> Dict[str, Any]:
     normalized_ip = classify_ip(ip)["ip"]
 

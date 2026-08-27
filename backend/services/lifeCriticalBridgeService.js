@@ -7,6 +7,7 @@
 // Schema this builds: life-critical-orchestration/docs/alert-schema.md (v1.0).
 
 import AlertLog from '../models/AlertLog.js';
+import SoarAction from '../models/SoarAction.js';
 
 const { LIFE_CRITICAL_ENGINE_URL = 'http://localhost:8000' } = process.env;
 
@@ -65,19 +66,16 @@ function clampCriticality(ccScore) {
   return Math.min(10, Math.max(1, rounded));
 }
 
-// Readable name preferred over the raw IP, per explicit instruction — a real
-// Wazuh agent.id (unique, stable) still wins when present. NOTE: for the
-// flow_consumer.py live-capture path, agent.name is device_map.json's
-// device_type (e.g. "ICU Ventilator"), which is NOT guaranteed unique across
-// two physical units of the same device type — the pending-approval tray,
-// audit log, and Shuffle actions all key off asset_id, so two same-type
-// devices alerting concurrently would currently be tracked as one asset.
-// Not a concern for a single-device demo; worth a real per-device key (e.g.
-// device_map.json entries keyed by a unique asset tag, not just IP) before
-// this runs against a multi-device fleet.
+// Device IP preferred over agent.id/name, per explicit instruction — SOAR's
+// pending-approval tray, audit log, and Shuffle actions all key off asset_id,
+// and the IP is the one identifier that's actually unique per physical
+// device. (agent.name on the flow_consumer.py live-capture path is
+// device_map.json's device_type, e.g. "ICU Ventilator" — NOT unique across
+// two units of the same device type, which is exactly the collision this
+// priority order avoids.)
 function buildEnrichedAlert(raw, displayAlert) {
   const assetId = String(
-    raw.agent?.id ?? raw.agent?.name ?? displayAlert.deviceType ?? displayAlert.agent ?? raw.agent?.ip ?? 'unknown-asset'
+    raw.agent?.ip ?? raw.agent?.id ?? raw.agent?.name ?? displayAlert.deviceType ?? displayAlert.agent ?? 'unknown-asset'
   );
 
   return {
@@ -167,6 +165,35 @@ export async function pushToLifeCriticalEngine(raw, displayAlert) {
       },
       { upsert: true }
     ).catch((err) => console.warn('[lifeCriticalBridge] AlertLog decision write failed:', err.message));
+
+    // Durable copy of the full decision — see backend/models/SoarAction.js for
+    // why this exists alongside the engine's own JSONL audit log.
+    if (decision.decision_id) {
+      SoarAction.findOneAndUpdate(
+        { decisionId: decision.decision_id },
+        {
+          $set: {
+            alertId: String(displayAlert.id),
+            assetId: payload.asset.asset_id,
+            tier: decision.tier ?? null,
+            action: decision.action ?? null,
+            rationale: decision.rationale ?? null,
+            matchedRule: decision.matched_rule ?? null,
+            effectiveCriticality: decision.effective_criticality ?? null,
+            effectiveCriticalityScore: decision.effective_criticality_score ?? null,
+            extremeThreat: Boolean(decision.extreme_threat),
+            failSafeApplied: Boolean(decision.fail_safe_applied),
+            proposedActionIfApproved: decision.proposed_action_if_approved ?? null,
+            blockDest: decision.block_dest ?? null,
+            blockPorts: Array.isArray(decision.block_ports) ? decision.block_ports : [],
+            status: decision.tier === 3 ? 'pending' : 'executed',
+            decidedAt: new Date(),
+            raw: decision,
+          },
+        },
+        { upsert: true }
+      ).catch((err) => console.warn('[lifeCriticalBridge] SoarAction write failed:', err.message));
+    }
 
     return decision;
   } catch (err) {

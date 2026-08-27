@@ -125,7 +125,7 @@ const SocAuditTimeline: React.FC<{ token: string; refreshKey?: string }> = ({ to
                 const d = entry.decision;
                 const f = entry.followup;
                 return (
-                  <tr key={d?.decision_id || f?.referenced_decision_id || idx} className="border-t border-soc-border hover:bg-soc-panel/40">
+                  <tr key={`${d?.decision_id || f?.referenced_decision_id || 'entry'}-${idx}`} className="border-t border-soc-border hover:bg-soc-panel/40">
                     <td className="px-3 py-2 font-mono text-soc-muted whitespace-nowrap">{formatTime(d?.decided_at || f?.responded_at)}</td>
                     <td className="px-3 py-2">
                       {d ? (

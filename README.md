@@ -27,7 +27,7 @@ weighting rationale and a live CAS calculator.
 ┌───────────────┐   REST/WS   ┌───────────────┐   /predict   ┌───────────────┐
 │ React frontend │◄───────────►│ Node backend  │◄────────────►│ Flask AI      │
 │ (Vite, :5173)  │  Socket.IO  │ (Express,     │   RF/IF/KMeans│ server (CAAP, │
-└───────────────┘             │  :5000)        │              │  :5001)       │
+└───────────────┘             │  :5050)        │              │  :5002)       │
                                └───────┬────────┘              └───────────────┘
                                        │
                                        ▼
@@ -117,7 +117,7 @@ cd backend
 cp .env.example .env      # set JWT_SECRET, MONGO_URI, WAZUH_INDEXER_*, CAAP_AI_URL
 npm install
 npm run seed               # creates the default admin/demo users (see below)
-npm run dev                 # http://localhost:5000
+npm run dev                 # http://localhost:5050
 ```
 
 ### 2. AI server (CAAP model)
@@ -131,7 +131,7 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1     # (Windows) or: source venv/bin/activate
 pip install -r requirements.txt
 python train.py                  # produces ai_server/models/*.pkl
-python src/app.py                # http://localhost:5001
+python src/app.py                # http://localhost:5002
 ```
 
 ### 3. IP Reputation service
@@ -151,7 +151,7 @@ python -m uvicorn app:app --port 8088   # http://localhost:8088
 ```bash
 cd frontend
 npm install
-npm run dev                # http://localhost:5173 (proxies /api/* to :5000)
+npm run dev                # http://localhost:5173 (proxies /api/* to :5050)
 ```
 
 ### 5. All at once (Windows)
@@ -164,8 +164,8 @@ Wazuh Indexer is reachable first):
 powershell -ExecutionPolicy Bypass -File .\start-caap-pipeline.ps1
 ```
 
-This starts the Flask AI server (`:5001`), IP Reputation service (`:8088`),
-Node backend (`:5000`), and React dashboard (`:5173`) each in their own
+This starts the Flask AI server (`:5002`), IP Reputation service (`:8088`),
+Node backend (`:5050`), and React dashboard (`:5173`) each in their own
 window, then prints the exact commands to run inside the lab VM for live
 traffic capture (step 6 below).
 
@@ -181,7 +181,7 @@ cd "ml-pipeline"    # or wherever you copied it
 pip install -r requirements.txt
 python live_feature_extractor.py --iface "<interface>" --out-dir .\cicflowmeter_output
 python flow_consumer.py --flow-dir .\cicflowmeter_output `
-    --caap-url http://<host-ip>:5001 --indexer-url https://<host-ip>:9200 `
+    --caap-url http://<host-ip>:5002 --indexer-url https://<host-ip>:9200 `
     --indexer-user <WAZUH_INDEXER_USER> --indexer-pass <WAZUH_INDEXER_PASS>
 
 # attacker VM — simulated traffic
@@ -214,7 +214,7 @@ admin via the dashboard (`POST /api/users`).
 
 ## API overview
 
-All routes are mounted under `/api` on the backend (`:5000`).
+All routes are mounted under `/api` on the backend (`:5050`).
 
 | Prefix | Auth | Purpose |
 |--------|------|---------|
@@ -239,7 +239,7 @@ Indexer and scores new alerts through the AI server.
 ### `backend/.env`
 
 ```env
-PORT=5000
+PORT=5050
 MONGO_URI=mongodb://localhost:27017/medisiem
 JWT_SECRET=your_super_secret_jwt_key_here_change_in_production
 JWT_EXPIRES_IN=7d
@@ -251,7 +251,7 @@ WAZUH_INDEXER_USER=admin
 WAZUH_INDEXER_PASS=changeme
 WAZUH_INDEXER_INDEX=caap-alerts
 WAZUH_INDEXER_VERIFY_SSL=false
-CAAP_AI_URL=http://localhost:5001
+CAAP_AI_URL=http://localhost:5002
 ALERT_POLL_INTERVAL_MS=5000
 ALERT_BUFFER_SIZE=500
 

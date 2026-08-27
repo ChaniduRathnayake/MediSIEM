@@ -88,7 +88,7 @@ def load_devices():
 def main():
     env = read_env_defaults()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--caap-url", default=env.get("CAAP_AI_URL", "http://localhost:5001"))
+    parser.add_argument("--caap-url", default=env.get("CAAP_AI_URL", "http://localhost:5002"))
     parser.add_argument("--indexer-url", default=env.get("WAZUH_INDEXER_URL", "https://localhost:9200"))
     parser.add_argument("--indexer-user", default=env.get("WAZUH_INDEXER_USER", "admin"))
     parser.add_argument("--indexer-pass", default=env.get("WAZUH_INDEXER_PASS", "changeme"))

@@ -49,10 +49,14 @@ router = APIRouter(
 async def operational_assessment(
     ip_address: str,
 
+    # Same high-volume recency issue as correlation.py's correlate_ip: 100
+    # most-recent events isn't enough headroom once flow ingestion is fast,
+    # so this was silently reporting "no_local_evidence"/MIRS Unavailable
+    # for IPs the live feed (scan_limit up to 5000) had just observed.
     local_limit: int = Query(
-        default=100,
+        default=1000,
         ge=1,
-        le=500,
+        le=5000,
     ),
 
     wazuh_limit: int = Query(

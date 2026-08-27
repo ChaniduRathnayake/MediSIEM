@@ -6,7 +6,7 @@ Three issues existed in the repo:
 
 | # | Problem | Fix |
 |---|---------|-----|
-| 1 | **No Vite proxy** — `vite.config.ts` had no `server.proxy`, so `/api/wazuh/*` calls from the browser hit Vite (port 5173) instead of Express (port 5000) | Added `server.proxy` to `vite.config.ts` |
+| 1 | **No Vite proxy** — `vite.config.ts` had no `server.proxy`, so `/api/wazuh/*` calls from the browser hit Vite (port 5173) instead of Express (port 5050) | Added `server.proxy` to `vite.config.ts` |
 | 2 | **Wrong default host** — hardcoded to `192.168.52.129` but Docker Desktop on Windows exposes Wazuh at `localhost` | Changed default to `https://localhost` + added Docker hints dropdown |
 | 3 | **Vague error messages** — connection errors didn't explain whether the backend or Wazuh was unreachable | Improved error messages with actionable hints |
 
@@ -53,7 +53,7 @@ From your Windows host, open PowerShell or cmd:
 curl -k -u wazuh-wui:"MyS3cr37P450r.*-" https://localhost:55000/security/user/authenticate?raw=true
 
 # Test 2 — is the MediSIEM backend reachable?
-curl http://localhost:5000/api/health
+curl http://localhost:5050/api/health
 ```
 
 If Test 1 fails → port 55000 is not mapped in Docker.
@@ -79,7 +79,7 @@ Port is always `55000` unless you changed it in docker-compose.
 ```
 Browser (Vite :5173)
   → fetch('/api/wazuh/ping')
-    → Vite proxy forwards to Express (:5000)
+    → Vite proxy forwards to Express (:5050)
       → Express backend calls Wazuh API (:55000) with Bearer JWT
         → Returns data back up the chain
 ```

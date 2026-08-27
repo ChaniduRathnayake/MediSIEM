@@ -302,7 +302,7 @@ async function proxyGet<T>(path: string, cfg: WazuhConfig): Promise<T> {
     // fetch() itself throws only on network-level failures (backend unreachable)
     throw new Error(
       `Cannot reach MediSIEM backend at ${PROXY}. ` +
-      `Make sure the Express server is running on port 5000 and the Vite proxy is configured. ` +
+      `Make sure the Express server is running on port 5050 and the Vite proxy is configured. ` +
       `(${(networkErr as Error).message})`
     );
   }

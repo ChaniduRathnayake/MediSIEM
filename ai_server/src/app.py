@@ -3,7 +3,7 @@
 # a flow through all three, computes the 5-dimension Clinical Alert Score
 # (CAS), maps it to an action, and returns a SHAP-based explanation.
 # Run: python src/app.py
-# Test: curl -X POST http://localhost:5001/predict -H "Content-Type: application/json" -d @sample_row.json
+# Test: curl -X POST http://localhost:5002/predict -H "Content-Type: application/json" -d @sample_row.json
 
 import os
 import json
@@ -66,7 +66,7 @@ DEFAULT_ACTION = "Monitor"
 app = Flask(__name__)
 # Origins restricted to the Node backend by default — override with a
 # comma-separated AI_SERVER_CORS_ORIGINS if it runs on a different host/port.
-_cors_origins = [o.strip() for o in os.environ.get("AI_SERVER_CORS_ORIGINS", "http://localhost:5000").split(",")]
+_cors_origins = [o.strip() for o in os.environ.get("AI_SERVER_CORS_ORIGINS", "http://localhost:5050").split(",")]
 CORS(app, resources={r"/*": {"origins": _cors_origins}})
 
 print("[CAAP] Loading models...")
@@ -670,14 +670,19 @@ def predict():
 
 
 if __name__ == "__main__":
-    # Node.js backend runs on :5000 — Flask AI layer on :5001 (Phase 6, Day 5)
+    # Node.js backend runs on :5050 — Flask AI layer on :5002 (moved off 5001
+    # after life-critical-orchestration's dockerized Shuffle stack started
+    # publishing shuffle-backend to 0.0.0.0:5001, permanently claiming that
+    # port on every interface — not just the old WSL2-relay IPv6 quirk the
+    # 127.0.0.1 workaround elsewhere in this codebase was for).
     # Bound to loopback by default — this is an internal service the Node
     # backend calls, not meant to be reachable directly. Debug mode is off by
     # default: Werkzeug's interactive debugger allows arbitrary code
     # execution from the browser if it's ever reachable, so it must stay
     # opt-in (FLASK_DEBUG=1) for local development only, never in a real
-    # deployment. Override the bind host with AI_SERVER_HOST if the backend
-    # genuinely runs on a different machine/container.
+    # deployment. Override the bind host with AI_SERVER_HOST, or the port
+    # with AI_SERVER_PORT, if the default ever collides again.
     debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
     host = os.environ.get("AI_SERVER_HOST", "127.0.0.1")
-    app.run(host=host, port=5001, debug=debug_mode)
+    port = int(os.environ.get("AI_SERVER_PORT", "5002"))
+    app.run(host=host, port=port, debug=debug_mode)

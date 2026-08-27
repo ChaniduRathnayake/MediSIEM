@@ -75,31 +75,34 @@ if (-not $indexerUp) {
 # here silently makes /predict unreachable from every VM with no error at all
 # (the VM's flow_consumer.py just never gets a response). Cost this exact
 # failure a full debugging session once already -- don't drop this line.
-Write-Stage "[2/5] Starting Flask AI server (ai_server/src/app.py, port 5001, bound to 0.0.0.0 for VM reachability)"
+Write-Stage "[2/5] Starting Flask AI server (ai_server/src/app.py, port 5002, bound to 0.0.0.0 for VM reachability)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "`$host.UI.RawUI.WindowTitle = 'CAAP [2/5] Flask AI server :5001'; " +
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [2/5] Flask AI server :5002'; " +
     "cd '$root\ai_server'; .\venv\Scripts\Activate.ps1; `$env:AI_SERVER_HOST='0.0.0.0'; python src\app.py"
 )
-Wait-Http "http://localhost:5001/health" "Flask AI server" | Out-Null
+Wait-Http "http://localhost:5002/health" "Flask AI server" | Out-Null
 
 # ─── [3/5] IP Reputation FastAPI service ────────────────────────────────────
+# Loopback-only — this service has no auth of its own (every route is reachable
+# with zero credentials), so it must never be reachable from the network. It's
+# meant to be reached exclusively through the Express proxy on this same host.
 Write-Stage "[3/5] Starting IP Reputation service (ip_reputation_server/app.py, port 8088)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
     "`$host.UI.RawUI.WindowTitle = 'CAAP [3/5] IP Reputation service :8088'; " +
-    "cd '$root\ip_reputation_server'; .\venv\Scripts\Activate.ps1; python -m uvicorn app:app --host 0.0.0.0 --port 8088"
+    "cd '$root\ip_reputation_server'; .\venv\Scripts\Activate.ps1; python -m uvicorn app:app --host 127.0.0.1 --port 8088"
 )
 Wait-Http "http://localhost:8088/api/health" "IP Reputation service" | Out-Null
 
 # ─── [4/5] Node backend ────────────────────────────────────────────────────
-Write-Stage "[4/5] Starting Node backend (backend/server.js, port 5000)"
+Write-Stage "[4/5] Starting Node backend (backend/server.js, port 5050)"
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "`$host.UI.RawUI.WindowTitle = 'CAAP [4/5] Node backend :5000'; " +
+    "`$host.UI.RawUI.WindowTitle = 'CAAP [4/5] Node backend :5050'; " +
     "cd '$root\backend'; npm run dev"
 )
-Wait-Http "http://localhost:5000/api/health" "Node backend" | Out-Null
+Wait-Http "http://localhost:5050/api/health" "Node backend" | Out-Null
 
 # ─── [5/5] React dashboard ──────────────────────────────────────────────────
 Write-Stage "[5/5] Starting React dashboard (frontend/, port 5173)"
@@ -125,7 +128,7 @@ Write-Host "Inside the victim lab VM:" -ForegroundColor Cyan
 Write-Host "  pip install -r 'ml-pipeline/requirements.txt'"
 Write-Host "  python 'ml-pipeline/live_feature_extractor.py' --iface `"<vm-iface-name>`" --out-dir ./cicflowmeter_output"
 Write-Host "  python 'ml-pipeline/flow_consumer.py' --flow-dir ./cicflowmeter_output \"
-Write-Host "      --caap-url http://$hostIp`:5001 --indexer-url https://$hostIp`:9200 \"
+Write-Host "      --caap-url http://$hostIp`:5002 --indexer-url https://$hostIp`:9200 \"
 Write-Host "      --indexer-user $indexerUser --indexer-pass $indexerPass"
 Write-Host ""
 Write-Host "Inside the attacker lab VM:" -ForegroundColor Cyan

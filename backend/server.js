@@ -73,10 +73,16 @@ mongoose.connect(MONGO_URI)
   });
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5050;
+// 127.0.0.1 and localhost are different CORS origins even though they
+// resolve to the same box — the frontend sends absolute
+// http://localhost:5050 URLs (see frontend/src/services/api.ts), so a
+// browser sitting on the 127.0.0.1 variant of the dev server would have
+// every request silently rejected as "Failed to fetch" with no other
+// symptom, since a CORS rejection has no visible error detail.
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+  : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000'];
 
 app.use(helmet());
 app.use(cors({

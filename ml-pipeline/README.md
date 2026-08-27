@@ -60,11 +60,11 @@ attack_simulator.py --target <victim-vm>
 live_feature_extractor.py (sniffs, writes CSV)
         │
         ▼
-flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
+flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5002
         │
         └──index doc───────────────────────────────►  Wazuh Indexer :9200 (caap-alerts index)
                                                               │
-                                                        Node backend :5000 polls
+                                                        Node backend :5050 polls
                                                               │
                                                         Socket.IO push
                                                               │
@@ -94,7 +94,7 @@ flow_consumer.py  ──/predict (real RF+IF+KMeans)──►  Flask :5001
    with `ipconfig` — the VirtualBox Host-Only / VMware Host-Only adapter):
    ```powershell
    python flow_consumer.py --flow-dir .\cicflowmeter_output `
-       --caap-url http://<host-ip>:5001 --indexer-url https://<host-ip>:9200 `
+       --caap-url http://<host-ip>:5002 --indexer-url https://<host-ip>:9200 `
        --indexer-user <WAZUH_INDEXER_USER from backend/.env> --indexer-pass <WAZUH_INDEXER_PASS from backend/.env>
    ```
    (`start-caap-pipeline.ps1` prints this command with both filled in for you.)

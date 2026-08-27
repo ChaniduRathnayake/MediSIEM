@@ -145,6 +145,33 @@ export interface AlertSearchOptions {
   q?: string;
 }
 
+export interface DeviceSummaryRow {
+  agentId: string;
+  agentName: string | null;
+  agentIp: string | null;
+  count: number;
+  maxLevel: number | null;
+  lastSeen: string | null;
+}
+
+export interface DeviceSummaryResult {
+  ok: boolean;
+  devices: DeviceSummaryRow[];
+}
+
+// Every device that has ever alerted (real aggregation, not a recent-N-alerts
+// derivation) — see backend/routes/compliance.js's GET /alerts/devices.
+export async function getDeviceSummary(
+  cfg: WazuhConfig,
+  opts: { severity?: number; q?: string } = {}
+): Promise<DeviceSummaryResult> {
+  const qs = new URLSearchParams();
+  if (opts.severity !== undefined) qs.set('severity', String(opts.severity));
+  if (opts.q) qs.set('q', opts.q);
+  const suffix = qs.toString();
+  return proxyGet<DeviceSummaryResult>(`/alerts/devices${suffix ? `?${suffix}` : ''}`, cfg);
+}
+
 export async function searchAlerts(cfg: WazuhConfig, opts: AlertSearchOptions): Promise<AlertSearchResult> {
   const qs = new URLSearchParams({ page: String(opts.page), pageSize: String(opts.pageSize ?? 50) });
   if (opts.agentId) qs.set('agentId', opts.agentId);

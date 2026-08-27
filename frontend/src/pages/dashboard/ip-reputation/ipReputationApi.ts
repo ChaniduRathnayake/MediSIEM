@@ -475,7 +475,11 @@ export async function getAnalystIntelligence(ip: string): Promise<{ status: stri
   return request(`/analyst/${encodeURIComponent(ip)}`);
 }
 
-export async function getCorrelation(ip: string, limit = 100): Promise<CorrelationResult> {
+// Matches the backend's own default (routers/correlation.py) — under this
+// collector's flow volume, 100 most-recent events routinely didn't reach far
+// enough back to include an IP the live feed (scan_limit up to 5000) had
+// just shown, which surfaced as a false "MIRS Unavailable".
+export async function getCorrelation(ip: string, limit = 1000): Promise<CorrelationResult> {
   return request(`/correlation/${encodeURIComponent(ip)}?limit=${limit}`);
 }
 
@@ -483,7 +487,7 @@ export async function getWazuhEvidence(ip: string, limit = 20): Promise<WazuhEvi
   return request(`/wazuh/${encodeURIComponent(ip)}?limit=${limit}`);
 }
 
-export async function getOperationalAssessment(ip: string, localLimit = 100, wazuhLimit = 20): Promise<OperationalResult> {
+export async function getOperationalAssessment(ip: string, localLimit = 1000, wazuhLimit = 20): Promise<OperationalResult> {
   return request(`/operational/${encodeURIComponent(ip)}?local_limit=${localLimit}&wazuh_limit=${wazuhLimit}`);
 }
 

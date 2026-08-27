@@ -56,6 +56,16 @@ const TAB_ORDER: IpReputationTab[] = ['live', 'overview', 'investigate', 'threat
 
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 
+// Anchors within the Live tab's combined monitor+investigate layout — lets
+// the quick-jump nav below skip straight to a section instead of scrolling
+// past the live feed table (10 columns, forces its own horizontal scroll)
+// to reach the investigation workspace underneath it.
+const LIVE_SECTIONS: { id: string; label: string }[] = [
+  { id: 'live-overview', label: 'Overview' },
+  { id: 'live-feed', label: 'Live Feed' },
+  { id: 'medshield-investigation', label: 'Investigate' },
+];
+
 const IpReputationPanel: React.FC = () => {
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -102,7 +112,7 @@ const IpReputationPanel: React.FC = () => {
           getAnalystIntelligence(cleanIp),
           getCorrelation(cleanIp),
           getWazuhEvidence(cleanIp, 20),
-          getOperationalAssessment(cleanIp, 100, 20),
+          getOperationalAssessment(cleanIp, 1000, 20),
         ]);
 
       if (lookupSettled.status === 'rejected') throw lookupSettled.reason;
@@ -214,6 +224,10 @@ const IpReputationPanel: React.FC = () => {
     });
   }, [investigate]);
 
+  const scrollToSection = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   return (
     <div className="p-5 space-y-5">
       <div>
@@ -243,11 +257,25 @@ const IpReputationPanel: React.FC = () => {
 
       {tab === 'live' && (
         <div className="space-y-10">
+          <nav className="sticky top-0 z-10 -mx-5 flex items-center gap-1 border-b border-slate-200 bg-white/90 px-5 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
+            {LIVE_SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => scrollToSection(s.id)}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                {s.label}
+              </button>
+            ))}
+          </nav>
+
           <LiveDashboardView onInvestigate={handleLiveInvestigate} />
 
           <section
             id="medshield-investigation"
-            className="scroll-mt-6 border-t border-slate-200 pt-8 dark:border-slate-800"
+            className="scroll-mt-20 border-t border-slate-200 pt-8 dark:border-slate-800"
           >
             <div className="mb-5">
               <h2 className="text-xl font-semibold text-slate-900 dark:text-white">

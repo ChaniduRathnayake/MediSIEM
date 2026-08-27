@@ -97,5 +97,21 @@ class Settings:
         )
     )
 
+    # -----------------------------------------------------
+    # Log retention (events_collection space management)
+    # -----------------------------------------------------
+    # events_collection is raw per-flow telemetry from the live Suricata
+    # collector — it grows continuously and unboundedly, unlike cases/notes/
+    # audit/verdicts, which are analyst work product and must never expire.
+    # A free-tier Atlas cluster (512MB) fills up fast under sustained live
+    # capture, so this is deleted automatically via a TTL index rather than
+    # left to grow until writes start failing.
+    EVENTS_RETENTION_DAYS = float(
+        os.getenv(
+            "EVENTS_RETENTION_DAYS",
+            "7"
+        )
+    )
+
 
 settings = Settings()

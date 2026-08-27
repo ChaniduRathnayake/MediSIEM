@@ -7,6 +7,7 @@
 import express from 'express';
 import { protect, allowRoles } from '../middleware/auth.js';
 import { getLifeCriticalBridgeStats } from '../services/lifeCriticalBridgeService.js';
+import SoarAction from '../models/SoarAction.js';
 
 const router = express.Router();
 
@@ -107,9 +108,48 @@ router.post('/clinician-decision', protect, allowRoles('admin', 'user', 'biomed'
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision_id: decisionId, approved, clinician_id: req.user.email }),
     });
+
+    // Record who resolved this Tier 3 decision and how — the engine call
+    // above already succeeded, so a failure here only loses the durable
+    // Mongo mirror, never the real approve/deny action itself.
+    SoarAction.findOneAndUpdate(
+      { decisionId },
+      {
+        $set: {
+          status: approved ? 'approved' : 'denied',
+          clinicianDecision: {
+            approved,
+            by: { id: req.user.id, name: req.user.name, email: req.user.email },
+            decidedAt: new Date(),
+          },
+        },
+      },
+      { upsert: true }
+    ).catch((err) => console.warn('[lifeCriticalOrchestration] SoarAction clinician-decision write failed:', err.message));
+
     res.json(result);
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
+// Durable SOAR history straight from Mongo — unlike /audit and
+// /recent-decisions this survives an engine restart and supports filtering,
+// since it's the Node-side mirror (backend/models/SoarAction.js) rather than
+// a proxy onto the engine's own state.
+router.get('/soar-history', protect, async (req, res) => {
+  try {
+    const { assetId, status, limit } = req.query;
+    const query = {};
+    if (assetId) query.assetId = assetId;
+    if (status) query.status = status;
+
+    const items = await SoarAction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Number(limit) || 100, 500));
+    res.json({ items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -6,13 +6,22 @@
 // required for every request, and the service's own base URL/credentials
 // never reach the browser bundle.
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, allowRoles } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.use(protect);
 
 const SERVICE_URL = (process.env.IP_REPUTATION_SERVICE_URL || 'http://localhost:8088').replace(/\/+$/, '');
+
+// ip_reputation_server has no role model of its own — every route (allow/
+// block lists, analyst verdicts, cases) is equally reachable to anyone who
+// clears this proxy's `protect` check. Restrict writes here to the same
+// admin/user pairing the rest of the app uses for security-relevant
+// mutations (e.g. alerts.js's assign/close) — read access (investigation,
+// case/list lookups) stays open to every authenticated role.
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+router.all(/.*/, (req, res, next) => (WRITE_METHODS.has(req.method) ? allowRoles('admin', 'user')(req, res, next) : next()));
 
 router.all(/.*/, async (req, res) => {
   const target = `${SERVICE_URL}/api/v1${req.url}`;

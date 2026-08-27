@@ -717,6 +717,9 @@ const DeviceGroupsModal: React.FC<{
   };
 
   const handleDelete = async (id: string) => {
+    const group = groups.find((g) => g.id === id);
+    const label = group ? `"${group.name}" (${group.deviceCount} device${group.deviceCount === 1 ? '' : 's'})` : 'this group';
+    if (!window.confirm(`Delete ${label}? Devices tagged with it will be untagged. This cannot be undone.`)) return;
     setBusyId(id);
     setError('');
     try {

@@ -17,7 +17,7 @@
 set -euo pipefail
 
 IFACE="${1:?usage: sudo ./run_victim_capture.sh <iface> <windows-host-ip> [indexer-user] [indexer-pass]}"
-HOST_IP="${2:?Windows host IP required — where Flask (:5001) and the Wazuh Indexer (:9200) are reachable}"
+HOST_IP="${2:?Windows host IP required — where Flask (:5002) and the Wazuh Indexer (:9200) are reachable}"
 INDEXER_USER="${3:-admin}"
 INDEXER_PASS="${4:?WAZUH_INDEXER_PASS required — same value as WAZUH_INDEXER_PASS in backend/.env on the host}"
 
@@ -48,10 +48,10 @@ if ! kill -0 "$EXTRACTOR_PID" 2>/dev/null; then
   exit 1
 fi
 
-echo "[2/2] starting flow_consumer.py -> CAAP http://$HOST_IP:5001, Indexer https://$HOST_IP:9200 ..."
+echo "[2/2] starting flow_consumer.py -> CAAP http://$HOST_IP:5002, Indexer https://$HOST_IP:9200 ..."
 python3 flow_consumer.py \
   --flow-dir "$OUT_DIR" \
-  --caap-url "http://$HOST_IP:5001" \
+  --caap-url "http://$HOST_IP:5002" \
   --indexer-url "https://$HOST_IP:9200" \
   --indexer-user "$INDEXER_USER" \
   --indexer-pass "$INDEXER_PASS"

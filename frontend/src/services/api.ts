@@ -4,15 +4,15 @@ const MOCK_ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', user: 'SOC A
 
 /**
  * Base URL for the backend API.
- * In development, the Express backend runs at http://localhost:5000
- * (see backend/server.js's PORT default / backend/.env.example) — port 5001
+ * In development, the Express backend runs at http://localhost:5050
+ * (see backend/server.js's PORT default / backend/.env.example) — port 5002
  * is the separate Python CAAP AI server, not this one.
  * Change this to your deployed backend URL in production.
  *
  * For demo/preview purposes (no backend running), the service
  * falls back to a local mock implementation below.
  */
-export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5050/api';
 
 // ─── Mock Data (used when backend is unavailable) ─────────────────────────────
 const MOCK_USERS: (User & { password: string })[] = [

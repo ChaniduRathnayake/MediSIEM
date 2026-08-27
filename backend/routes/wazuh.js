@@ -26,6 +26,17 @@ function getConfig(req) {
   return { host, port, username, password };
 }
 
+// Agents that are Wazuh/lab infrastructure, not real monitored clinical
+// endpoints — they shouldn't count toward device totals or appear in the
+// Devices tables. Id "000" is a Wazuh-reserved convention (the manager
+// always registers itself as an agent); the name list covers lab/simulator
+// agents that don't have a fixed id to key off (e.g.
+// life-critical-orchestration/device-sim's simulated IoMT devices).
+const NON_CLINICAL_AGENT_NAMES = new Set(['iomt-vitals-monitor']);
+function isNonClinicalAgent(agent) {
+  return agent?.id === '000' || NON_CLINICAL_AGENT_NAMES.has(agent?.name);
+}
+
 // ── Low-level HTTPS request (bypasses self-signed cert check) ─────────────────
 function httpsGet(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -189,11 +200,19 @@ router.get('/stats', async (req, res) => {
   if (!cfg) return res.status(400).json({ message: 'Missing Wazuh credentials' });
 
   try {
-    // Agent connection summary
-    const agentSummary = await wazuhCall(cfg, '/agents/summary/status').catch(() => ({
-      data: { connection: {} },
-    }));
-    const conn = agentSummary?.data?.connection ?? {};
+    // Agent connection summary — tallied locally from the agent list (same
+    // exclusion as GET /agents) rather than trusting Wazuh's own
+    // /agents/summary/status, which has no way to exclude specific agents
+    // and would otherwise count the manager/lab-simulator agents excluded
+    // everywhere else, producing a total that doesn't match the Devices tables.
+    const conn = { active: 0, disconnected: 0, never_connected: 0, pending: 0 };
+    try {
+      const agentList = await wazuhCall(cfg, '/agents?limit=1000&select=id,name,status');
+      for (const agent of agentList?.data?.affected_items ?? []) {
+        if (isNonClinicalAgent(agent)) continue;
+        if (agent.status in conn) conn[agent.status] += 1;
+      }
+    } catch { /* leave conn zeroed — same degrade-gracefully behavior as the old summary call */ }
 
     // Vulnerability totals (vulnerability module must be enabled)
     let vulns = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -256,7 +275,11 @@ router.get('/agents', async (req, res) => {
       cfg,
       `/agents?limit=${limit}&sort=-lastKeepAlive&select=id,name,ip,status,os.platform,os.name,os.version,os.arch,os.codename,version,lastKeepAlive,group,dateAdd,manager,node_name,group_config_status`
     );
-    return res.json(data);
+    const items = (data?.data?.affected_items ?? []).filter((a) => !isNonClinicalAgent(a));
+    return res.json({
+      ...data,
+      data: { ...data.data, affected_items: items, total_affected_items: items.length },
+    });
   } catch (err) {
     console.error('[wazuh/agents]', err.message);
     return res.status(502).json({ message: err.message });

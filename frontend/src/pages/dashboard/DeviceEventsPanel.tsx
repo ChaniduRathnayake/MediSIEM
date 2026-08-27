@@ -6,11 +6,11 @@
 // most-recent 200 alerts — the search endpoint has no per-agent aggregation route, so
 // like AlertsBrowser's own severity donut, this reflects a recent window, not the
 // all-time total per device).
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Radio, Search, Server, Loader2, AlertCircle, Info, ChevronRight, Maximize2, List, LayoutGrid } from 'lucide-react';
 import { useWazuhContext } from './WazuhContext';
-import { hasIndexerConfig, searchAlerts } from './complianceApi';
-import type { WazuhAlertRow, AlertSearchResult } from './complianceApi';
+import { hasIndexerConfig, searchAlerts, getDeviceSummary } from './complianceApi';
+import type { WazuhAlertRow, AlertSearchResult, DeviceSummaryRow } from './complianceApi';
 import AlertDetailsModal from './AlertDetailsModal';
 
 const DEVICE_PAGE_SIZE = 200; // max the backend allows — the aggregation "window" for By-Device mode
@@ -32,16 +32,6 @@ const severityOptions = [
   { label: 'Low (1+)', value: '1' },
 ];
 
-interface DeviceSummary {
-  key: string;
-  agentName: string;
-  agentId: string | null;
-  agentIp: string | null;
-  count: number;
-  maxLevel: number;
-  lastSeen: string;
-}
-
 const DeviceEventsPanel: React.FC = () => {
   const { config } = useWazuhContext();
   const indexerReady = hasIndexerConfig(config);
@@ -50,27 +40,57 @@ const DeviceEventsPanel: React.FC = () => {
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<string | null>(null); // agent.id
   const [detailsAlert, setDetailsAlert] = useState<WazuhAlertRow | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<AlertSearchResult | null>(null);
 
+  // The device list — every device that has ever alerted, via a real
+  // aggregation (GET /alerts/devices), independent of whatever's in the
+  // paginated alert fetch below. Previously "By Device" derived its device
+  // list by grouping the same capped, most-recent-N-alerts fetch used for
+  // the "All at once" tab — so a handful of chatty devices (e.g. a live
+  // attack run) could fill that window and silently push every other
+  // device out of the list entirely, even ones with real history.
+  const [devices, setDevices] = useState<DeviceSummaryRow[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [devicesError, setDevicesError] = useState('');
+
+  const activeDevice = selectedDevice && devices.some((d) => d.agentId === selectedDevice) ? selectedDevice : devices[0]?.agentId ?? null;
   const pageSize = viewMode === 'device' ? DEVICE_PAGE_SIZE : ALL_PAGE_SIZE;
 
-  // Any filter or mode change resets pagination — a stale page number from "All"
-  // mode showing page 4 of a much smaller "By Device" window would just 404-empty.
-  useEffect(() => { setPage(1); }, [search, severityFilter, viewMode]);
+  // Any filter, mode, or selected-device change resets pagination — a stale
+  // page number from "All" mode, or from a previously selected device with
+  // more pages, would just 404-empty against the newly filtered set.
+  useEffect(() => { setPage(1); }, [search, severityFilter, viewMode, activeDevice]);
+
+  useEffect(() => {
+    if (!config || !indexerReady || viewMode !== 'device') return;
+    let cancelled = false;
+    setDevicesLoading(true);
+    setDevicesError('');
+    getDeviceSummary(config, {
+      severity: severityFilter ? Number(severityFilter) : undefined,
+      q: search.trim() || undefined,
+    })
+      .then((r) => { if (!cancelled) setDevices(r.devices); })
+      .catch((err: unknown) => { if (!cancelled) setDevicesError(err instanceof Error ? err.message : 'Failed to load devices.'); })
+      .finally(() => { if (!cancelled) setDevicesLoading(false); });
+    return () => { cancelled = true; };
+  }, [config, indexerReady, viewMode, severityFilter, search]);
 
   useEffect(() => {
     if (!config || !indexerReady) return;
+    if (viewMode === 'device' && !activeDevice) { setResult(null); return; }
     let cancelled = false;
     setLoading(true);
     setError('');
     searchAlerts(config, {
-      page: viewMode === 'device' ? 1 : page,
+      page,
       pageSize,
+      agentId: viewMode === 'device' ? activeDevice ?? undefined : undefined,
       severity: severityFilter ? Number(severityFilter) : undefined,
       q: search.trim() || undefined,
     })
@@ -78,43 +98,14 @@ const DeviceEventsPanel: React.FC = () => {
       .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load alerts.'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [config, indexerReady, viewMode, page, pageSize, severityFilter, search]);
+  }, [config, indexerReady, viewMode, activeDevice, page, pageSize, severityFilter, search]);
 
   const alerts = result?.alerts ?? [];
   const total = result?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / ALL_PAGE_SIZE));
 
-  const devices = useMemo<DeviceSummary[]>(() => {
-    const map = new Map<string, DeviceSummary>();
-    for (const a of alerts) {
-      const key = a.agentName || a.agentId || 'Unknown device';
-      const existing = map.get(key);
-      const level = a.ruleLevel ?? 0;
-      if (existing) {
-        existing.count += 1;
-        if (level > existing.maxLevel) existing.maxLevel = level;
-        if (a.timestamp && new Date(a.timestamp).getTime() > new Date(existing.lastSeen).getTime()) existing.lastSeen = a.timestamp;
-      } else {
-        map.set(key, {
-          key,
-          agentName: a.agentName || key,
-          agentId: a.agentId,
-          agentIp: a.agentIp,
-          count: 1,
-          maxLevel: level,
-          lastSeen: a.timestamp || '',
-        });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.maxLevel - a.maxLevel || b.count - a.count);
-  }, [alerts]);
-
-  const activeDevice = selectedDevice && devices.some((d) => d.key === selectedDevice) ? selectedDevice : devices[0]?.key ?? null;
-  const deviceEvents = useMemo(
-    () => (activeDevice ? alerts.filter((a) => (a.agentName || a.agentId || 'Unknown device') === activeDevice) : []),
-    [alerts, activeDevice]
-  );
-  const activeSummary = devices.find((d) => d.key === activeDevice) ?? null;
+  const deviceEvents = alerts;
+  const activeSummary = devices.find((d) => d.agentId === activeDevice) ?? null;
 
   if (!indexerReady) {
     return (
@@ -182,41 +173,41 @@ const DeviceEventsPanel: React.FC = () => {
         >
           {severityOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        {loading && <Loader2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600 animate-spin" />}
+        {(loading || devicesLoading) && <Loader2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600 animate-spin" />}
       </div>
 
-      {error && (
+      {(error || devicesError) && (
         <div className="flex items-center gap-2 px-4 py-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 dark:text-red-400 text-sm">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error || devicesError}
         </div>
       )}
 
       {viewMode === 'device' ? (
-        devices.length === 0 && !loading ? (
+        devices.length === 0 && !devicesLoading ? (
           <p className="text-sm text-slate-500 text-center py-14">No device activity matches these filters.</p>
         ) : (
           <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
             {/* ─── Device list ──────────────────────────────────────────── */}
             <div className="flex flex-col rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 dark:text-slate-500">
-                {devices.length} device{devices.length === 1 ? '' : 's'} in the most recent {alerts.length.toLocaleString()} alerts
+                {devices.length} device{devices.length === 1 ? '' : 's'} with matching alerts
               </div>
               <div className="flex-1 overflow-y-auto">
                 {devices.map((d) => {
                   const sev = severityClass(d.maxLevel);
-                  const active = d.key === activeDevice;
+                  const active = d.agentId === activeDevice;
                   return (
                     <button
-                      key={d.key}
+                      key={d.agentId}
                       type="button"
-                      onClick={() => setSelectedDevice(d.key)}
+                      onClick={() => setSelectedDevice(d.agentId)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/60 text-left transition-colors ${
                         active ? 'bg-cyan-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                       }`}
                     >
                       <Server className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs font-mono text-slate-800 dark:text-slate-200 truncate block">{d.agentName}</span>
+                        <span className="text-xs font-mono text-slate-800 dark:text-slate-200 truncate block">{d.agentName || d.agentId}</span>
                         <div className="flex items-center gap-2 mt-0.5">
                           {d.agentIp && <span className="text-[11px] font-mono text-slate-400 dark:text-slate-600">{d.agentIp}</span>}
                           <span className="text-[11px] text-slate-400 dark:text-slate-600">{d.count} event{d.count === 1 ? '' : 's'}</span>
@@ -236,7 +227,7 @@ const DeviceEventsPanel: React.FC = () => {
                 <>
                   <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white font-mono">{activeSummary.agentName}</h3>
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white font-mono">{activeSummary.agentName || activeSummary.agentId}</h3>
                       <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                         {activeSummary.agentId ? `Agent ID ${activeSummary.agentId}` : 'Agent ID unknown'}
                         {activeSummary.agentIp ? ` · ${activeSummary.agentIp}` : ''}
@@ -274,6 +265,27 @@ const DeviceEventsPanel: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                  {total > pageSize && (
+                    <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Page {page} of {Math.max(1, Math.ceil(total / pageSize))} · {total.toLocaleString()} events</p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page <= 1 || loading}
+                          className="px-2.5 py-1 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() => setPage((p) => Math.min(Math.ceil(total / pageSize), p + 1))}
+                          disabled={page >= Math.ceil(total / pageSize) || loading}
+                          className="px-2.5 py-1 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-slate-500 text-center py-14">Select a device to see its event history.</p>

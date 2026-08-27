@@ -13,6 +13,7 @@ to demonstrate the immutable-logging principle.
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
@@ -82,14 +83,26 @@ class AuditLogger:
     # ---------- Reading ----------
 
     def read_all(self) -> Iterator[dict]:
-        """Yield every entry in the log, oldest first."""
+        """Yield every entry in the log, oldest first.
+
+        A line that fails to parse is skipped rather than raised: append()
+        is not fsync'd, so a process killed mid-write (e.g. dev's
+        killStalePort force-kill of a wedged uvicorn on restart) can leave a
+        torn trailing line. Treating that as fatal would 500 every reader of
+        the log (including /audit/verify) over one incomplete write instead
+        of just dropping the entry that never durably landed.
+        """
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as f:
-            for line in f:
+            for i, line in enumerate(f):
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     yield json.loads(line)
+                except json.JSONDecodeError:
+                    print(f"[audit] skipping unparseable line {i + 1} in {self.path}", file=sys.stderr)
 
     # ---------- Verification ----------
 

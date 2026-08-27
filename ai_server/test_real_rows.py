@@ -3,7 +3,7 @@
 # endpoint, and prints the filename-derived label next to the prediction.
 # Filenames use a granular ~21-subtype taxonomy while the trained model may
 # use a consolidated 6-class set — both labels print raw for manual comparison.
-# Usage: python test_real_rows.py --dir data/test --rows_per_file 1 [--url http://127.0.0.1:5001/predict]
+# Usage: python test_real_rows.py --dir data/test --rows_per_file 1 [--url http://127.0.0.1:5002/predict]
 
 import argparse
 import json
@@ -43,7 +43,7 @@ def label_from_filename(path: Path) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", default="data/test", help="Directory containing per-class test CSVs")
-    parser.add_argument("--url", default="http://127.0.0.1:5001/predict", help="Flask /predict URL")
+    parser.add_argument("--url", default="http://127.0.0.1:5002/predict", help="Flask /predict URL")
     parser.add_argument("--rows_per_file", type=int, default=1, help="How many rows to sample per file")
     parser.add_argument("--pattern", default="*.csv", help="Glob pattern for test files")
     args = parser.parse_args()

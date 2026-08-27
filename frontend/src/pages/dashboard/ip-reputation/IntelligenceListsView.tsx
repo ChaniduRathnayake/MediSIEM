@@ -4,10 +4,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { getAllLists, removeListEntry } from './ipReputationApi';
 import type { ListEntry } from './ipReputationApi';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 import { SectionCard, Badge, EmptyNotice, ErrorBanner, LoadingBlock, RefreshButton, fmtDateTime, toneOf } from './shared';
 
 const IntelligenceListsView: React.FC = () => {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const actor = user?.email || user?.name || 'unknown-analyst';
   const [items, setItems] = useState<ListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,7 +37,7 @@ const IntelligenceListsView: React.FC = () => {
     if (!confirmed) return;
 
     try {
-      await removeListEntry(listType, ip, 'analyst01');
+      await removeListEntry(listType, ip, actor);
       showToast({ title: 'Entry removed', message: `${ip} removed from ${listType} list.`, severity: 'info' });
       await loadLists();
     } catch (err: unknown) {

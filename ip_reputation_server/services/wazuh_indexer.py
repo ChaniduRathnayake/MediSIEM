@@ -85,17 +85,20 @@ def _project_alert(
         "location":
             source.get("location"),
 
+        # srcip/dstip is Wazuh's own decoder convention (sshd, firewall);
+        # src_ip/dest_ip shows up from some non-network decoders. Whichever
+        # one the matched document actually used, this reads it correctly.
         "src_ip":
-            data.get("src_ip"),
+            data.get("srcip", data.get("src_ip")),
 
         "src_port":
-            data.get("src_port"),
+            data.get("srcport", data.get("src_port")),
 
         "dest_ip":
-            data.get("dest_ip"),
+            data.get("dstip", data.get("dest_ip")),
 
         "dest_port":
-            data.get("dest_port"),
+            data.get("dstport", data.get("dest_port")),
 
         "protocol":
             data.get("proto"),
@@ -181,7 +184,29 @@ async def search_wazuh_alerts_for_ip(
                 "minimum_should_match":
                     1,
 
+                # Wazuh's own decoders (sshd, firewall, etc.) write
+                # data.srcip/data.dstip — no underscore. Only some
+                # non-network decoders (e.g. cloud/AWS integrations) use
+                # src_ip/dest_ip. This instance's real alerts were
+                # confirmed to use srcip/dstip (127 real sshd hits) while
+                # src_ip/dest_ip matched zero documents — querying only the
+                # underscored form meant this silently never found evidence
+                # for any IP, regardless of whether Wazuh actually had it.
                 "should": [
+
+                    {
+                        "match_phrase": {
+                            "data.srcip":
+                                ip_address
+                        }
+                    },
+
+                    {
+                        "match_phrase": {
+                            "data.dstip":
+                                ip_address
+                        }
+                    },
 
                     {
                         "match_phrase": {
@@ -449,12 +474,27 @@ async def hunt_wazuh_alerts(
     # IP filters
     # -----------------------------------------------------
 
+    # See search_wazuh_alerts_for_ip's comment: this Wazuh instance's real
+    # decoders (sshd, firewall) write srcip/dstip, not src_ip/dest_ip —
+    # match both conventions so hunts don't silently miss real alerts.
     if ip_address:
 
         filters.append({
             "bool": {
                 "minimum_should_match": 1,
                 "should": [
+                    {
+                        "match_phrase": {
+                            "data.srcip":
+                                ip_address
+                        }
+                    },
+                    {
+                        "match_phrase": {
+                            "data.dstip":
+                                ip_address
+                        }
+                    },
                     {
                         "match_phrase": {
                             "data.src_ip":
@@ -475,9 +515,12 @@ async def hunt_wazuh_alerts(
     if src_ip:
 
         filters.append({
-            "match_phrase": {
-                "data.src_ip":
-                    src_ip
+            "bool": {
+                "minimum_should_match": 1,
+                "should": [
+                    {"match_phrase": {"data.srcip": src_ip}},
+                    {"match_phrase": {"data.src_ip": src_ip}},
+                ]
             }
         })
 
@@ -485,9 +528,12 @@ async def hunt_wazuh_alerts(
     if dest_ip:
 
         filters.append({
-            "match_phrase": {
-                "data.dest_ip":
-                    dest_ip
+            "bool": {
+                "minimum_should_match": 1,
+                "should": [
+                    {"match_phrase": {"data.dstip": dest_ip}},
+                    {"match_phrase": {"data.dest_ip": dest_ip}},
+                ]
             }
         })
 

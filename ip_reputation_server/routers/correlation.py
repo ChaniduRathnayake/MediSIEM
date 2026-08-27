@@ -109,7 +109,7 @@ async def live_ip_feed(
     max_items: int = Query(
         default=50,
         ge=1,
-        le=200,
+        le=2000,
     ),
 ):
 
@@ -441,10 +441,14 @@ async def live_ip_feed(
 async def correlate_ip(
     ip_address: str,
 
+    # Matches /live-feed's scan_limit ceiling: under high flow volume a
+    # single IP's most recent match can easily be older than 100-500 events
+    # back, which was causing "no_local_evidence" for IPs the live feed
+    # itself had just shown with real MIRS scores.
     limit: int = Query(
-        default=100,
+        default=1000,
         ge=1,
-        le=500,
+        le=5000,
     ),
 ):
 

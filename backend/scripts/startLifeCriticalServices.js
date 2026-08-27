@@ -1,72 +1,36 @@
 #!/usr/bin/env node
 // Boots the life-critical-orchestration engine/enrichment/shuffle_sim alongside
-// MediSIEM's backend dev server. Chained BEFORE nodemon in package.json's "dev"
-// script (see the end of this file's comment) — runs once per `npm run dev`
-// invocation, never on nodemon's own file-triggered restarts of server.js, so
-// it can never fight with itself or pile up duplicate processes.
+// MediSIEM's backend dev server. Only runs via `npm run dev:full` or
+// `npm run dev:soar` (see package.json) — plain `npm run dev` is nodemon
+// alone and skips this file entirely, so day-to-day backend work never pays
+// its startup cost.
 //
 // Spawned services are detached + unref'd: they keep running independently of
 // this script (which exits immediately after spawning) and of nodemon's own
-// restarts. Re-running `npm run dev` later just finds them already healthy
-// and skips straight past — see checkHealth() below.
+// restarts. Re-running later just finds them already healthy and skips
+// straight past — see checkHealth() in serviceLifecycle.js. If a previous run
+// left a service wedged (port bound but not answering /health — observed in
+// practice with the decision engine under Windows/WatchFiles), the stale
+// process is killed before spawning a replacement, so repeated invocations
+// can't pile up duplicate zombies on the same port.
 //
 // Deliberately excludes life-critical-orchestration's own standalone frontend:
 // its UI is also ported into MediSIEM's Playbooks tab, and it defaults to the
 // same Vite port (5173) MediSIEM's own frontend already uses. Start it
 // separately with `life-critical-orchestration/scripts/start_all.sh` if you
 // want it running side by side.
-//
-// Uses only Node builtins (no extra dependency) since this must run before
-// npm's own dependency tree is guaranteed relevant to it.
 
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureService, log, resolvePython } from './serviceLifecycle.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LCO_ROOT = path.resolve(__dirname, '..', '..', 'life-critical-orchestration');
 // Shared with life-critical-orchestration/scripts/start_all.sh — one log
 // location regardless of which of the two ways a service got started.
 const LOG_DIR = path.join(LCO_ROOT, 'scripts', '.dev-logs');
-
-function log(ok, msg) {
-  // Matches server.js's own startup log style exactly (two spaces after the emoji).
-  console.log(`${ok ? '✅' : '⚠️'}  ${msg}`);
-}
-
-async function checkHealth(url, timeoutMs = 1000) {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(t);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function waitHealthy(url, attempts = 30, intervalMs = 1000) {
-  for (let i = 0; i < attempts; i++) {
-    if (await checkHealth(url)) return true;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  return false;
-}
-
-// Falls back to whatever `python` resolves to on PATH if the service's own
-// venv interpreter is missing or broken — e.g. a venv copied from a
-// teammate's machine embeds an absolute path to THEIR python.exe, which
-// won't resolve here. Confirmed necessary in practice on this checkout.
-function resolvePython(venvDir) {
-  const venvPython = path.join(venvDir, 'Scripts', 'python.exe');
-  if (existsSync(venvPython)) {
-    const probe = spawnSync(venvPython, ['--version']);
-    if (probe.status === 0) return venvPython;
-  }
-  return 'python';
-}
+const LOG_HINT = 'life-critical-orchestration/scripts/.dev-logs/';
 
 // playbooks/shuffle_sim's VAPID keys are per-developer and gitignored
 // (setenv.sh) — parsed here if present rather than hardcoded, since they're
@@ -83,36 +47,6 @@ function parseExports(shPath) {
   return env;
 }
 
-function spawnDetached(name, command, args, cwd, env) {
-  mkdirSync(LOG_DIR, { recursive: true });
-  const logFile = path.join(LOG_DIR, `${name}.log`);
-  const out = openSync(logFile, 'a');
-  const err = openSync(logFile, 'a');
-  const child = spawn(command, args, {
-    cwd,
-    env,
-    detached: true,
-    stdio: ['ignore', out, err],
-    windowsHide: true,
-  });
-  child.unref();
-  return child.pid;
-}
-
-async function ensureService({ name, healthUrl, command, args, cwd, env }) {
-  if (await checkHealth(healthUrl)) {
-    log(true, `${name} already running (${healthUrl})`);
-    return;
-  }
-  spawnDetached(name.toLowerCase().replace(/\s+/g, '_'), command, args, cwd, env);
-  const healthy = await waitHealthy(healthUrl);
-  if (healthy) {
-    log(true, `${name} started (${healthUrl})`);
-  } else {
-    log(false, `${name} did not come up in time — check life-critical-orchestration/scripts/.dev-logs/`);
-  }
-}
-
 async function main() {
   if (!existsSync(LCO_ROOT)) {
     log(false, 'life-critical-orchestration not found next to MediSIEM — skipping engine/enrichment/shuffle_sim startup');
@@ -125,32 +59,41 @@ async function main() {
   const simPython = enginePython;
   const simExtraEnv = parseExports(path.join(LCO_ROOT, 'playbooks', 'shuffle_sim', 'setenv.sh'));
 
-  await ensureService({
-    name: 'Decision engine',
-    healthUrl: 'http://localhost:8000/health',
-    command: enginePython,
-    args: ['-m', 'uvicorn', 'src.main:app', '--port', '8000', '--reload'],
-    cwd: path.join(LCO_ROOT, 'engine'),
-    env: { ...process.env, SHUFFLE_WEBHOOK_URL: 'http://localhost:8002/playbook/run' },
-  });
-
-  await ensureService({
-    name: 'Enrichment shim',
-    healthUrl: 'http://localhost:8001/health',
-    command: enrichmentPython,
-    args: ['-m', 'uvicorn', 'src.main:app', '--port', '8001', '--reload'],
-    cwd: path.join(LCO_ROOT, 'enrichment'),
-    env: process.env,
-  });
-
-  await ensureService({
-    name: 'Shuffle sim',
-    healthUrl: 'http://localhost:8002/health',
-    command: simPython,
-    args: ['-m', 'uvicorn', 'server:app', '--port', '8002', '--reload'],
-    cwd: path.join(LCO_ROOT, 'playbooks', 'shuffle_sim'),
-    env: { ...process.env, ...simExtraEnv },
-  });
+  // Run all three checks concurrently — they're independent, and sequential
+  // awaits meant one wedged service cost its full timeout budget before the
+  // next check even started.
+  await Promise.all([
+    ensureService({
+      name: 'Decision engine',
+      healthUrl: 'http://localhost:8000/health',
+      command: enginePython,
+      args: ['-m', 'uvicorn', 'src.main:app', '--port', '8000', '--reload'],
+      cwd: path.join(LCO_ROOT, 'engine'),
+      env: { ...process.env, SHUFFLE_WEBHOOK_URL: 'http://localhost:8002/playbook/run' },
+      logDir: LOG_DIR,
+      logHint: LOG_HINT,
+    }),
+    ensureService({
+      name: 'Enrichment shim',
+      healthUrl: 'http://localhost:8001/health',
+      command: enrichmentPython,
+      args: ['-m', 'uvicorn', 'src.main:app', '--port', '8001', '--reload'],
+      cwd: path.join(LCO_ROOT, 'enrichment'),
+      env: process.env,
+      logDir: LOG_DIR,
+      logHint: LOG_HINT,
+    }),
+    ensureService({
+      name: 'Shuffle sim',
+      healthUrl: 'http://localhost:8002/health',
+      command: simPython,
+      args: ['-m', 'uvicorn', 'server:app', '--port', '8002', '--reload'],
+      cwd: path.join(LCO_ROOT, 'playbooks', 'shuffle_sim'),
+      env: { ...process.env, ...simExtraEnv },
+      logDir: LOG_DIR,
+      logHint: LOG_HINT,
+    }),
+  ]);
 }
 
 await main();

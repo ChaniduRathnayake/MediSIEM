@@ -236,6 +236,7 @@ const MedicalDeviceInventoryPanel: React.FC<{
 
   const handleDelete = async (device: MedicalDevice) => {
     if (!token) return;
+    if (!window.confirm(`Remove "${device.deviceName}" from the medical device inventory? This cannot be undone.`)) return;
     setDeletingId(device.id);
     setActionError(null);
     try {

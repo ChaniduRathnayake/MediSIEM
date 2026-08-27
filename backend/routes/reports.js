@@ -37,7 +37,11 @@ router.get('/detection-accuracy', protect, allowRoles('admin', 'user'), async (r
     const filter = { createdAt: { $gte: from, $lte: to } };
     if (scope === 'mine') filter['closedBy.id'] = req.user.id;
 
-    const closures = await AlertClosure.find(filter).limit(MAX_ROWS);
+    // Sorted before the cap — without it, Mongo returns an arbitrary
+    // natural-order slice once a range matches >MAX_ROWS docs, and the
+    // "total"/breakdown fields below would silently reflect that arbitrary
+    // subset while still being labeled as authoritative.
+    const closures = await AlertClosure.find(filter).sort({ createdAt: -1 }).limit(MAX_ROWS);
 
     const byLabel = new Map();
     const overall = { true_positive: 0, false_positive: 0, benign: 0, uncertain: 0, unset: 0 };
@@ -78,7 +82,8 @@ router.get('/escalation-backlog', protect, allowRoles('admin', 'user'), async (r
     const filter = { createdAt: { $gte: from, $lte: to }, 'alertSnapshot.CAS': { $gte: 8 } };
     if (scope === 'mine') filter['analyst.id'] = req.user.id;
 
-    const assignments = await AlertAssignment.find(filter).limit(MAX_ROWS);
+    // Sorted before the cap — see detection-accuracy above for why.
+    const assignments = await AlertAssignment.find(filter).sort({ createdAt: -1 }).limit(MAX_ROWS);
 
     const rows = [];
     let sum = 0;
@@ -192,7 +197,7 @@ router.get('/threat-summary', protect, allowRoles('admin', 'user'), async (req, 
 
     const [total, bySeverity, byDepartment, topLabels, topDevices, byAction] = await Promise.all([
       AlertLog.countDocuments({ timestamp: { $gte: from, $lte: to } }),
-      AlertLog.aggregate([match, { $group: { _id: '$severity', count: { $sum: 1 } } }]),
+      AlertLog.aggregate([match, { $match: { severity: { $ne: null } } }, { $group: { _id: '$severity', count: { $sum: 1 } } }]),
       AlertLog.aggregate([match, { $match: { department: { $ne: null } } }, { $group: { _id: '$department', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
       AlertLog.aggregate([match, { $match: { label: { $ne: null } } }, { $group: { _id: '$label', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 10 }]),
       AlertLog.aggregate([match, { $match: { agent: { $ne: null } } }, { $group: { _id: '$agent', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 10 }]),
@@ -289,10 +294,11 @@ router.get('/trending-devices', protect, allowRoles('admin', 'user'), async (req
 router.get('/rule-health', protect, adminOnly, async (req, res) => {
   try {
     const { from, to } = parseRange(req);
+    // Sorted before the cap — see detection-accuracy above for why.
     const closures = await AlertClosure.find({
       createdAt: { $gte: from, $lte: to },
       'alertSnapshot.matchedRules.0': { $exists: true },
-    }).limit(MAX_ROWS);
+    }).sort({ createdAt: -1 }).limit(MAX_ROWS);
 
     const byRule = new Map();
     for (const c of closures) {

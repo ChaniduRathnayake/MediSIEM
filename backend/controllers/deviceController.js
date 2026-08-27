@@ -125,6 +125,33 @@ export const setAgentOsCategory = async (req, res) => {
   }
 };
 
+// ─── DELETE /api/devices/:agentId  (admin only) ────────────────────────────────
+// Every write above upserts by agentId with no check that the agent actually
+// exists in Wazuh — deliberate (lets an admin pre-configure groups/tags before
+// an agent first connects), but it means a typo'd or since-decommissioned
+// agentId silently creates or leaves behind a permanent overlay row with no
+// way to remove it. This is that way.
+export const deleteAgentMeta = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const device = await Device.findOneAndDelete({ agentId });
+    if (!device) return res.status(404).json({ error: 'No overlay metadata found for that agent id.' });
+
+    await logAudit({
+      action: 'delete_device_meta',
+      actor: { id: req.user.id, name: req.user.name, email: req.user.email },
+      target: { id: agentId, name: device.agentName || agentId },
+      details: `Removed local overlay (groups, OS category override, medical device tag) for agent ${agentId}`,
+    });
+    if (device.medicalDeviceId) invalidateDeviceInventoryCache();
+
+    return res.status(200).json({ message: 'Device metadata removed.' });
+  } catch (err) {
+    console.error('[deleteAgentMeta]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+};
+
 // ─── PUT /api/devices/:agentId/medical-device  (admin or biomed) ──────────────
 // Manually ties a live Wazuh agent to a row in the medical device inventory —
 // the CAAP-scoring alternative to relying on MedicalDevice.key matching the

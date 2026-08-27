@@ -306,7 +306,7 @@ const ConfigPanel: React.FC<{
                 {error.includes('backend') && (
                   <p className="text-xs text-red-400/70">
                     → Make sure <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">npm run dev</code> is running in{' '}
-                    <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">/backend</code> (port 5000).
+                    <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">/backend</code> (port 5050).
                   </p>
                 )}
                 {(error.includes('auth') || error.includes('401') || error.includes('403')) && (

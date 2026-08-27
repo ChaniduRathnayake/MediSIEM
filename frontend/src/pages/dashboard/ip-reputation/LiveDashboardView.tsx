@@ -157,10 +157,19 @@ const LiveDashboardView: React.FC<Props> = ({
 
       try {
 
+        // scan_limit=5000 (the backend's ceiling) was fine against an idle
+        // collection, but at this 5s poll interval it now competes with the
+        // live Suricata collector's continuous writes to the same remote
+        // Atlas cluster — a full 5000-document remote scan every 5 seconds
+        // was intermittently exceeding even a generous socket timeout and
+        // 500ing the whole panel. 1000 cuts the per-poll transfer 5x while
+        // still comfortably covering recent activity; max_items stays high
+        // since it only affects how many of the (already-fetched) unique
+        // IPs get returned, not how much is scanned.
         const data =
           await getLiveCorrelationFeed(
             1000,
-            200,
+            2000,
           );
 
         setFeed(data);
@@ -303,38 +312,46 @@ const LiveDashboardView: React.FC<Props> = ({
           ORIGINAL FOUR KPI CARDS
          =================================================== */}
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section id="live-overview" className="scroll-mt-20 space-y-3">
 
-        <StatusCard
-          label="Records scanned"
-          value={feed?.records_scanned ?? 0}
-          helper="Recent MedShield correlation records"
-        />
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Overview
+        </h3>
 
-        <StatusCard
-          label="Public IPs"
-          value={feed?.unique_public_ips ?? 0}
-          helper="Unique public addresses detected"
-        />
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
 
-        <StatusCard
-          label="Suspicious"
-          value={feed?.suspicious_count ?? 0}
-          helper="Require analyst attention"
-        />
+          <StatusCard
+            label="Records scanned"
+            value={feed?.records_scanned ?? 0}
+            helper="Recent MedShield correlation records"
+          />
 
-        <StatusCard
-          label="Feed Status"
-          value={
-            feed?.available
-              ? 'Connected'
-              : 'Offline'
-          }
-          connected={Boolean(feed?.available)}
-          helper="MedShield live correlation feed"
-        />
+          <StatusCard
+            label="Public IPs"
+            value={feed?.unique_public_ips ?? 0}
+            helper="Unique public addresses detected"
+          />
 
-      </div>
+          <StatusCard
+            label="Suspicious"
+            value={feed?.suspicious_count ?? 0}
+            helper="Require analyst attention"
+          />
+
+          <StatusCard
+            label="Feed Status"
+            value={
+              feed?.available
+                ? 'Connected'
+                : 'Offline'
+            }
+            connected={Boolean(feed?.available)}
+            helper="MedShield live correlation feed"
+          />
+
+        </div>
+
+      </section>
 
 
       {error && (
@@ -348,7 +365,19 @@ const LiveDashboardView: React.FC<Props> = ({
           ORIGINAL COMPACT TABLE
          =================================================== */}
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <section id="live-feed" className="scroll-mt-20 space-y-3">
+
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Live Feed
+          </h3>
+          <span className="text-[11px] text-slate-400">
+            {sortedItems.length} {sortedItems.length === 1 ? 'IP' : 'IPs'}
+            {feed?.suspicious_count ? ` · ${feed.suspicious_count} suspicious` : ''}
+          </span>
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
 
 
         {loading && !feed ? (
@@ -572,6 +601,8 @@ const LiveDashboardView: React.FC<Props> = ({
 
           </div>
         )}
+
+        </div>
 
       </section>
 </div>

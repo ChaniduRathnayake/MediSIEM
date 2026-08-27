@@ -17,6 +17,7 @@ import {
   generateBackupCodes,
   hashBackupCode,
 } from '../services/mfaService.js';
+import { isMfaSetupRequired } from '../utils/mfaPolicy.js';
 
 const router = express.Router();
 const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '7d';
@@ -42,19 +43,6 @@ async function getLockoutPolicy() {
     maxAttempts: settings?.lockout?.maxAttempts ?? DEFAULT_MAX_FAILED_ATTEMPTS,
     lockDurationMs: (settings?.lockout?.lockDurationMinutes ?? DEFAULT_LOCK_DURATION_MINUTES) * 60 * 1000,
   };
-}
-
-// Admins can be required (org-wide, via the same Settings toggle) to have
-// two-factor enabled — computed on every login/`/me` call rather than
-// stored on the user, so flipping the toggle applies retroactively to
-// admins who haven't enrolled yet without needing to touch their record.
-async function isMfaSetupRequired(user) {
-  if (user.mfaEnabled) return false;
-  if (user.role === 'admin') {
-    const settings = await SystemSettings.findOne();
-    return !!settings?.mfaRequiredForAdmin;
-  }
-  return !!user.mfaRequiredByAdmin;
 }
 
 const safeUser = async (user) => ({

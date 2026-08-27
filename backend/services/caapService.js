@@ -13,7 +13,7 @@ import { assessExploitation } from './cveIntelService.js';
 import { checkIpReputation, isMalicious } from './ipReputationService.js';
 import SystemSettings from '../models/SystemSettings.js';
 
-const { CAAP_AI_URL = 'http://localhost:5001' } = process.env;
+const { CAAP_AI_URL = 'http://localhost:5002' } = process.env;
 
 // ─── Shared CAS config — single source of truth also loaded by ai_server's
 // cas_config.py (app.py's live /predict, cas_engine.py's offline research

@@ -393,9 +393,17 @@ router.get('/my-history', protect, allowRoles('admin', 'user'), async (req, res)
 
 const TRAINING_EXPORT_LIMIT = 5000; // caps a single export the same way HISTORY_LIMIT bounds GET /
 
+// Fields starting with =, +, -, @, tab, or CR are defused with a leading `'`
+// against CSV injection (Excel/Sheets treat them as formulas otherwise) —
+// mirrors frontend/src/utils/csv.ts's escapeCsvField, which this export
+// hadn't been reusing despite being the same risk on the same kind of
+// free-form, network-flow-derived string fields.
+const CSV_FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
 function csvEscape(value) {
-  const s = value === null || value === undefined ? '' : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = value === null || value === undefined ? '' : String(value);
+  if (CSV_FORMULA_TRIGGER.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // GET /api/alerts/training-feedback-export — closed, verdict-tagged alerts as CSV, in the shape

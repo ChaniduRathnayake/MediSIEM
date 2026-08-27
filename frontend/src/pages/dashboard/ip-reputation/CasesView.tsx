@@ -7,10 +7,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { listCases, updateCaseStatus } from './ipReputationApi';
 import type { CaseItem } from './ipReputationApi';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 import { SectionCard, Badge, EmptyNotice, ErrorBanner, LoadingBlock, RefreshButton, fmtDateTime, toneOf } from './shared';
 
 const CasesView: React.FC = () => {
   const { showToast } = useToast();
+  // The real logged-in analyst, not a hardcoded placeholder — this feeds the
+  // FastAPI service's audit_collection, so a fixed fake actor here would
+  // misattribute every case status change regardless of who actually made it.
+  const { user } = useAuth();
+  const actor = user?.email || user?.name || 'unknown-analyst';
   const [cases, setCases] = useState<CaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -37,7 +43,7 @@ const CasesView: React.FC = () => {
     if (reason === null) return;
 
     try {
-      await updateCaseStatus(caseId, { status: newStatus, reason, actor: 'analyst01' });
+      await updateCaseStatus(caseId, { status: newStatus, reason, actor });
       showToast({ title: 'Case updated', message: `Case status changed to ${newStatus}.`, severity: 'info' });
       await loadCases();
     } catch (err: unknown) {

@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node scripts/startLifeCriticalServices.js && nodemon server.js",
-    "dev:bare": "nodemon server.js",
+    "dev": "nodemon server.js",
+    "dev:soar": "node scripts/startLifeCriticalServices.js",
+    "dev:ip": "node scripts/startIpReputation.js",
+    "dev:full": "npm run dev:soar && npm run dev:ip && nodemon server.js",
     "seed": "node seed.js",
     "test": "node --env-file=.env --test"
   },

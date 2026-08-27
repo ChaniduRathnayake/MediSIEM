@@ -32,6 +32,16 @@ function getConfig(req) {
   return { host, port, username, password };
 }
 
+// Some failure modes here (e.g. new URL() on a host header missing its
+// https:// scheme) reject with an Error whose .message is empty or absent,
+// which every one of this file's `catch` blocks was passing straight through
+// as `{ message: err.message }` — an empty 502 body defeats the entire
+// purpose of the Settings → Wazuh SIEM "Test Connection" button, whose job
+// is telling a misconfiguring admin what actually went wrong.
+function errMessage(err) {
+  return err?.message || String(err) || 'Unknown connection error.';
+}
+
 // ── Raw HTTPS POST to the Indexer's _search API (self-signed certs, Basic Auth) ─
 function indexerSearch(cfg, index, body) {
   return new Promise((resolve, reject) => {
@@ -102,7 +112,11 @@ router.get('/:framework/summary', async (req, res) => {
   const { framework } = req.params;
   if (!FRAMEWORKS.includes(framework)) return res.status(400).json({ message: `Unknown framework "${framework}".` });
 
-  const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+  // parseInt(...) || 30 would treat days=0 as falsy and silently substitute
+  // the default instead of clamping it to 1 like every other out-of-range
+  // value — check for NaN specifically so 0 is still a real (if clamped) input.
+  const parsedDays = parseInt(req.query.days);
+  const days = Math.min(Math.max(Number.isNaN(parsedDays) ? 30 : parsedDays, 1), 365);
   const ruleField = `rule.${framework}`;
   const agentIds = String(req.query.agentIds || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -144,7 +158,7 @@ router.get('/:framework/summary', async (req, res) => {
     return res.json({ ok: true, days, observedControls, agents });
   } catch (err) {
     console.error(`[compliance/${framework}/summary]`, err.message);
-    return res.status(502).json({ message: err.message });
+    return res.status(502).json({ message: errMessage(err) });
   }
 });
 
@@ -157,7 +171,11 @@ router.get('/:framework/agent/:agentId', async (req, res) => {
   const { framework, agentId } = req.params;
   if (!FRAMEWORKS.includes(framework)) return res.status(400).json({ message: `Unknown framework "${framework}".` });
 
-  const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+  // parseInt(...) || 30 would treat days=0 as falsy and silently substitute
+  // the default instead of clamping it to 1 like every other out-of-range
+  // value — check for NaN specifically so 0 is still a real (if clamped) input.
+  const parsedDays = parseInt(req.query.days);
+  const days = Math.min(Math.max(Number.isNaN(parsedDays) ? 30 : parsedDays, 1), 365);
   const ruleField = `rule.${framework}`;
 
   const body = {
@@ -206,7 +224,71 @@ router.get('/:framework/agent/:agentId', async (req, res) => {
     return res.json({ ok: true, days, agentId, violatedControls });
   } catch (err) {
     console.error(`[compliance/${framework}/agent]`, err.message);
-    return res.status(502).json({ message: err.message });
+    return res.status(502).json({ message: errMessage(err) });
+  }
+});
+
+// GET /api/compliance/alerts/devices?severity=&q=
+// Every device that has ever alerted, via a real terms aggregation — not
+// derived from whichever agents happen to appear in the most recent N raw
+// alerts (that approach silently drops any device that hasn't fired
+// recently once a few chatty agents — e.g. a live attack run — dominate a
+// capped recent-alerts window). Backs "Events by Device"'s left-hand list;
+// the right-hand pane still uses GET /alerts?agentId=... below, paginated,
+// for that one device's actual history.
+router.get('/alerts/devices', async (req, res) => {
+  const cfg = getConfig(req);
+  if (!cfg) return res.status(400).json({ message: 'Missing Indexer credentials' });
+
+  const severity = parseInt(req.query.severity);
+  const q        = String(req.query.q || '').trim();
+
+  const filter = [];
+  if (!Number.isNaN(severity)) filter.push({ range: { 'rule.level': { gte: severity } } });
+  if (q) filter.push({ match: { 'rule.description': q } });
+
+  const body = {
+    size: 0,
+    query: { bool: { filter } },
+    aggs: {
+      devices: {
+        terms: { field: 'agent.id', size: 1000 },
+        aggs: {
+          maxLevel: { max: { field: 'rule.level' } },
+          lastSeen: { max: { field: '@timestamp' } },
+          latest: {
+            top_hits: {
+              size: 1,
+              sort: [{ '@timestamp': { order: 'desc' } }],
+              _source: ['agent.name', 'agent.ip'],
+            },
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    const data = await searchWithKeywordFallback(cfg, body, ['agent.id']);
+    const buckets = data?.aggregations?.devices?.buckets ?? [];
+    const devices = buckets
+      .map((b) => {
+        const src = b.latest?.hits?.hits?.[0]?._source ?? {};
+        return {
+          agentId:   b.key,
+          agentName: src.agent?.name ?? null,
+          agentIp:   src.agent?.ip ?? null,
+          count:     b.doc_count,
+          maxLevel:  b.maxLevel?.value ?? null,
+          lastSeen:  typeof b.lastSeen?.value === 'number' ? new Date(b.lastSeen.value).toISOString() : null,
+        };
+      })
+      .sort((a, b) => (b.maxLevel ?? 0) - (a.maxLevel ?? 0) || b.count - a.count);
+
+    return res.json({ ok: true, devices });
+  } catch (err) {
+    console.error('[compliance/alerts/devices]', err.message);
+    return res.status(502).json({ message: errMessage(err) });
   }
 });
 
@@ -282,7 +364,7 @@ router.get('/alerts', async (req, res) => {
     return res.json({ ok: true, total, page, pageSize, alerts });
   } catch (err) {
     console.error('[compliance/alerts]', err.message);
-    return res.status(502).json({ message: err.message });
+    return res.status(502).json({ message: errMessage(err) });
   }
 });
 
@@ -345,7 +427,7 @@ router.get('/fim/:agentId', async (req, res) => {
     return res.json({ ok: true, total, page, pageSize, events });
   } catch (err) {
     console.error('[compliance/fim]', err.message);
-    return res.status(502).json({ message: err.message });
+    return res.status(502).json({ message: errMessage(err) });
   }
 });
 
@@ -378,7 +460,7 @@ router.get('/ping', async (req, res) => {
     return res.json({ ok: true, version: info?.version?.number ?? null });
   } catch (err) {
     console.error('[compliance/ping]', err.message);
-    return res.status(502).json({ message: err.message });
+    return res.status(502).json({ message: errMessage(err) });
   }
 });
 
