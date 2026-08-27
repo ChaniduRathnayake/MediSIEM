@@ -76,32 +76,67 @@ function httpsRequest(url, method, headers = {}, bodyStr = null) {
 }
 
 // ── Step 1: Authenticate → get raw JWT (mirrors the curl command exactly) ─────
-async function getToken({ host, port, username, password }) {
+// Wazuh JWTs are valid ~15 minutes by default (api.yaml auth_token_exp_timeout).
+// Re-authenticating on every single API call was doubling the request load on
+// the manager (one auth + one data call per wazuhCall) and contributing to the
+// "Timeout executing API request" errors under load. Cache the token per
+// (host, port, user) and only re-authenticate when it's missing, past our own
+// TTL, or the manager rejects it with a 401 (handled in wazuhCall below).
+const TOKEN_TTL_MS = 14 * 60 * 1000; // stay under Wazuh's default 15-minute expiry
+const tokenCache = new Map(); // "host:port:user" -> { token, expiresAt }
+
+function tokenCacheKey({ host, port, username }) {
+  return `${host}:${port}:${username}`;
+}
+
+async function getToken(config, { forceRefresh = false } = {}) {
+  const key = tokenCacheKey(config);
+  const cached = tokenCache.get(key);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.token;
+  }
+
+  const { host, port, username, password } = config;
   const url       = `${host}:${port}/security/user/authenticate?raw=true`;
   const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
   const { status, body } = await httpsGet(url, { Authorization: basicAuth });
 
   if (status >= 400) {
+    tokenCache.delete(key);
     throw new Error(`Wazuh auth failed (HTTP ${status}): ${body.slice(0, 200)}`);
   }
 
   const token = body.trim();
-  if (!token) throw new Error('Wazuh returned an empty token');
+  if (!token) {
+    tokenCache.delete(key);
+    throw new Error('Wazuh returned an empty token');
+  }
+
+  tokenCache.set(key, { token, expiresAt: Date.now() + TOKEN_TTL_MS });
   return token;
 }
 
 // ── Step 2: Call any Wazuh API endpoint with Bearer token ─────────────────────
 async function wazuhCall(config, path, method = 'GET', bodyData = null) {
   const { host, port } = config;
-  const token          = await getToken(config);
-  const url            = `${host}:${port}${path}`;
-  const bodyStr        = bodyData ? JSON.stringify(bodyData) : null;
+  const url             = `${host}:${port}${path}`;
+  const bodyStr         = bodyData ? JSON.stringify(bodyData) : null;
 
-  const { status, body } = await httpsRequest(url, method, {
+  const callWithToken = (token) => httpsRequest(url, method, {
     Authorization:  `Bearer ${token}`,
     'Content-Type': 'application/json',
   }, bodyStr);
+
+  let token = await getToken(config);
+  let { status, body } = await callWithToken(token);
+
+  // Cached token expired early or was revoked on the manager side — refresh
+  // once and retry, instead of surfacing an auth failure the cache caused.
+  if (status === 401) {
+    token = await getToken(config, { forceRefresh: true });
+    ({ status, body } = await callWithToken(token));
+  }
 
   let parsed;
   try { parsed = JSON.parse(body); }

@@ -11,10 +11,17 @@
 // InvestigationView — so the Threat Hunt tab's "Investigate Src/Dst" links can
 // switch to the Investigate tab AND kick off a lookup for that IP in one call,
 // exactly like the original App.jsx's `onInvestigate` callback.
+//
+// The "Live" tab additionally embeds the real-time MedShield ML feed
+// (LiveDashboardView) above the investigation workspace, so clicking
+// "Investigate" on a live row drives the same shared investigation state and
+// scrolls straight into the results — one continuous live-monitor-to-deep-dive
+// flow instead of a separate disconnected page.
 import React, { useCallback, useState } from 'react';
 import { Network, Globe, Search, Radar, ListChecks, FolderKanban, Database, ScrollText } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { useAuth } from '../../../context/AuthContext';
+import LiveDashboardView from './LiveDashboardView';
 import OverviewView from './OverviewView';
 import InvestigationView from './InvestigationView';
 import ThreatHuntView from './ThreatHuntView';
@@ -32,9 +39,10 @@ import type {
   WazuhEvidenceResult, OperationalResult,
 } from './ipReputationApi';
 
-type IpReputationTab = 'overview' | 'investigate' | 'threat-hunt' | 'lists' | 'cases' | 'log-sources' | 'audit';
+type IpReputationTab = 'live' | 'overview' | 'investigate' | 'threat-hunt' | 'lists' | 'cases' | 'log-sources' | 'audit';
 
 const TAB_META: Record<IpReputationTab, { label: string; icon: React.ReactNode }> = {
+  live:          { label: 'Live Dashboard',     icon: <Network className="w-3.5 h-3.5" /> },
   overview:      { label: 'Overview',           icon: <Globe className="w-3.5 h-3.5" /> },
   investigate:   { label: 'Investigate',        icon: <Search className="w-3.5 h-3.5" /> },
   'threat-hunt': { label: 'Threat Hunt',        icon: <Radar className="w-3.5 h-3.5" /> },
@@ -44,7 +52,7 @@ const TAB_META: Record<IpReputationTab, { label: string; icon: React.ReactNode }
   audit:         { label: 'Audit',              icon: <ScrollText className="w-3.5 h-3.5" /> },
 };
 
-const TAB_ORDER: IpReputationTab[] = ['overview', 'investigate', 'threat-hunt', 'lists', 'cases', 'log-sources', 'audit'];
+const TAB_ORDER: IpReputationTab[] = ['live', 'overview', 'investigate', 'threat-hunt', 'lists', 'cases', 'log-sources', 'audit'];
 
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -56,10 +64,10 @@ const IpReputationPanel: React.FC = () => {
   // logged-in session here — attribute actions to it instead, same as the
   // rest of the app's audit trail does.
   const actor = user?.email || user?.name || 'unknown-analyst';
-  const [tab, setTab] = useState<IpReputationTab>('overview');
+  const [tab, setTab] = useState<IpReputationTab>('live');
 
   // ── Shared investigation state ────────────────────────────────────────────
-  const [ip, setIp] = useState('8.8.8.8');
+  const [ip, setIp] = useState('');
   const [result, setResult] = useState<ReputationLookupResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [analystData, setAnalystData] = useState<AnalystIntelligence | null>(null);
@@ -81,43 +89,30 @@ const IpReputationPanel: React.FC = () => {
     setError('');
 
     try {
-      const lookup = await lookupIp(cleanIp);
-      setResult(lookup);
+      // These six calls are all keyed off cleanIp alone (none depends on
+      // another's result), so run them concurrently instead of chaining
+      // awaits — sequentially, the wazuh/operational calls each pay a
+      // ~10s timeout against an unreachable Wazuh indexer, turning one
+      // investigation into a ~25s wait instead of the ~11s the slowest
+      // single call actually takes.
+      const [lookupSettled, historySettled, analystSettled, correlationSettled, wazuhSettled, operationalSettled] =
+        await Promise.allSettled([
+          lookupIp(cleanIp),
+          getIntelligenceHistory(cleanIp),
+          getAnalystIntelligence(cleanIp),
+          getCorrelation(cleanIp),
+          getWazuhEvidence(cleanIp, 20),
+          getOperationalAssessment(cleanIp, 100, 20),
+        ]);
 
-      try {
-        const historyData = await getIntelligenceHistory(cleanIp);
-        setHistory(historyData.history || []);
-      } catch {
-        setHistory([]);
-      }
+      if (lookupSettled.status === 'rejected') throw lookupSettled.reason;
+      setResult(lookupSettled.value);
 
-      try {
-        const analystResp = await getAnalystIntelligence(cleanIp);
-        setAnalystData(analystResp.analyst_intelligence);
-      } catch {
-        setAnalystData(null);
-      }
-
-      try {
-        const correlationData = await getCorrelation(cleanIp);
-        setCorrelation(correlationData);
-      } catch {
-        setCorrelation(null);
-      }
-
-      try {
-        const wazuhData = await getWazuhEvidence(cleanIp, 20);
-        setWazuh(wazuhData);
-      } catch {
-        setWazuh(null);
-      }
-
-      try {
-        const operationalData = await getOperationalAssessment(cleanIp, 100, 20);
-        setOperational(operationalData);
-      } catch {
-        setOperational(null);
-      }
+      setHistory(historySettled.status === 'fulfilled' ? (historySettled.value.history || []) : []);
+      setAnalystData(analystSettled.status === 'fulfilled' ? analystSettled.value.analyst_intelligence : null);
+      setCorrelation(correlationSettled.status === 'fulfilled' ? correlationSettled.value : null);
+      setWazuh(wazuhSettled.status === 'fulfilled' ? wazuhSettled.value : null);
+      setOperational(operationalSettled.status === 'fulfilled' ? operationalSettled.value : null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'IP investigation failed.');
       setResult(null);
@@ -205,6 +200,20 @@ const IpReputationPanel: React.FC = () => {
     void investigate(targetIp);
   }, [investigate]);
 
+  // Live feed rows drive the same shared investigation state as every other
+  // entry point, then smooth-scroll down into the results panel that already
+  // renders below the live table on this tab — one continuous flow instead of
+  // a tab switch.
+  const handleLiveInvestigate = useCallback((targetIp: string) => {
+    void investigate(targetIp).then(() => {
+      window.setTimeout(() => {
+        document
+          .getElementById('medshield-investigation')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    });
+  }, [investigate]);
+
   return (
     <div className="p-5 space-y-5">
       <div>
@@ -231,6 +240,47 @@ const IpReputationPanel: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {tab === 'live' && (
+        <div className="space-y-10">
+          <LiveDashboardView onInvestigate={handleLiveInvestigate} />
+
+          <section
+            id="medshield-investigation"
+            className="scroll-mt-6 border-t border-slate-200 pt-8 dark:border-slate-800"
+          >
+            <div className="mb-5">
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                MedShield IP Reputation Intelligence
+              </h2>
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                Multi-source IP investigation, local ML correlation and analyst workflow
+              </p>
+              <div className="mt-4 inline-flex rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-700 dark:text-cyan-300">
+                Investigate
+              </div>
+            </div>
+
+            <InvestigationView
+              ip={ip}
+              onIpChange={setIp}
+              result={result}
+              history={history}
+              analystData={analystData}
+              correlation={correlation}
+              operational={operational}
+              wazuh={wazuh}
+              loading={loading}
+              error={error}
+              onInvestigate={investigate}
+              onSetList={handleSetList}
+              onSetVerdict={handleSetVerdict}
+              onAddNote={handleAddNote}
+              onCreateCase={handleCreateCase}
+            />
+          </section>
+        </div>
+      )}
 
       {tab === 'overview' && <OverviewView />}
 

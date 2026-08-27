@@ -45,9 +45,9 @@ medshield_final89/
 .agents
 .claude
 
-# IP Reputation research artifacts (300MB+ of models/experiment data, kept local only)
-ip_reputation_server/ip-reputation-Componets/
-ip reputation/
+# IP Reputation research artifacts (300MB+ of models/experiment data, kept local only)ip_reputation_server/ip-reputation-Componets/
+/ip-reputation/
+
 
 # Python bytecode
 __pycache__/

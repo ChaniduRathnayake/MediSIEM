@@ -545,3 +545,76 @@ export async function threatHunt(filters: ThreatHuntFilters, limit = 100): Promi
   params.set('limit', String(limit));
   return request(`/threat-hunt?${params.toString()}`);
 }
+
+// ─── MEDSHIELD LIVE CORRELATION FEED ────────────────────────────────────────
+// Current :8088 contract:
+// GET /api/v1/correlation/live-feed
+// This is an IP-centric live evidence feed. Each row represents a recently
+// observed public IP and embeds the latest matching flow plus local ML evidence.
+
+export interface LiveCorrelationFlow {
+  src_ip?: string | null;
+  src_port?: number | null;
+  dest_ip?: string | null;
+  dest_port?: number | null;
+  protocol?: string | null;
+  application?: string | null;
+  flow_id?: number | string | null;
+}
+
+export interface LiveCorrelationFeedItem {
+  ip: string;
+  flow_count: number;
+  source_matches: number;
+  destination_matches: number;
+
+  latest_timestamp?: string | null;
+
+  latest_risk_level?: string | null;
+
+  latest_mirs?: number | null;
+  max_mirs?: number | null;
+
+  latest_aps?: number | null;
+  max_aps?: number | null;
+
+  latest_rf_prediction?: string | null;
+  latest_rf_attack_probability?: number | null;
+  max_rf_attack_probability?: number | null;
+
+  latest_if_prediction?: string | null;
+  latest_if_anomaly_score?: number | null;
+  max_if_anomaly_score?: number | null;
+
+  ml_fusion_observed: boolean;
+
+  latest_real_feature_coverage?: number | null;
+  latest_supplied_feature_coverage?: number | null;
+
+  latest_flow?: LiveCorrelationFlow | null;
+
+  risk_band?: string | null;
+  suspicious: boolean;
+}
+
+export interface LiveCorrelationFeedResult {
+  available: boolean;
+  status: string;
+  records_scanned: number;
+  unique_public_ips: number;
+  returned_count: number;
+  suspicious_count: number;
+  items: LiveCorrelationFeedItem[];
+}
+
+export async function getLiveCorrelationFeed(
+  scanLimit = 1000,
+  maxItems = 100,
+): Promise<LiveCorrelationFeedResult> {
+  const params = new URLSearchParams({
+    scan_limit: String(scanLimit),
+    max_items: String(maxItems),
+  });
+
+  return request(`/correlation/live-feed?${params.toString()}`);
+}
