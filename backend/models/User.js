@@ -33,9 +33,14 @@ const UserSchema = new Schema(
     // `analyst.role !== 'user'` check, left untouched), each just gets a
     // different slice of read (and, for biomed, device-inventory write)
     // access — see middleware/auth.js's allowRoles() and its call sites.
+    // 'clinician' is the opposite of broad: a single-purpose account scoped
+    // to the Tier-3 approval workflow only. It gets no other API access at
+    // all (not even the read-mostly slices biomed/auditor get) — see
+    // routes/lifeCriticalOrchestration.js's /clinician-decision allowRoles
+    // and frontend/src/App.tsx's route guards, which confine it to /clinician.
     role: {
       type: String,
-      enum: ['admin', 'user', 'biomed', 'auditor'],
+      enum: ['admin', 'user', 'biomed', 'auditor', 'clinician'],
       default: 'user',
     },
     // Updated (throttled) on every authenticated request — powers the

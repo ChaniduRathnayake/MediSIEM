@@ -104,7 +104,7 @@ const AlertRow: React.FC<{
 // Kept in sync with backend/controllers/userController.js's ROLE_LABEL and
 // services/api.ts's MOCK_ROLE_LABEL — all three exist only because Node and
 // Vite don't share a module graph, not because the labels are meant to diverge.
-const ROLE_LABELS: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
+const ROLE_LABELS: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor', clinician: 'Clinician' };
 const roleLabel = (role: string) => ROLE_LABELS[role as UserRole] ?? role;
 
 const UserFormModal: React.FC<{
@@ -238,7 +238,7 @@ const UserFormModal: React.FC<{
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Role</label>
             <div className="grid grid-cols-2 gap-2">
-              {(['user', 'biomed', 'auditor', 'admin'] as UserRole[]).map((r) => (
+              {(['user', 'biomed', 'auditor', 'clinician', 'admin'] as UserRole[]).map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -258,6 +258,8 @@ const UserFormModal: React.FC<{
                 ? 'Read access everywhere SOC analysts have it, plus write access to the medical device inventory.'
                 : form.role === 'auditor'
                 ? 'Read-only — compliance views and the audit log, no case assignment or write access.'
+                : form.role === 'clinician'
+                ? 'Single-purpose account: only the Tier-3 approval view at /clinician. No dashboard, admin, or wallboard access.'
                 : form.role === 'user'
                 ? 'SOC analyst — triages and closes alert cases.'
                 : 'Full access, including user management and settings.'}

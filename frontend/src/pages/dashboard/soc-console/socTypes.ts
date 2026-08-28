@@ -12,6 +12,7 @@ export interface StubAlert {
     technical_severity?: string;
     cvss_score?: number;
     cas_score?: number;
+    cas_breakdown?: { TR?: number; CC?: number; TS?: number; AE?: number; TC?: number };
     indicators?: Record<string, unknown>;
   };
   asset: {

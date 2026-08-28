@@ -12,7 +12,20 @@
       },
       "label": "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb",
       "updated_at": "2026-07-12T13:10:14.693821+00:00"
+    },
+    "sub-a90287f2-867f-44aa-9735-65c43bedf06a": {
+      "subscriber_id": "sub-a90287f2-867f-44aa-9735-65c43bedf06a",
+      "subscription": {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/fahPI3PZuBA:APA91bG5twmfng2NxpyKkUlA7uXe8FwuM9PGxqKRpVbtvgjVBGdu8mHlYo7hPINgKavbNWAUJuTWQcg_TqYW7S0tkQDjafPW5xQowRwD8CZF9HuVgWBqLPtRjPLk3JAxPAV0K-FhUlVw",
+        "expirationTime": null,
+        "keys": {
+          "p256dh": "BKp9HrmRLR76CxeCyffgze7JZC8JfDoSQgGz81v64dwwfPwYOLw_ycyMFQX7-xJv8D7MaHx2LL7b9o_zCSg6UpM",
+          "auth": "gLDvFNAFDpwlxsY_e4Vd4A"
+        }
+      },
+      "label": "sub-a90287f2-867f-44aa-9735-65c43bedf06a",
+      "updated_at": "2026-08-28T06:41:50.656287+00:00"
     }
   },
-  "on_call": "sub-355dfc51-7195-4fb7-a0f3-d9a4319533cb"
+  "on_call": null
 }

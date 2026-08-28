@@ -3,7 +3,7 @@
 // every authenticated request rather than a separate heartbeat/socket. Only
 // admin callers get back a `roster`; others see counts only.
 import React, { useEffect, useState } from 'react';
-import { Users, ShieldCheck, Eye, ChevronDown, Loader2, Wrench, ClipboardCheck } from 'lucide-react';
+import { Users, ShieldCheck, Eye, ChevronDown, Loader2, Wrench, ClipboardCheck, Stethoscope } from 'lucide-react';
 import { apiGetPresenceSummary } from '../../services/api';
 import type { PresenceSummary, PresenceRosterEntry } from '../../services/api';
 
@@ -68,16 +68,17 @@ const RosterList: React.FC<{ entries: PresenceRosterEntry[] }> = ({ entries }) =
   </div>
 );
 
-type PresenceBucketKey = 'admins' | 'analysts' | 'biomed' | 'auditors';
+type PresenceBucketKey = 'admins' | 'analysts' | 'biomed' | 'auditors' | 'clinicians';
 
 const PresenceWidget: React.FC<{ summary: PresenceSummary | null; loading: boolean; error: string }> = ({ summary, loading, error }) => {
   const [showRoster, setShowRoster] = useState<PresenceBucketKey | null>(null);
   const hasRoster = !!summary?.roster;
-  // Biomed/auditor tiles only take up grid space once at least one such
-  // account exists — most installs will only ever have admins + analysts,
-  // and an always-visible "0 / 0 Biomedical Eng." tile is just noise.
+  // Biomed/auditor/clinician tiles only take up grid space once at least one
+  // such account exists — most installs will only ever have admins +
+  // analysts, and an always-visible "0 / 0 Biomedical Eng." tile is just noise.
   const showBiomed = !!summary && summary.biomed.total > 0;
   const showAuditors = !!summary && summary.auditors.total > 0;
+  const showClinicians = !!summary && summary.clinicians.total > 0;
 
   return (
     <div className="p-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -109,6 +110,7 @@ const PresenceWidget: React.FC<{ summary: PresenceSummary | null; loading: boole
               { key: 'analysts' as const, label: 'Analysts Online', icon: <Eye className="w-4 h-4 text-cyan-400" /> },
               ...(showBiomed ? [{ key: 'biomed' as const, label: 'Biomedical Eng. Online', icon: <Wrench className="w-4 h-4 text-amber-400" /> }] : []),
               ...(showAuditors ? [{ key: 'auditors' as const, label: 'Auditors Online', icon: <ClipboardCheck className="w-4 h-4 text-emerald-400" /> }] : []),
+              ...(showClinicians ? [{ key: 'clinicians' as const, label: 'Clinicians Online', icon: <Stethoscope className="w-4 h-4 text-rose-400" /> }] : []),
             ]
           ).map(({ key, label, icon }) => {
             const bucket = summary?.[key];

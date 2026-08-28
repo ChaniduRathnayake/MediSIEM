@@ -1,6 +1,6 @@
 import type { LoginPayload, User, UserRole, AuditLogEntry } from '../types';
 
-const MOCK_ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
+const MOCK_ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor', clinician: 'Clinician' };
 
 /**
  * Base URL for the backend API.
@@ -85,7 +85,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     });
     clearTimeout(timeout);
 
-    const json = await res.json();
+    // Read as text first — a rate limiter, proxy, or timeout can hand back a
+    // plain-text/HTML body the backend itself didn't produce, and res.json()
+    // throws an opaque "Unexpected token" SyntaxError on that instead of a
+    // readable message.
+    const text = await res.text();
+    let json: any;
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch {
+      if (res.status === 429) throw new Error('Too many requests. Please try again in a few minutes.');
+      throw new Error(`Unexpected response from server (HTTP ${res.status}).`);
+    }
     if (!res.ok) throw new Error(json.error || 'Request failed');
     return json as T;
   } catch (err: unknown) {
@@ -278,6 +289,7 @@ export interface PresenceSummary {
   analysts: PresenceBucket;
   biomed: PresenceBucket;
   auditors: PresenceBucket;
+  clinicians: PresenceBucket;
   thresholdMs: number;
   // Only populated for admin callers — everyone else gets counts only.
   roster?: {
@@ -285,6 +297,7 @@ export interface PresenceSummary {
     analysts: PresenceRosterEntry[];
     biomed: PresenceRosterEntry[];
     auditors: PresenceRosterEntry[];
+    clinicians: PresenceRosterEntry[];
   };
 }
 
@@ -301,6 +314,7 @@ export async function apiGetPresenceSummary(token: string): Promise<PresenceSumm
       const analysts = mockUsers.filter((u) => u.role === 'user');
       const biomed = mockUsers.filter((u) => u.role === 'biomed');
       const auditors = mockUsers.filter((u) => u.role === 'auditor');
+      const clinicians = mockUsers.filter((u) => u.role === 'clinician');
       const actor = decodeMockToken(token);
       const toRoster = (list: typeof mockUsers): PresenceRosterEntry[] =>
         list.map((u) => ({
@@ -316,9 +330,10 @@ export async function apiGetPresenceSummary(token: string): Promise<PresenceSumm
         analysts: bucketOf(analysts),
         biomed: bucketOf(biomed),
         auditors: bucketOf(auditors),
+        clinicians: bucketOf(clinicians),
         thresholdMs: 2 * 60 * 1000,
         roster: actor?.role === 'admin'
-          ? { admins: toRoster(admins), analysts: toRoster(analysts), biomed: toRoster(biomed), auditors: toRoster(auditors) }
+          ? { admins: toRoster(admins), analysts: toRoster(analysts), biomed: toRoster(biomed), auditors: toRoster(auditors), clinicians: toRoster(clinicians) }
           : undefined,
       };
     }

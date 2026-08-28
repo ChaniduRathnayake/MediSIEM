@@ -92,12 +92,15 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' })); // defense against payload-size DoS
 app.use(mongoSanitize()); // strips '$'/'.' keys — defense against NoSQL operator injection
 
-// Auth routes layer their own stricter limiter on top of this.
+// Auth routes layer their own stricter limiter on top of this. message is a
+// JSON object (not the package's plain-text default) so a 429 here parses
+// the same way as any other API error response on the frontend.
 app.use('/api', rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again in a few minutes.' },
 }));
 
 app.use('/api/auth', authRoutes);

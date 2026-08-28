@@ -40,7 +40,7 @@ const SocClinicianDecisionPanel: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      await apiSubmitClinicianDecision(token, decision.decision_id, approved);
+      await apiSubmitClinicianDecision(token, decision.decision_id, decision.asset_id, approved);
       const { byDecisionId } = await apiGetClinicianDecisions(token);
       setExisting(byDecisionId[decision.decision_id] || null);
       onResolved();

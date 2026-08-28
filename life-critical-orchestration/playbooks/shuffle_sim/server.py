@@ -429,6 +429,20 @@ def enforcement_unquarantine(asset_id: str) -> Dict[str, Any]:
     return enforcement.release_quarantine(asset_id, decision_id="manual-unquarantine", log=get_log())
 
 
+@app.get("/enforcement/clinical-peers")
+def enforcement_clinical_peers(asset_id: Optional[str] = None) -> Dict[str, Any]:
+    """The clinical-peers config surface: which containers each asset needs
+    reachable when quarantined (see enforcement.py's _DEFAULT_CLINICAL_PEERS
+    docstring). Pass ?asset_id=X for just that asset's slice; omit it to see
+    the whole configured map — the merged result of the built-in defaults and
+    SHUFFLE_CLINICAL_PEERS_MAP, so this always reflects what quarantine() will
+    actually use, not just what's hardcoded in source.
+    """
+    if asset_id:
+        return {asset_id: enforcement.clinical_peers_for(asset_id)}
+    return enforcement._load_clinical_peers()
+
+
 # ---------- Web Push (Workstream E) ----------
 
 @app.get("/push/config")

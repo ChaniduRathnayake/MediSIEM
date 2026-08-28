@@ -7,6 +7,7 @@
 
 import os
 import json
+from typing import Optional
 import joblib
 import numpy as np
 import pandas as pd
@@ -47,7 +48,18 @@ CLUSTER_LABELS = {0: "idle", 1: "active"}  # verified against models/kmeans.pkl'
 # strings actually produced by backend/config/deviceInventory.js and
 # ml-pipeline/device_map.json.
 CC_LOOKUP = cas_config.CC_LOOKUP
-DEFAULT_CC = cas_config.DEFAULT_CC  # unknown device types treated as lowest criticality
+DEFAULT_CC = cas_config.DEFAULT_CC  # a real (low) CC for a *recognized* port/profile match with no better signal — never for "we don't know this device at all"
+
+# Substituted into CAS's own blend (never into the CC_score the response
+# reports) when lookup_cc() finds zero signal for a device — no admin
+# criticality, no port/protocol match, no recognized device_type. Mirrors
+# life-critical-orchestration/engine/src/decision/classifier.py's
+# FAIL_SAFE_SUBSTITUTE_SCORE exactly: an unregistered device must be treated
+# as maximally critical, not defaulted to DEFAULT_CC's "lowest criticality" —
+# that inverted the documented "when in doubt, never disrupt patient care"
+# fail-safe. Reporting CC_score as None (not this value) is what actually
+# lets the engine's own fail-safe fire and correctly flag fail_safe_applied.
+FAIL_SAFE_CC = 10.0
 
 # CAS formula weights (Phase 3) — the AHP-justified default (see
 # CAAP_Weight_Justification.html). A per-request override can be posted in
@@ -257,7 +269,7 @@ def _extract_ci(payload: dict, *candidates):
     return None
 
 
-def lookup_cc(payload: dict) -> float:
+def lookup_cc(payload: dict) -> Optional[float]:
     """Clinical Criticality, richest signal first:
     1. Admin-set MedicalDevice.criticality (deliberate human judgement for
        *this* hospital's actual device) — always wins when present.
@@ -267,7 +279,11 @@ def lookup_cc(payload: dict) -> float:
        already one of FEATURE_COLUMNS, doubling as the raw protocol value —
        see test.py's identical convention).
     3. device_type -> the small CC_LOOKUP table (legacy/named-device fallback).
-    4. DEFAULT_CC.
+    4. None — no signal at all (an unregistered/unrecognized device). The
+       caller (see /predict below) substitutes FAIL_SAFE_CC for CAS's own
+       blend but reports CC_score as null, so the life-critical-orchestration
+       engine's own documented fail-safe fires instead of a numeric default
+       silently standing in for "unknown" as if it were a real, low score.
     """
     device_criticality = payload.get("device_criticality")
     if device_criticality:
@@ -290,7 +306,7 @@ def lookup_cc(payload: dict) -> float:
         except (TypeError, ValueError):
             pass
 
-    return CC_LOOKUP.get(payload.get("device_type", ""), DEFAULT_CC)
+    return CC_LOOKUP.get(payload.get("device_type", ""))
 
 
 def lookup_ae(predicted_label: str, cve_known_exploited: bool) -> float:
@@ -307,6 +323,14 @@ def lookup_tc(hour_of_day: int) -> float:
     staff on duty overnight), same day/evening/night hour boundaries test.py
     already uses for its own real-data CAS scoring."""
     return cas_config.lookup_tc(hour_of_day)
+
+
+def lookup_shift(hour_of_day: int) -> str:
+    """The day/evening/night label lookup_tc() derives TC_score from —
+    returned alongside it so downstream consumers (the life-critical
+    orchestration engine's clinical_context.shift) can display the same
+    shift a human would recognize, not just its numeric TC_score."""
+    return cas_config.shift_for_hour(hour_of_day)
 
 
 def compute_cas(tr, cc, ts, ae, tc, weights: dict = None) -> float:
@@ -620,8 +644,17 @@ def predict():
 
         # --- 5. Rule-based dimensions (CC, AE, TC) -------------------------
         cc_score = lookup_cc(payload)
+        # Unregistered/unrecognized device: no clinical-criticality signal at
+        # all. CAS's blend still needs a real number, so use the fail-safe
+        # maximum-caution value here — but cc_score itself (what the response
+        # reports as CC_score, below) stays None. That's what lets the
+        # downstream life-critical-orchestration engine's own documented
+        # fail-safe fire (missing score -> 10/life_critical/fail_safe_applied
+        # =True) instead of this looking like a real, low, non-critical score.
+        cc_for_cas = FAIL_SAFE_CC if cc_score is None else cc_score
         ae_score = lookup_ae(label, bool(payload.get("cve_known_exploited", False)))
         tc_score = lookup_tc(hour_of_day)
+        shift = lookup_shift(hour_of_day)
 
         # --- 6. CAS + action -------------------------------------------------
         # `cas_weights` (optional): an explicit vector forwarded by
@@ -632,7 +665,7 @@ def predict():
         weights, weight_source = cas_config.resolve_weights(
             payload.get("cas_weights"), payload.get("scenario")
         )
-        cas = compute_cas(tr_score, cc_score, ts_score, ae_score, tc_score, weights)
+        cas = compute_cas(tr_score, cc_for_cas, ts_score, ae_score, tc_score, weights)
         action = cas_to_action(cas, label)
 
         # CVSS-equivalent baseline — clinically-blind by design, shown alongside CAS
@@ -653,6 +686,7 @@ def predict():
             "CC_score": cc_score,
             "AE_score": ae_score,
             "TC_score": tc_score,
+            "shift": shift,
             "CAS": cas,
             "CVSS": cvss,
             "action": action,

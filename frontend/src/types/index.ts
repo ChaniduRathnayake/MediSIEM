@@ -1,7 +1,9 @@
 // 'user' = SOC analyst (original/default role, unchanged meaning). 'biomed'
 // = biomedical engineer (device inventory access). 'auditor' = compliance/
-// audit-log read access. See backend/models/User.js for the same enum.
-export type UserRole = 'admin' | 'user' | 'biomed' | 'auditor';
+// audit-log read access. 'clinician' = single-purpose role scoped to the
+// Tier-3 approval view at /clinician only (see App.tsx's route guards).
+// See backend/models/User.js for the same enum.
+export type UserRole = 'admin' | 'user' | 'biomed' | 'auditor' | 'clinician';
 
 export interface User {
   id: string;

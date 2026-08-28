@@ -138,7 +138,6 @@ const SocDecisionDetail: React.FC<{
           <div className="space-y-2">
             <Field label="Asset ID" value={asset.asset_id} />
             <Field label="Hostname" value={asset.hostname} />
-            <Field label="Device category" value={asset.device_category} />
             <Field label="Department" value={asset.department} />
           </div>
         </Section>
@@ -147,16 +146,15 @@ const SocDecisionDetail: React.FC<{
           <div className="space-y-2">
             <Field label="Category" value={threat.category} />
             <Field label="CAS score" value={threat.cas_score} accent />
-            <Field label="Technical severity" value={threat.technical_severity} />
-            <Field label="SIEM rule" value={alert.source?.rule_description} mono={false} />
+            <Field label="Active Exploitation" value={threat.cas_breakdown?.AE} />
+            <Field label="Threat Risk" value={threat.cas_breakdown?.TR} />
           </div>
         </Section>
       </div>
 
       <Section title="Clinical Metadata (display only — engine does not act on these)">
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <Field label="cc_score (input)" value={cc.criticality_score} />
-          <Field label="Patient dependency" value={cc.patient_dependency} />
           <Field label="Time sensitivity" value={cc.time_sensitivity} />
           <Field label="Shift" value={cc.shift} />
         </div>

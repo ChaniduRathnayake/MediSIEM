@@ -44,6 +44,11 @@ export interface LifeCriticalEchoedAlert {
     cvss_score?: number;
     cas_score?: number;
     technical_severity?: string;
+    // The five dimensions cas_score blends (see ai_server's /predict and
+    // lifeCriticalBridgeService.js's buildEnrichedAlert) — TR (Threat Risk)
+    // and AE (Active Exploitation) are surfaced individually on the SOC
+    // console's Threat panel.
+    cas_breakdown?: { TR?: number; CC?: number; TS?: number; AE?: number; TC?: number };
     indicators?: { src_ip?: string; dst_ip?: string; dst_port?: number };
   };
   asset?: { asset_id?: string; hostname?: string; ip_address?: string; department?: string; device_category?: string };
@@ -174,15 +179,20 @@ export async function apiGetShuffleActions(
   return getJson(`/life-critical/shuffle-actions?assetId=${encodeURIComponent(assetId)}`, token);
 }
 
+// `enforcement` is only present when the Shuffle sim actually ran the
+// containment action (mode: 'real' for the emulated device, 'simulated'
+// otherwise) — null when the sim was unreachable and the backend fell back
+// to recording the decision on the engine alone, with no live enforcement.
 export async function apiSubmitClinicianDecision(
   token: string,
   decisionId: string,
+  assetId: string,
   approved: boolean
-): Promise<{ ok: boolean; entry: unknown; final_action: string }> {
+): Promise<{ ok: boolean; entry: unknown; final_action: string; enforcement?: { mode: 'real' | 'simulated'; [key: string]: unknown } | null }> {
   const res = await fetch(`${BASE_URL}/life-critical/clinician-decision`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ decisionId, approved }),
+    body: JSON.stringify({ decisionId, assetId, approved }),
   });
   const json = await parseResponse(res);
   if (!res.ok) throw new Error(json.error || 'Clinician decision failed');

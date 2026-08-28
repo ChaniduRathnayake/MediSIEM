@@ -14,6 +14,7 @@ to demonstrate the immutable-logging principle.
 import hashlib
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
@@ -33,24 +34,35 @@ class AuditLogger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Touch the file so it exists even before the first entry
         self.path.touch(exist_ok=True)
+        # Guards the read-last-hash-then-append critical section below.
+        # /decide is a sync FastAPI handler, so Starlette runs concurrent
+        # requests in a thread pool — a burst of alerts decided within
+        # milliseconds of each other (e.g. an attack simulation) could
+        # previously interleave two threads' append() calls: both read the
+        # same "last hash" before either had written, so the second one
+        # recorded a stale previous_hash and broke the chain. Confirmed in
+        # practice — 113 breaks found across the log's history before this
+        # fix, all self-consistent (no tampering), purely this race.
+        self._write_lock = threading.Lock()
 
     # ---------- Writing ----------
 
     def append(self, decision: Decision) -> dict:
         """Append a decision to the log; return the entry that was written."""
-        prev_hash = self._last_hash()
+        with self._write_lock:
+            prev_hash = self._last_hash()
 
-        entry = {
-            "logged_at": datetime.now(timezone.utc).isoformat(),
-            "previous_hash": prev_hash,
-            "decision": json.loads(decision.model_dump_json()),
-        }
-        entry["entry_hash"] = self._compute_hash(entry)
+            entry = {
+                "logged_at": datetime.now(timezone.utc).isoformat(),
+                "previous_hash": prev_hash,
+                "decision": json.loads(decision.model_dump_json()),
+            }
+            entry["entry_hash"] = self._compute_hash(entry)
 
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
 
-        return entry
+            return entry
 
     def append_followup(self, payload: dict) -> dict:
         """Append a non-decision follow-up entry (e.g. a clinician response).
@@ -66,19 +78,20 @@ class AuditLogger:
         decision (typically `referenced_decision_id`) plus whatever fields
         describe the follow-up event itself.
         """
-        prev_hash = self._last_hash()
+        with self._write_lock:
+            prev_hash = self._last_hash()
 
-        entry = {
-            "logged_at": datetime.now(timezone.utc).isoformat(),
-            "previous_hash": prev_hash,
-            "followup": payload,
-        }
-        entry["entry_hash"] = self._compute_hash(entry)
+            entry = {
+                "logged_at": datetime.now(timezone.utc).isoformat(),
+                "previous_hash": prev_hash,
+                "followup": payload,
+            }
+            entry["entry_hash"] = self._compute_hash(entry)
 
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
 
-        return entry
+            return entry
 
     # ---------- Reading ----------
 

@@ -48,6 +48,10 @@ const SoarActionSchema = new Schema(
         email: { type: String, default: null },
       },
       decidedAt: { type: Date, default: null },
+      // { mode: 'real' | 'simulated', ... } from the Shuffle sim's enforcement
+      // module — null when the sim was unreachable and the engine-only
+      // fallback ran instead (no live enforcement in that case).
+      enforcement: { type: Schema.Types.Mixed, default: null },
     },
 
     // Full engine response, kept verbatim so a field this schema doesn't

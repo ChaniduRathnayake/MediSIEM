@@ -55,15 +55,26 @@ function resolveCategory(displayAlert) {
   return displayAlert.label || undefined;
 }
 
-// clinical_context.criticality_score is required 1-10 (Pydantic ge=1) —
-// MediSIEM's CC_score can legitimately be 0 for the lowest-criticality
-// devices, which would otherwise get every one of those alerts silently
-// 422-rejected by the engine. Floor of 1 still lands correctly in the
-// engine's non_critical band (threshold is < 5).
+// clinical_context.criticality_score is OPTIONAL on the schema — when it's
+// genuinely missing (an unregistered device ai_server had no clinical
+// signal for at all — see lookup_cc()'s None case), that must reach the
+// engine as an absent key, not a substituted number: the engine's own
+// documented fail-safe (missing score -> 10/life_critical/fail_safe_applied
+// =True) only fires when the field is truly absent. A previous version
+// defaulted a missing score to 4, which silently defeated that fail-safe —
+// an unregistered device landed in the *weakest* tier instead of the
+// maximum-caution one.
+//
+// A REAL score of 0, though, is not the same as "unknown" — MediSIEM's
+// CC_score can legitimately be 0 for a device an admin explicitly rated as
+// lowest-criticality. The engine's schema requires 1-10 (Pydantic ge=1), so
+// that case still gets floored to 1 (never treated as missing) — floor of 1
+// still lands correctly in the engine's non_critical band (threshold is <5).
 function clampCriticality(ccScore) {
-  const raw = Number(ccScore ?? 4);
-  const rounded = Math.round(Number.isFinite(raw) ? raw : 4);
-  return Math.min(10, Math.max(1, rounded));
+  if (ccScore === null || ccScore === undefined) return undefined;
+  const raw = Number(ccScore);
+  if (!Number.isFinite(raw)) return undefined;
+  return Math.min(10, Math.max(1, Math.round(raw)));
 }
 
 // Device IP preferred over agent.id/name, per explicit instruction — SOAR's
@@ -114,6 +125,13 @@ function buildEnrichedAlert(raw, displayAlert) {
     },
     clinical_context: {
       criticality_score: clampCriticality(displayAlert.CC_score),
+      // Same TS_score already shown under threat.cas_breakdown.TS — echoed
+      // here too because clinical_context.time_sensitivity is the field the
+      // schema/UI actually reads for this display slot (see docs/alert-schema.md).
+      time_sensitivity: typeof displayAlert.TS_score === 'number' ? displayAlert.TS_score : undefined,
+      // ai_server/src/app.py's lookup_shift() — the day/evening/night label
+      // TC_score was itself derived from, for the same alert.
+      shift: typeof displayAlert.shift === 'string' ? displayAlert.shift : undefined,
     },
     enrichment_meta: {
       enriched_at: new Date().toISOString(),

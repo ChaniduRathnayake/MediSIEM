@@ -2,8 +2,8 @@ import User from '../models/User.js';
 import { logAudit } from '../utils/auditLog.js';
 import { getPasswordPolicy, validatePassword } from '../utils/passwordPolicy.js';
 
-const VALID_ROLES = ['admin', 'user', 'biomed', 'auditor'];
-const ROLE_LABEL = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor' };
+const VALID_ROLES = ['admin', 'user', 'biomed', 'auditor', 'clinician'];
+const ROLE_LABEL = { admin: 'Admin', user: 'SOC Analyst', biomed: 'Biomedical Engineer', auditor: 'Auditor', clinician: 'Clinician' };
 
 // ─── GET /api/users  (admin only) ─────────────────────────────────────────────
 export const getAllUsers = async (req, res) => {
@@ -172,9 +172,9 @@ const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
 // role -> response bucket key. 'admins'/'analysts' are the original two keys
 // existing consumers (PresenceWidget, Wallboard's "Analysts Online" stat)
 // already read — kept exactly as-is so nothing there breaks. 'biomed'/
-// 'auditors' are new, additive keys; an unrecognized future role falls back
-// to 'analysts' rather than silently vanishing from every count.
-const ROLE_BUCKET = { admin: 'admins', user: 'analysts', biomed: 'biomed', auditor: 'auditors' };
+// 'auditors'/'clinicians' are new, additive keys; an unrecognized future role
+// falls back to 'analysts' rather than silently vanishing from every count.
+const ROLE_BUCKET = { admin: 'admins', user: 'analysts', biomed: 'biomed', auditor: 'auditors', clinician: 'clinicians' };
 
 // ─── GET /api/users/presence  (any authenticated user — read-only insight) ────
 // Everyone gets the counts (that's what the Overview stat cards need). Only
@@ -190,8 +190,9 @@ export const getPresenceSummary = async (req, res) => {
       analysts: { online: 0, total: 0 },
       biomed: { online: 0, total: 0 },
       auditors: { online: 0, total: 0 },
+      clinicians: { online: 0, total: 0 },
     };
-    const roster = { admins: [], analysts: [], biomed: [], auditors: [] };
+    const roster = { admins: [], analysts: [], biomed: [], auditors: [], clinicians: [] };
 
     for (const u of users) {
       const bucketKey = ROLE_BUCKET[u.role] ?? 'analysts';
@@ -223,6 +224,7 @@ export const getPresenceSummary = async (req, res) => {
         analysts: roster.analysts.sort(byRecency),
         biomed: roster.biomed.sort(byRecency),
         auditors: roster.auditors.sort(byRecency),
+        clinicians: roster.clinicians.sort(byRecency),
       };
     }
 

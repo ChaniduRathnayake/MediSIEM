@@ -96,22 +96,41 @@ router.get('/pending-approvals', protect, async (req, res) => {
 // Phase B of the engine's two-phase Tier 3 flow — approve escalates to
 // isolate_host, deny keeps the asset in Monitored Mode (FR-06). Restricted to
 // roles with a real stake in a containment decision; auditor is read-only by
-// design so it's deliberately excluded here.
-router.post('/clinician-decision', protect, allowRoles('admin', 'user', 'biomed'), async (req, res) => {
-  const { decisionId, approved } = req.body || {};
-  if (!decisionId || typeof approved !== 'boolean') {
-    return res.status(400).json({ error: 'decisionId (string) and approved (boolean) are required.' });
+// design so it's deliberately excluded here. 'clinician' is the dedicated
+// single-purpose role for this exact call — see models/User.js.
+//
+// Calls the Shuffle sim first, not the engine directly: the sim is what
+// actually performs enforcement (a real `docker network disconnect` for the
+// emulated device, see playbooks/shuffle_sim/enforcement.py) AND calls back
+// into the engine's own audit log afterward — so one call updates both. If
+// the sim is unreachable, fall back to hitting the engine directly so the
+// decision still gets recorded (just without live enforcement); the response
+// shapes are compatible (the engine's is a strict subset of the sim's).
+router.post('/clinician-decision', protect, allowRoles('admin', 'user', 'biomed', 'clinician'), async (req, res) => {
+  const { decisionId, assetId, approved } = req.body || {};
+  if (!decisionId || !assetId || typeof approved !== 'boolean') {
+    return res.status(400).json({ error: 'decisionId (string), assetId (string) and approved (boolean) are required.' });
   }
   try {
-    const result = await engineFetch('/clinician-decision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision_id: decisionId, approved, clinician_id: req.user.email }),
-    });
+    let result;
+    try {
+      result = await shuffleFetch('/clinician-decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision_id: decisionId, asset_id: assetId, approved, clinician_id: req.user.email }),
+      });
+    } catch (simErr) {
+      console.warn(`[lifeCriticalOrchestration] Shuffle sim unreachable for clinician-decision, falling back to the engine directly (no live enforcement): ${simErr.message}`);
+      result = await engineFetch('/clinician-decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision_id: decisionId, approved, clinician_id: req.user.email }),
+      });
+    }
 
-    // Record who resolved this Tier 3 decision and how — the engine call
-    // above already succeeded, so a failure here only loses the durable
-    // Mongo mirror, never the real approve/deny action itself.
+    // Record who resolved this Tier 3 decision and how — the call above
+    // already succeeded, so a failure here only loses the durable Mongo
+    // mirror, never the real approve/deny action itself.
     SoarAction.findOneAndUpdate(
       { decisionId },
       {
@@ -121,6 +140,7 @@ router.post('/clinician-decision', protect, allowRoles('admin', 'user', 'biomed'
             approved,
             by: { id: req.user.id, name: req.user.name, email: req.user.email },
             decidedAt: new Date(),
+            enforcement: result.enforcement ?? null,
           },
         },
       },

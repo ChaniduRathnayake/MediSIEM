@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
@@ -15,6 +15,7 @@ import PricingPage from './pages/PricingPage';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import Wallboard from './pages/dashboard/Wallboard';
+import ClinicianPage from './pages/ClinicianPage';
 
 // Components
 import Navbar from './components/Navbar';
@@ -23,21 +24,31 @@ import AiChatWidget from './components/AiChatWidget';
 
 // ─── Route Guards ──────────────────────────────────────────────────────────────
 
-/** Redirects unauthenticated users to /login */
+/** Redirects unauthenticated users to /login. Clinician accounts are a
+ * single-purpose role confined to /clinician (see models/User.js on the
+ * backend) — any other private route bounces them there instead of
+ * rendering, so this guard doubles as the frontend half of that restriction
+ * (the backend independently refuses clinician-role calls to every other
+ * role-gated endpoint, so this isn't the only thing enforcing it). */
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
 
   if (isLoading) return <FullPageSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'clinician' && location.pathname !== '/clinician') {
+    return <Navigate to="/clinician" replace />;
+  }
   return <>{children}</>;
 };
 
-/** Redirects non-admins to /dashboard */
+/** Redirects non-admins to /dashboard (or clinicians straight to /clinician) */
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) return <FullPageSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'clinician') return <Navigate to="/clinician" replace />;
   if (user?.role !== 'admin') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
@@ -48,7 +59,8 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   if (isLoading) return <FullPageSpinner />;
   if (isAuthenticated) {
-    return <Navigate to={user?.role === 'admin' ? '/admin' : '/dashboard'} replace />;
+    const target = user?.role === 'admin' ? '/admin' : user?.role === 'clinician' ? '/clinician' : '/dashboard';
+    return <Navigate to={target} replace />;
   }
   return <>{children}</>;
 };
@@ -169,6 +181,23 @@ const AppRoutes: React.FC = () => (
       element={
         <PrivateRoute>
           <Wallboard />
+        </PrivateRoute>
+      }
+    />
+
+    {/* ── Protected: clinician Tier 3 approval view — bare, mobile-friendly, no
+        dashboard chrome. Requires login but no specific role to view — every
+        authenticated role can reach this page; the actual approve/deny call
+        is separately role-gated server-side
+        (backend/routes/lifeCriticalOrchestration.js's allowRoles). The
+        dedicated 'clinician' role is the mirror image: it can view this page
+        and nothing else — PrivateRoute above redirects it here from every
+        other private route. ── */}
+    <Route
+      path="/clinician"
+      element={
+        <PrivateRoute>
+          <ClinicianPage />
         </PrivateRoute>
       }
     />

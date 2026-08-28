@@ -599,13 +599,61 @@ def unthrottle(
 # emulator model of a hospital moving a device to a locked-down clinical VLAN.
 # --------------------------------------------------------------------------
 
-# The restricted segment and the clinical peers that live on it (container ->
-# the network alias the device resolves them by, e.g. MQTT_HOST=broker).
+# The restricted segment quarantined devices move onto.
 CLINICAL_NETWORK = os.getenv("SHUFFLE_CLINICAL_NETWORK", "clinical-only")
-CLINICAL_PEER_ALIASES: Dict[str, str] = {
-    "iomt-broker": "broker",
-    "iomt-clinical-receiver": "clinical-receiver",
+
+# --------------------------------------------------------------------------
+# Config: which OTHER containers a given asset needs to keep reaching when
+# quarantined — its clinical peers. This is the "site-specific clinical-only
+# segment definition" ENABLE_QUARANTINE's docstring (server.py) says quarantine
+# needs before it's safe to turn on — previously that definition didn't
+# exist: every quarantined device got the SAME hardcoded two peers regardless
+# of which device it actually was. Two devices with different clinical
+# dependencies must not share one blanket peer list, or quarantine either
+# over-restricts (cuts a peer it actually needs) or under-restricts (grants
+# reachability to a peer it never talks to).
+#
+# Keyed by asset_id — same key space as _DEFAULT_MAP above. Each value is
+# {container_name: network_alias}; the alias is what the quarantined
+# device's own DNS lookups for that peer resolve to on the clinical segment
+# (e.g. MQTT_HOST=broker), so it must match what the device actually expects
+# to reach that peer by.
+#
+# Only ICU-VENT-003 has a real emulated dependency today (the MQTT broker +
+# HL7 receiver it publishes vitals to). Override / extend via the
+# SHUFFLE_CLINICAL_PEERS_MAP env var, e.g.:
+#   SHUFFLE_CLINICAL_PEERS_MAP='{"RAD-LINAC-001": {"iomt-orthanc": "pacs"}}'
+# --------------------------------------------------------------------------
+
+_DEFAULT_CLINICAL_PEERS: Dict[str, Dict[str, str]] = {
+    "ICU-VENT-003": {"iomt-broker": "broker", "iomt-clinical-receiver": "clinical-receiver"},
 }
+
+
+def _load_clinical_peers() -> Dict[str, Dict[str, str]]:
+    """Merge the default asset->clinical-peers map with any env override."""
+    merged = dict(_DEFAULT_CLINICAL_PEERS)
+    raw = os.getenv("SHUFFLE_CLINICAL_PEERS_MAP", "").strip()
+    if raw:
+        try:
+            override = json.loads(raw)
+            if isinstance(override, dict):
+                merged.update(override)
+        except json.JSONDecodeError:
+            pass  # bad JSON -> silently ignore, keep defaults
+    return merged
+
+
+def clinical_peers_for(asset_id: str) -> Dict[str, str]:
+    """{container_name: alias} this asset needs reachable when quarantined.
+
+    Empty (not some shared fallback list) for an asset with no configured
+    peers — quarantining an asset we have no dependency list for should wall
+    it off from everything rather than silently granting it reachability to
+    some OTHER device's peers.
+    """
+    return dict(_load_clinical_peers().get(asset_id, {}))
+
 
 # Remember the general network we pulled the device off, to rejoin on release.
 _last_general: Dict[str, str] = {}
@@ -621,12 +669,13 @@ def _list_networks(container: str) -> list:
     return (proc.stdout or "").split()
 
 
-def _ensure_clinical_network() -> None:
-    """Create the clinical-only network (if absent) and attach the clinical peers."""
+def _ensure_clinical_network(asset_id: str) -> None:
+    """Create the clinical-only network (if absent) and attach asset_id's own
+    configured clinical peers (see clinical_peers_for() above)."""
     inspect = _run_docker(["network", "inspect", CLINICAL_NETWORK])
     if inspect.returncode != 0:
         _run_docker(["network", "create", CLINICAL_NETWORK])
-    for peer, alias in CLINICAL_PEER_ALIASES.items():
+    for peer, alias in clinical_peers_for(asset_id).items():
         # Idempotent: ignores "already exists" / missing-peer errors.
         _run_docker(["network", "connect", "--alias", alias, CLINICAL_NETWORK, peer])
 
@@ -660,13 +709,14 @@ def quarantine(
         return {"ok": True, "mode": "simulated", "asset_id": asset_id, "entry": entry}
 
     container = mapping["container"]
+    peers = clinical_peers_for(asset_id)
 
     # Which network are we pulling it off? The one that isn't clinical-only.
     nets = _list_networks(container)
     general = next((n for n in nets if n != CLINICAL_NETWORK), None) \
         or _last_general.get(asset_id) or DEFAULT_NETWORK
 
-    _ensure_clinical_network()
+    _ensure_clinical_network(asset_id)
 
     # Connect to the clinical segment FIRST (no off-network gap), then drop the
     # general network so lateral paths disappear.
@@ -682,11 +732,24 @@ def quarantine(
     if conn.returncode == 0 or already_clinical:
         _last_general[asset_id] = general
 
-    if ok:
+    if ok and peers:
         detail = (
             f"Quarantined {asset_id}: moved {container} onto '{CLINICAL_NETWORK}' "
-            f"(broker + receiver only) and off '{general}'. Clinical telemetry "
-            "continues; lateral movement to non-clinical hosts is blocked."
+            f"({', '.join(peers.values())} only) and off '{general}'. Clinical "
+            "telemetry continues; lateral movement to non-clinical hosts is blocked."
+        )
+    elif ok:
+        # No dependency list configured for this asset — nothing to grant it
+        # reachability to, so this is functionally a full network cut, not
+        # the gentler "clinical path survives" containment quarantine is
+        # supposed to be. Say so plainly rather than letting the audit trail
+        # claim clinical continuity that didn't happen.
+        detail = (
+            f"Quarantined {asset_id}: moved {container} onto '{CLINICAL_NETWORK}' "
+            f"and off '{general}'. No clinical peers are configured for this asset "
+            "(see SHUFFLE_CLINICAL_PEERS_MAP) — it has no reachable peers on the "
+            "clinical segment, so this is equivalent to a full network cut, not a "
+            "graded containment."
         )
     else:
         detail = f"Quarantine of {asset_id} FAILED: connect='{conn_err}' disconnect='{disc_err}'"
@@ -700,12 +763,13 @@ def quarantine(
             "container": container,
             "clinical_network": CLINICAL_NETWORK,
             "general_network": general,
+            "clinical_peers": peers,
             "reason": reason,
         },
     )
     return {"ok": ok, "mode": "real", "asset_id": asset_id, "container": container,
             "clinical_network": CLINICAL_NETWORK, "general_network": general,
-            "message": detail, "entry": entry}
+            "clinical_peers": peers, "message": detail, "entry": entry}
 
 
 def release_quarantine(
