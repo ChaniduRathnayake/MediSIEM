@@ -47,6 +47,8 @@ medshield_final89/
 
 # IP Reputation research artifacts (300MB+ of models/experiment data, kept local only)ip_reputation_server/ip-reputation-Componets/
 /ip-reputation/
+.dev-logs/
+/.dev-logs/
 
 
 # Python bytecode
