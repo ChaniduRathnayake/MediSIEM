@@ -16,6 +16,7 @@ import AdminDashboard from './pages/dashboard/AdminDashboard';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import Wallboard from './pages/dashboard/Wallboard';
 import ClinicianPage from './pages/ClinicianPage';
+import DevBombPage from './pages/DevBombPage';
 
 // Components
 import Navbar from './components/Navbar';
@@ -201,6 +202,11 @@ const AppRoutes: React.FC = () => (
         </PrivateRoute>
       }
     />
+
+    {/* ── Dev-only: wipes the entire alert backlog for a clean demo reset. Bare, no
+        auth guard — matches backend/routes/dev.js, which is itself disabled in
+        production. Not linked from anywhere; reached by typing the URL. ── */}
+    <Route path="/devbomb" element={<DevBombPage />} />
 
     {/* ── Fallback ── */}
     <Route path="*" element={<Navigate to="/" replace />} />

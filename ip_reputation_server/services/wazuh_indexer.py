@@ -37,6 +37,12 @@ WAZUH_VERIFY_TLS = (
 )
 
 
+def _is_ipv6(value: str | None) -> bool:
+    # MedShield is IPv4-only. IPv4 never contains ':'; every IPv6
+    # representation does -- cheap and reliable without a full parse.
+    return bool(value) and ":" in value
+
+
 def _project_alert(
     hit: dict[str, Any]
 ) -> dict[str, Any]:
@@ -284,8 +290,12 @@ async def search_wazuh_alerts_for_ip(
 
 
         alerts = [
-            _project_alert(hit)
+            item
             for hit in hits
+            if not (
+                _is_ipv6((item := _project_alert(hit)).get("src_ip"))
+                or _is_ipv6(item.get("dest_ip"))
+            )
         ]
 
 
@@ -725,9 +735,22 @@ async def hunt_wazuh_alerts(
             )
 
 
-        alerts = [
+        # Filter IPv6 hits out here rather than in the OpenSearch query
+        # itself -- the srcip/dstip field mapping isn't guaranteed to
+        # support a regex/wildcard filter cleanly, while a plain string
+        # check on the already-projected value is cheap and reliable.
+        projected_alerts = [
             _project_alert(hit)
             for hit in raw_hits
+        ]
+
+        alerts = [
+            item
+            for item in projected_alerts
+            if not (
+                _is_ipv6(item.get("src_ip"))
+                or _is_ipv6(item.get("dest_ip"))
+            )
         ]
 
 

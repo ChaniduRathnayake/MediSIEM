@@ -8,6 +8,7 @@ import express from 'express';
 import { protect, allowRoles } from '../middleware/auth.js';
 import { getLifeCriticalBridgeStats } from '../services/lifeCriticalBridgeService.js';
 import SoarAction from '../models/SoarAction.js';
+import AlertLog from '../models/AlertLog.js';
 
 const router = express.Router();
 
@@ -75,21 +76,104 @@ router.get('/recent-decisions', protect, async (req, res) => {
   }
 });
 
-// Tier 3 alerts still awaiting a clinician response — joins /alerts/recent
-// (tier === 3) against /clinician-decisions (already-resolved decision_ids)
-// server-side so the frontend gets a ready-to-render list.
+// alertSnapshot (backend/models/SoarAction.js) only started being written
+// once buildEnrichedAlert's payload was added to the SoarAction write in
+// lifeCriticalBridgeService.js — every SoarAction doc written before that
+// has alertSnapshot: null forever (it was never captured, so there's nothing
+// to backfill). Hard-filtering those out of /decisions-history and
+// /pending-approvals made the entire pre-existing Playbooks history vanish
+// from the UI the moment that field shipped, which is exactly backwards: the
+// decisions themselves are still real and still in Mongo. Falls back to
+// MediSIEM's own AlertLog (keyed by alertId) for CAS/department/label/rule
+// text instead — AlertLog has carried those since alertPipeline.js's dedup
+// path, independently of alertSnapshot, so most history is recoverable.
+async function buildAlertLogMap(docs) {
+  const missingIds = [...new Set(docs.filter((d) => !d.alertSnapshot).map((d) => d.alertId))];
+  if (!missingIds.length) return {};
+  const logs = await AlertLog.find({ alertId: { $in: missingIds } });
+  return Object.fromEntries(logs.map((l) => [l.alertId, l]));
+}
+
+// Shared by /decisions-history and /pending-approvals below — reconstructs a
+// {alert, decision} pair (the shape the frontend already renders via the
+// engine's own /alerts/recent) from a durable SoarAction doc instead of the
+// engine's in-memory ring buffer. `raw` is the fallback for the decision half
+// on the rare doc where it's missing; every doc has always carried the
+// individual fields it's built from here. When alertSnapshot itself is
+// missing (see buildAlertLogMap above), a best-effort alert stub is built
+// from AlertLog instead of dropping the entry entirely — some display fields
+// (hostname, ip, cas_breakdown, indicators) genuinely don't exist in AlertLog
+// and stay blank, but the decision is never hidden just because that one
+// payload wasn't captured yet.
+function soarActionToItem(d, alertLogByAlertId = {}) {
+  const log = alertLogByAlertId[d.alertId];
+  return {
+    alert: d.alertSnapshot || {
+      alert_id: d.alertId,
+      timestamp: log?.timestamp || d.decidedAt,
+      source: { rule_description: log?.ruleDescription ?? undefined },
+      threat: {
+        category: log?.label ?? undefined,
+        cas_score: typeof log?.CAS === 'number' ? log.CAS : undefined,
+      },
+      asset: { asset_id: d.assetId ?? undefined, department: log?.department ?? undefined },
+      clinical_context: { criticality_score: d.effectiveCriticalityScore ?? undefined },
+    },
+    decision: d.raw || {
+      decision_id: d.decisionId,
+      decided_at: d.decidedAt,
+      alert_id: d.alertId,
+      asset_id: d.assetId,
+      tier: d.tier,
+      action: d.action,
+      rationale: d.rationale,
+      matched_rule: d.matchedRule,
+      fail_safe_applied: d.failSafeApplied,
+      effective_criticality: d.effectiveCriticality,
+      effective_criticality_score: d.effectiveCriticalityScore,
+      extreme_threat: d.extremeThreat,
+      proposed_action_if_approved: d.proposedActionIfApproved,
+      block_dest: d.blockDest,
+      block_ports: d.blockPorts,
+    },
+  };
+}
+
+// Durable equivalent of /recent-decisions — reads MediSIEM's own SoarAction
+// mirror instead of the engine's in-memory ring buffer, so the Playbooks feed
+// (1) survives an engine restart (the ring buffer doesn't) and (2) never
+// misses a decision the engine made on a repeat occurrence of an alert
+// signature that alertPipeline.js's own dedup folded into an existing buffer
+// entry — that path never gave the engine's ring buffer a place to be joined
+// against, which is why some CRITICAL alerts visible on the Alerts page were
+// never appearing here even though the engine had genuinely decided on them.
+// Every SoarAction doc is included, not just ones with an alertSnapshot —
+// see buildAlertLogMap/soarActionToItem above for how older docs degrade.
+router.get('/decisions-history', protect, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const docs = await SoarAction.find({}).sort({ decidedAt: -1 }).limit(limit);
+    const alertLogByAlertId = await buildAlertLogMap(docs);
+    res.json({ items: docs.map((d) => soarActionToItem(d, alertLogByAlertId)) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Tier 3 alerts still awaiting a clinician response. Was: join /alerts/recent
+// (tier === 3) against /clinician-decisions server-side — same ephemeral-ring-
+// buffer weakness as /recent-decisions above, except here it meant a real
+// pending containment approval could silently vanish from the tray across an
+// engine restart with no record a clinician ever needed to act on it. Reads
+// SoarAction's own `status` field instead, which is durable and updated in
+// place by /clinician-decision below regardless of engine uptime.
 router.get('/pending-approvals', protect, async (req, res) => {
   try {
-    const [recent, resolved] = await Promise.all([
-      engineFetch('/alerts/recent?limit=200'),
-      engineFetch('/clinician-decisions'),
-    ]);
-    const pending = recent.filter(
-      (item) => item.decision?.tier === 3 && !resolved[item.decision?.decision_id]
-    );
-    res.json({ pending });
+    const docs = await SoarAction.find({ status: 'pending' }).sort({ decidedAt: -1 });
+    const alertLogByAlertId = await buildAlertLogMap(docs);
+    res.json({ pending: docs.map((d) => soarActionToItem(d, alertLogByAlertId)) });
   } catch (err) {
-    res.status(err.status || 502).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -154,9 +238,11 @@ router.post('/clinician-decision', protect, allowRoles('admin', 'user', 'biomed'
 });
 
 // Durable SOAR history straight from Mongo — unlike /audit and
-// /recent-decisions this survives an engine restart and supports filtering,
-// since it's the Node-side mirror (backend/models/SoarAction.js) rather than
-// a proxy onto the engine's own state.
+// /recent-decisions this supports filtering (assetId/status) since it's the
+// Node-side mirror (backend/models/SoarAction.js) rather than a proxy onto
+// the engine's own state. /recent-decisions now also survives an engine
+// restart (the engine persists its ring buffer to disk), but only this one
+// supports querying by asset/status.
 router.get('/soar-history', protect, async (req, res) => {
   try {
     const { assetId, status, limit } = req.query;
@@ -197,9 +283,11 @@ router.get('/clinician-decisions', protect, async (req, res) => {
   }
 });
 
-// The engine's durable, hash-chained audit log (GET /audit) — unlike
-// /alerts/recent (an in-memory ring buffer that resets on engine restart),
-// this survives restarts and is what a real "Audit Timeline" view needs.
+// The engine's durable, hash-chained audit log (GET /audit) — this is the
+// tamper-evident record and what a real "Audit Timeline" view needs.
+// /alerts/recent is now also persisted to disk, but it's a plain JSONL
+// display cache (no hash chain, and only holds the last
+// RECENT_ALERTS_BUFFER_SIZE entries), not this endpoint's full history.
 // Includes both original decisions and clinician-response followups.
 router.get('/audit', protect, async (req, res) => {
   try {

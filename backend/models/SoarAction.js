@@ -57,6 +57,14 @@ const SoarActionSchema = new Schema(
     // Full engine response, kept verbatim so a field this schema doesn't
     // surface yet is never silently dropped.
     raw: { type: Schema.Types.Mixed, default: null },
+
+    // The exact Enriched Alert payload sent to the engine (buildEnrichedAlert's
+    // output in lifeCriticalBridgeService.js) — kept verbatim alongside `raw`
+    // so /decisions-history can serve a durable {alert, decision} pair without
+    // depending on AlertLog, which only gets a full write on a dedup group's
+    // FIRST occurrence (see alertPipeline.js) and is otherwise missing CAS for
+    // every repeat occurrence this bridge still classifies independently.
+    alertSnapshot: { type: Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

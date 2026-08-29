@@ -182,77 +182,91 @@ const ThreatHuntView: React.FC<{ onInvestigate: (ip: string) => void }> = ({ onI
           </SectionCard>
 
           <SectionCard title="Hunt Evidence" subtitle="Investigate either side of a flow directly in IP Reputation Intelligence.">
-            {!result.alerts?.length ? (
-              <EmptyNotice>No alerts matched this hunt.</EmptyNotice>
-            ) : (
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full min-w-[880px]">
-                  <thead>
-                    <tr className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                      <th className="py-2 px-2 text-left">Time</th>
-                      <th className="py-2 px-2 text-left">Flow</th>
-                      <th className="py-2 px-2 text-left">Rule</th>
-                      <th className="py-2 px-2 text-left">Signature</th>
-                      <th className="py-2 px-2 text-left">Severity</th>
-                      <th className="py-2 px-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.alerts.map((alert) => (
-                      <tr key={alert.document_id} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 text-sm">
-                        <td className="py-2 px-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtDateTime(alert.timestamp)}</td>
-                        <td className="py-2 px-2">
-                          <span className="font-medium text-slate-900 dark:text-white">
-                            {alert.src_ip || '—'}{alert.src_port ? `:${alert.src_port}` : ''}
-                          </span>
-                          <br />
-                          <span className="text-xs text-slate-400 dark:text-slate-500">
-                            → {alert.dest_ip || '—'}{alert.dest_port ? `:${alert.dest_port}` : ''} • {alert.app_proto || alert.protocol || 'unknown'}
-                          </span>
-                        </td>
-                        <td className="py-2 px-2">
-                          <span className="font-medium text-slate-900 dark:text-white">{alert.wazuh_rule?.id || '—'}</span>
-                          <br />
-                          <span className="text-xs text-slate-400 dark:text-slate-500">Level {alert.wazuh_rule?.level ?? '—'}</span>
-                        </td>
-                        <td className="py-2 px-2">
-                          {alert.suricata_alert?.signature || alert.wazuh_rule?.description || '—'}
-                          <br />
-                          <span className="text-xs text-slate-400 dark:text-slate-500">{alert.suricata_alert?.signature_id || '—'}</span>
-                        </td>
-                        <td className="py-2 px-2">
-                          <Badge tone={toneOf(String(alert.suricata_alert?.severity ?? ''))}>{alert.suricata_alert?.severity ?? '—'}</Badge>
-                          <br />
-                          <span className="text-xs text-slate-400 dark:text-slate-500">{alert.direction || '—'}</span>
-                        </td>
-                        <td className="py-2 px-2">
-                          <div className="flex flex-col gap-1">
-                            {alert.src_ip && (
-                              <button
-                                type="button"
-                                onClick={() => onInvestigate(alert.src_ip as string)}
-                                className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-medium text-left"
-                              >
-                                Investigate Src
-                              </button>
-                            )}
-                            {alert.dest_ip && (
-                              <button
-                                type="button"
-                                onClick={() => onInvestigate(alert.dest_ip as string)}
-                                className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-medium text-left"
-                              >
-                                Investigate Dst
-                              </button>
-                            )}
-                          </div>
-                        </td>
+            {(() => {
+              // MedShield is IPv4-only. The backend already excludes IPv6
+              // hits from these results; this is a defense-in-depth filter
+              // matching the same pattern used in the Live Feed/Overview
+              // tabs, in case an older or misconfigured backend still
+              // returns one. An alert with no IP at all (e.g. a
+              // non-network Wazuh decoder) is kept — only an address that
+              // is explicitly IPv6 is excluded.
+              const hasIpv6 = (ip?: string | null) => !!ip && ip.includes(':');
+              const ipv4Alerts = (result.alerts || []).filter(
+                (alert) => !hasIpv6(alert.src_ip) && !hasIpv6(alert.dest_ip)
+              );
+
+              return !ipv4Alerts.length ? (
+                <EmptyNotice>No alerts matched this hunt.</EmptyNotice>
+              ) : (
+                <div className="overflow-x-auto -mx-1">
+                  <table className="w-full min-w-[880px]">
+                    <thead>
+                      <tr className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                        <th className="py-2 px-2 text-left">Time</th>
+                        <th className="py-2 px-2 text-left">Flow</th>
+                        <th className="py-2 px-2 text-left">Rule</th>
+                        <th className="py-2 px-2 text-left">Signature</th>
+                        <th className="py-2 px-2 text-left">Severity</th>
+                        <th className="py-2 px-2 text-left">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {ipv4Alerts.map((alert) => (
+                        <tr key={alert.document_id} className="border-b border-slate-100 dark:border-slate-800/60 last:border-0 text-sm">
+                          <td className="py-2 px-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtDateTime(alert.timestamp)}</td>
+                          <td className="py-2 px-2">
+                            <span className="font-medium text-slate-900 dark:text-white">
+                              {alert.src_ip || '—'}{alert.src_port ? `:${alert.src_port}` : ''}
+                            </span>
+                            <br />
+                            <span className="text-xs text-slate-400 dark:text-slate-500">
+                              → {alert.dest_ip || '—'}{alert.dest_port ? `:${alert.dest_port}` : ''} • {alert.app_proto || alert.protocol || 'unknown'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2">
+                            <span className="font-medium text-slate-900 dark:text-white">{alert.wazuh_rule?.id || '—'}</span>
+                            <br />
+                            <span className="text-xs text-slate-400 dark:text-slate-500">Level {alert.wazuh_rule?.level ?? '—'}</span>
+                          </td>
+                          <td className="py-2 px-2">
+                            {alert.suricata_alert?.signature || alert.wazuh_rule?.description || '—'}
+                            <br />
+                            <span className="text-xs text-slate-400 dark:text-slate-500">{alert.suricata_alert?.signature_id || '—'}</span>
+                          </td>
+                          <td className="py-2 px-2">
+                            <Badge tone={toneOf(String(alert.suricata_alert?.severity ?? ''))}>{alert.suricata_alert?.severity ?? '—'}</Badge>
+                            <br />
+                            <span className="text-xs text-slate-400 dark:text-slate-500">{alert.direction || '—'}</span>
+                          </td>
+                          <td className="py-2 px-2">
+                            <div className="flex flex-col gap-1">
+                              {alert.src_ip && (
+                                <button
+                                  type="button"
+                                  onClick={() => onInvestigate(alert.src_ip as string)}
+                                  className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-medium text-left"
+                                >
+                                  Investigate Src
+                                </button>
+                              )}
+                              {alert.dest_ip && (
+                                <button
+                                  type="button"
+                                  onClick={() => onInvestigate(alert.dest_ip as string)}
+                                  className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-medium text-left"
+                                >
+                                  Investigate Dst
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </SectionCard>
         </>
       )}

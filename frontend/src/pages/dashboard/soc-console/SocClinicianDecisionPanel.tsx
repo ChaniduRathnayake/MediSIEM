@@ -16,14 +16,18 @@ const SocClinicianDecisionPanel: React.FC<{
   const [existing, setExisting] = useState<ClinicianFollowup | null>(null);
 
   useEffect(() => {
-    if (!decision?.asset_id) return;
+    if (!decision?.decision_id) return;
     let cancelled = false;
     apiGetClinicianDecisions(token)
       .then(({ byDecisionId }) => {
         if (cancelled) return;
-        const forAsset = Object.values(byDecisionId).filter((f) => f.asset_id === decision.asset_id);
-        forAsset.sort((a, b) => (b.responded_at || '').localeCompare(a.responded_at || ''));
-        setExisting(forAsset[0] || null);
+        // Keyed by decision_id, not asset_id — a repeat-offender asset can
+        // rack up several Tier 3 decisions over time, each with its own
+        // decision_id. Matching on asset_id alone (the previous bug here)
+        // pulled in an unrelated PRIOR decision's resolution for this same
+        // asset and displayed it as if it resolved the current decision,
+        // making a genuinely still-pending Tier 3 alert look auto-approved.
+        setExisting(byDecisionId[decision.decision_id] || null);
       })
       .catch(() => {
         if (!cancelled) setExisting(null);
@@ -31,8 +35,7 @@ const SocClinicianDecisionPanel: React.FC<{
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, decision?.asset_id, decision?.decision_id]);
+  }, [token, decision?.decision_id]);
 
   if (!decision || decision.tier !== 3) return null;
 

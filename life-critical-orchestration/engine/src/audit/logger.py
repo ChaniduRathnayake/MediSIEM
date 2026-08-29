@@ -117,6 +117,16 @@ class AuditLogger:
                 except json.JSONDecodeError:
                     print(f"[audit] skipping unparseable line {i + 1} in {self.path}", file=sys.stderr)
 
+    # ---------- Dev reset ----------
+
+    def reset(self) -> None:
+        """Dev-only: truncate the log back to empty (see MediSIEM's
+        backend/routes/dev.js POST /api/dev/wipe-playbooks). Nothing here is
+        cached in memory — every read walks the file — so truncating it is
+        the whole reset."""
+        with self._write_lock:
+            self.path.write_text("", encoding="utf-8")
+
     # ---------- Verification ----------
 
     def verify_chain(self) -> tuple[bool, Optional[str]]:

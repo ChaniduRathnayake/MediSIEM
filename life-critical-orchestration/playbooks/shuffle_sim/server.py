@@ -53,12 +53,24 @@ ENGINE_URL = os.getenv("ENGINE_URL", "http://localhost:8000")
 ENGINE_CALLBACK_ENDPOINT = f"{ENGINE_URL}/clinician-decision"
 SIM_VERSION = "0.1.0"
 
-# Micro-segmentation (quarantine) is OPTIONAL and OFF by default. It requires a
-# site-specific clinical-only segment definition — which clinical peers a device
-# must keep reaching — that only hospital staff / asset-discovery tooling can
-# supply. Until that input exists, Tier 3 contains via Monitored Mode alone.
-# Set ENABLE_QUARANTINE=true to re-enable the F-3 micro-segmentation path.
-ENABLE_QUARANTINE = os.getenv("ENABLE_QUARANTINE", "false").strip().lower() in (
+# Gates POST /dev/reset — same demo/dev-only utility as the engine's
+# ENGINE_DEV_MODE (see engine/src/main.py). This sim has no auth either, so
+# this is the only thing standing between "reset button" and "anyone who can
+# reach this port wipes the action log" — never remove it.
+SIM_DEV_MODE = os.getenv("ENVIRONMENT", "development").strip().lower() != "production"
+
+# Micro-segmentation (quarantine) is ON by default: every Tier 3 decision now
+# applies await_clinician_approval + Monitored Mode + quarantine in parallel
+# (docs/alert-schema.md's decision table). The site-specific "which clinical
+# peers must stay reachable" input this needs lives in enforcement.py's
+# clinical-peers config (_DEFAULT_CLINICAL_PEERS / SHUFFLE_CLINICAL_PEERS_MAP)
+# — an asset with no entry there still gets quarantined at Tier 3 initiation
+# (walled off from everything, since there's no known-safe peer to grant), but
+# on clinician DENIAL it's released back to Monitored Mode rather than left
+# indefinitely walled off with no verified dependency list (see the
+# /clinician-decision handler below). Set ENABLE_QUARANTINE=false to fall back
+# to the old Monitored-Mode-only Tier 3 containment entirely.
+ENABLE_QUARANTINE = os.getenv("ENABLE_QUARANTINE", "true").strip().lower() in (
     "1", "true", "yes", "on",
 )
 
@@ -157,20 +169,42 @@ def playbook_run(decision: Dict[str, Any]) -> Dict[str, Any]:
         written = tier3_dispatch.run(decision, log=log)
         # Tier 3 parallel containment. Monitored Mode is ALWAYS applied by
         # tier3_dispatch.run() above (non-disruptive, needs no topology
-        # knowledge). Quarantine (F-3 micro-segmentation) is an optional
-        # stronger containment, gated behind ENABLE_QUARANTINE because it
-        # requires a site-specific clinical-only segment definition. Off by
-        # default: the device is held in Monitored Mode while awaiting the
-        # clinician. If approved -> isolate; if denied -> stays in Monitored
-        # Mode (or quarantined, when the flag is on).
-        if ENABLE_QUARANTINE:
+        # knowledge). Quarantine (F-3 micro-segmentation) is ON by default
+        # (ENABLE_QUARANTINE) but ONLY for an asset with a configured
+        # clinical-peer group (enforcement.has_clinical_peers) — "quarantine"
+        # means walling a device onto a segment where its known-safe peers are
+        # still reachable; an asset with NO configured peers has nothing to be
+        # reachable WITH, so moving it there would just be a full network cut
+        # wearing a quarantine label. Such an asset instead stays in Monitored
+        # Mode alone while awaiting the clinician, same as before quarantine
+        # existed at all.
+        tier3_asset_id = decision.get("asset_id", "<unknown>")
+        tier3_decision_id = decision.get("decision_id", "<unknown>")
+        if ENABLE_QUARANTINE and enforcement.has_clinical_peers(tier3_asset_id):
             q = enforcement.quarantine(
-                decision.get("asset_id", "<unknown>"),
-                decision_id=decision.get("decision_id", "<unknown>"),
+                tier3_asset_id,
+                decision_id=tier3_decision_id,
                 reason="tier3_quarantine_parallel",
                 log=log,
             )
             written.append(q["entry"])
+        elif ENABLE_QUARANTINE:
+            # Explicit record, not silence — so the feed says WHY quarantine
+            # didn't fire instead of just not mentioning it, same as the
+            # clinician_push "skipped: no one is on-call" entry below.
+            written.append(log.record(
+                decision_id=tier3_decision_id,
+                asset_id=tier3_asset_id,
+                workflow=tier3_dispatch.WORKFLOW_NAME,
+                step="quarantine",
+                status="skipped",
+                detail=(
+                    f"No pre-configured quarantine group for {tier3_asset_id} — "
+                    "quarantine not applied; asset stays in Monitored Mode alone "
+                    "while awaiting the clinician."
+                ),
+                extra={"reason": "no_clinical_peers_configured"},
+            ))
         workflow = tier3_dispatch.WORKFLOW_NAME
         # Workstream E: page the on-call clinician's device. tier3_dispatch
         # already recorded the (simulated) "clinician_dispatch" step; this
@@ -305,19 +339,20 @@ async def clinician_decision(req: ClinicianDecisionRequest) -> Dict[str, Any]:
     """
     log = get_log()
 
-    # 1) Playbook-side record
-    playbook_entry = tier3_dispatch.record_clinician_response(
-        decision_id=req.decision_id,
-        asset_id=req.asset_id,
-        approved=req.approved,
-        clinician_id=req.clinician_id,
-        log=log,
-    )
-
-    # 1b) On APPROVAL, execute the real disruptive action the clinician
-    #     authorised: isolate the device at the network boundary. On denial
-    #     we do nothing — the asset stays in Monitored Mode (FR-06).
+    # 1) On APPROVAL, execute the real disruptive action the clinician
+    #    authorised: isolate the device at the network boundary. On DENIAL, an
+    #    asset with a configured clinical-peer group (enforcement.
+    #    has_clinical_peers) stays quarantined — playbook_run() above only
+    #    ever quarantines such assets in the first place, so its safe
+    #    dependencies are already reachable on the clinical segment and there's
+    #    no reason to relax containment just because a human declined full
+    #    isolation. An asset with NO configured peers was never quarantined to
+    #    begin with (same gate in playbook_run()) — it's simply staying in the
+    #    Monitored Mode it's been in the whole time, so there's nothing to
+    #    release.
     enforcement_result = None
+    final_action_override: Optional[str] = None
+    stays_quarantined = False
     if req.approved:
         enforcement_result = enforcement.isolate(
             req.asset_id,
@@ -325,11 +360,30 @@ async def clinician_decision(req: ClinicianDecisionRequest) -> Dict[str, Any]:
             reason="tier3_clinician_approved",
             log=log,
         )
+    elif enforcement.has_clinical_peers(req.asset_id):
+        stays_quarantined = True
+        final_action_override = "quarantine"
+    else:
+        final_action_override = "monitored_mode"
 
-    # 2) Notify the engine. Best-effort: if the engine is briefly unavailable
+    # 2) Playbook-side record — after the enforcement decision above so its
+    #    text matches what actually happened, not a guess.
+    playbook_entry = tier3_dispatch.record_clinician_response(
+        decision_id=req.decision_id,
+        asset_id=req.asset_id,
+        approved=req.approved,
+        clinician_id=req.clinician_id,
+        stays_quarantined=stays_quarantined,
+        log=log,
+    )
+
+    # 3) Notify the engine. Best-effort: if the engine is briefly unavailable
     # we still want the playbook-side record to land (the dashboard would
     # otherwise show a half-state). We log the engine response back into
-    # the action log for traceability.
+    # the action log for traceability. final_action is only sent when this
+    # handler resolved something the engine can't know on its own (the
+    # per-asset peer-config outcome on denial); the engine falls back to its
+    # own default (monitored_mode) when it's omitted, e.g. on approval.
     engine_status: Optional[int] = None
     engine_error: Optional[str] = None
 
@@ -341,6 +395,7 @@ async def clinician_decision(req: ClinicianDecisionRequest) -> Dict[str, Any]:
                     "decision_id": req.decision_id,
                     "approved": req.approved,
                     "clinician_id": req.clinician_id,
+                    **({"final_action": final_action_override} if final_action_override else {}),
                 },
             )
             engine_status = resp.status_code
@@ -363,12 +418,24 @@ async def clinician_decision(req: ClinicianDecisionRequest) -> Dict[str, Any]:
     return {
         "playbook_entry": playbook_entry,
         "enforcement": enforcement_result,
+        "stays_quarantined": stays_quarantined,
         "engine_callback": {
             "ok": engine_error is None,
             "status": engine_status,
             "error": engine_error,
         },
     }
+
+@app.post("/dev/reset", status_code=status.HTTP_200_OK)
+def dev_reset() -> Dict[str, Any]:
+    """Dev-only: wipe the action log for a clean demo reset. Mirrors the
+    engine's POST /dev/reset — called from the same MediSIEM /devbomb
+    button (see backend/routes/dev.js POST /api/dev/wipe-playbooks)."""
+    if not SIM_DEV_MODE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Dev utilities are disabled in production.")
+    get_log().reset()
+    return {"ok": True}
+
 
 @app.post("/enforcement/release", status_code=status.HTTP_200_OK)
 def enforcement_release(asset_id: str) -> Dict[str, Any]:

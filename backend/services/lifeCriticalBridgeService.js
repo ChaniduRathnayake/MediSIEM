@@ -9,6 +9,17 @@
 import AlertLog from '../models/AlertLog.js';
 import SoarAction from '../models/SoarAction.js';
 
+// Duplicated from alertPipeline.js's own casToSeverity rather than imported —
+// that module already imports pushToLifeCriticalEngine from this one, so an
+// import back here would be circular. Keep both in sync if the CAS bands ever
+// change (also mirrored in frontend/src/utils/chartData.ts's casToSeverity).
+function casToSeverity(cas) {
+  if (cas >= 8) return 'CRITICAL';
+  if (cas >= 6) return 'HIGH';
+  if (cas >= 4) return 'MEDIUM';
+  return 'LOW';
+}
+
 const { LIFE_CRITICAL_ENGINE_URL = 'http://localhost:8000' } = process.env;
 
 // Visibility into fire-and-forget failures — a down engine should never be
@@ -165,12 +176,20 @@ export async function pushToLifeCriticalEngine(raw, displayAlert) {
     stats.pushed += 1;
     stats.lastDecision = { alertId: displayAlert.id, tier: decision.tier, action: decision.action, at: new Date().toISOString() };
 
-    // $set explicitly — this write must only touch these three fields. The
-    // base AlertLog row for this alert is written separately by
-    // alertPipeline.js (racing with this fire-and-forget call in either
-    // order); an un-prefixed update object here would be treated as a full
-    // document replacement and could wipe out CAS/action/severity/etc.
-    // depending on which write lands second.
+    // $set explicitly — merges with whatever alertPipeline.js's own AlertLog
+    // write does for this same alertId, regardless of which one lands first.
+    //
+    // Also fills CAS/severity/label/deviceType/department here, not just the
+    // three lifeCritical* fields: alertPipeline.js only writes those richer
+    // fields on a dedup group's FIRST occurrence (see its `if (existing)`
+    // branch) — every REPEAT occurrence of the same signature still reaches
+    // this bridge (it has no dedup of its own) and, before this fix, upserted
+    // an AlertLog row via $setOnInsert alone, permanently missing CAS. That
+    // silently orphaned ~87% of AlertLog rows with CAS:null even though the
+    // engine had correctly classified them — confirmed against Mongo while
+    // investigating why the Playbooks feed was missing alerts the main
+    // Alerts page showed. Never overwrites a richer value with a blanker one
+    // (?? keeps whatever alertPipeline.js already set if this fires second).
     AlertLog.findOneAndUpdate(
       { alertId: String(displayAlert.id) },
       {
@@ -178,6 +197,15 @@ export async function pushToLifeCriticalEngine(raw, displayAlert) {
           lifeCriticalTier: decision.tier ?? null,
           lifeCriticalAction: decision.action ?? null,
           lifeCriticalDecisionId: decision.decision_id ?? null,
+          CAS: displayAlert.CAS ?? undefined,
+          severity: typeof displayAlert.CAS === 'number' ? casToSeverity(displayAlert.CAS) : undefined,
+          action: displayAlert.action ?? undefined,
+          department: displayAlert.department ?? undefined,
+          agent: displayAlert.agent ?? undefined,
+          deviceType: displayAlert.deviceType ?? undefined,
+          deviceCriticality: displayAlert.deviceCriticality ?? undefined,
+          label: displayAlert.label ?? undefined,
+          ruleDescription: displayAlert.ruleDescription ?? undefined,
         },
         $setOnInsert: { alertId: String(displayAlert.id), timestamp: new Date(displayAlert.timestamp || Date.now()) },
       },
@@ -193,6 +221,7 @@ export async function pushToLifeCriticalEngine(raw, displayAlert) {
           $set: {
             alertId: String(displayAlert.id),
             assetId: payload.asset.asset_id,
+            alertSnapshot: payload,
             tier: decision.tier ?? null,
             action: decision.action ?? null,
             rationale: decision.rationale ?? null,

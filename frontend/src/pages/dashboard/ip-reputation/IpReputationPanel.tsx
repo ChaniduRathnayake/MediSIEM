@@ -132,10 +132,8 @@ const IpReputationPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ip]);
 
-  const handleSetList = useCallback(async (listType: string) => {
+  const handleSetList = useCallback(async (listType: string, reason: string) => {
     if (!result) return;
-    const reason = window.prompt(`Reason for adding ${result.ip} to ${listType} list:`, 'Added from MedShield IP investigation');
-    if (reason === null) return;
 
     try {
       await setReputationList({ ip: result.ip, list_type: listType, reason, actor });
@@ -146,10 +144,8 @@ const IpReputationPanel: React.FC = () => {
     }
   }, [result, investigate, showToast]);
 
-  const handleSetVerdict = useCallback(async (verdict: string) => {
+  const handleSetVerdict = useCallback(async (verdict: string, reason: string) => {
     if (!result) return;
-    const reason = window.prompt(`Reason for analyst verdict: ${verdict}`, '');
-    if (reason === null) return;
 
     try {
       await setAnalystVerdict({ ip: result.ip, verdict, reason, actor });
@@ -160,10 +156,8 @@ const IpReputationPanel: React.FC = () => {
     }
   }, [result, investigate, showToast]);
 
-  const handleAddNote = useCallback(async () => {
-    if (!result) return;
-    const note = window.prompt('Enter investigation note:');
-    if (!note) return;
+  const handleAddNote = useCallback(async (note: string) => {
+    if (!result || !note.trim()) return;
 
     try {
       await addAnalystNote({ ip: result.ip, note, actor });
@@ -174,23 +168,9 @@ const IpReputationPanel: React.FC = () => {
     }
   }, [result, investigate, showToast]);
 
-  const handleCreateCase = useCallback(async () => {
-    if (!result) return;
+  const handleCreateCase = useCallback(async (title: string, description: string, severity: string) => {
+    if (!result || !title.trim()) return;
 
-    const title = window.prompt('Case title:', `Investigate ${result.ip}`);
-    if (!title) return;
-
-    const description = window.prompt(
-      'Case description:',
-      `Created from MedShield IP investigation. External reputation risk: ${result.risk_level || 'Unknown'}.`
-    );
-    if (description === null) return;
-
-    const defaultSeverity = SEVERITIES.includes(result.risk_level ?? '') ? (result.risk_level as string) : 'Medium';
-    const severityInput = window.prompt('Severity: Low, Medium, High or Critical', defaultSeverity);
-    if (severityInput === null) return;
-
-    const severity = severityInput.trim();
     if (!SEVERITIES.includes(severity)) {
       showToast({ title: 'Invalid severity', message: 'Severity must be Low, Medium, High or Critical.', severity: 'high' });
       return;

@@ -22,6 +22,11 @@ from fastapi.testclient import TestClient
 def client(tmp_path: Path, monkeypatch):
     """A fresh engine instance with an isolated audit log."""
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    # Also isolate the /alerts/recent cache — without this, every test run
+    # posting a stub alert (e.g. _make_tier3_alert()) appended straight into
+    # the dev's real recent_alerts.jsonl, polluting the Playbooks/SOC Console
+    # Alert Feed cache with fake alert-t3-001/ASSET-A/ASSET-B entries.
+    monkeypatch.setenv("RECENT_ALERTS_LOG_PATH", str(tmp_path / "recent_alerts.jsonl"))
     # Reload the main module so the AUDIT_LOG_PATH env var is picked up.
     # Important: do this AFTER monkeypatch.setenv so the module-level
     # constants resolve to the temp path.
@@ -122,6 +127,30 @@ def test_clinician_decision_records_denial_with_fr06(client):
     body = resp.json()
     # Denial → no state change, asset stays in monitored_mode (FR-06)
     assert body["final_action"] == "monitored_mode"
+
+    verify = client.get("/audit/verify").json()
+    assert verify["ok"] is True
+
+
+def test_clinician_decision_denial_honors_final_action_override(client):
+    """The Shuffle sim passes final_action explicitly once it knows the real
+    per-asset outcome (enforcement.has_clinical_peers) — an asset with a
+    configured clinical-peer group stays quarantined on denial instead of
+    the engine's own conservative monitored_mode default."""
+    decide_resp = client.post("/decide", json=_make_tier3_alert())
+    decision_id = decide_resp.json()["decision_id"]
+
+    resp = client.post(
+        "/clinician-decision",
+        json={
+            "decision_id": decision_id,
+            "approved": False,
+            "clinician_id": "dr-deny",
+            "final_action": "quarantine",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["final_action"] == "quarantine"
 
     verify = client.get("/audit/verify").json()
     assert verify["ok"] is True

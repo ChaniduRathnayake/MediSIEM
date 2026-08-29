@@ -14,8 +14,12 @@ import type {
   LiveCorrelationFeedResult,
 } from './ipReputationApi';
 
+import { isIPv4 } from './shared';
+
 
 const REFRESH_MS = 5000;
+
+const PAGE_SIZE = 200;
 
 
 interface Props {
@@ -42,8 +46,65 @@ function fmt(
 function fmtDate(value?: string | null): string {
   if (!value) return '—';
 
-  // Keep original MedShield-style timestamp presentation.
-  return value;
+  // The collector stores this as a raw ISO string with microsecond
+  // precision (e.g. "2026-08-29T14:12:26.788927+0530") — accurate, but not
+  // something an analyst should have to parse at a glance. Render it as
+  // "2026-08-29 02:11 PM" instead; fall back to the raw string if it's ever
+  // something Date can't parse.
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  const hours24 = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const ampm = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = String(hours24 % 12 || 12).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours12}:${minutes} ${ampm}`;
+}
+
+
+// Windowed page-number list with ellipsis gaps, e.g. [1, '…', 4, 5, 6, '…', 42]
+// — showing every page button once the feed has hundreds of them would make
+// the pager itself the thing that needs scrolling.
+function pageNumbers(
+  current: number,
+  total: number,
+): (number | 'ellipsis')[] {
+
+  if (total <= 7) {
+    return Array.from(
+      { length: total },
+      (_, i) => i + 1,
+    );
+  }
+
+  const pages: (number | 'ellipsis')[] = [1];
+
+  if (current > 3) {
+    pages.push('ellipsis');
+  }
+
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+
+  if (current < total - 2) {
+    pages.push('ellipsis');
+  }
+
+  pages.push(total);
+
+  return pages;
 }
 
 
@@ -147,6 +208,9 @@ const LiveDashboardView: React.FC<Props> = ({
   const [lastUpdated, setLastUpdated] =
     useState<Date | null>(null);
 
+  const [page, setPage] =
+    useState(1);
+
 
   const load = useCallback(
     async (silent = false) => {
@@ -157,18 +221,16 @@ const LiveDashboardView: React.FC<Props> = ({
 
       try {
 
-        // scan_limit=5000 (the backend's ceiling) was fine against an idle
-        // collection, but at this 5s poll interval it now competes with the
-        // live Suricata collector's continuous writes to the same remote
-        // Atlas cluster — a full 5000-document remote scan every 5 seconds
-        // was intermittently exceeding even a generous socket timeout and
-        // 500ing the whole panel. 1000 cuts the per-poll transfer 5x while
-        // still comfortably covering recent activity; max_items stays high
-        // since it only affects how many of the (already-fetched) unique
-        // IPs get returned, not how much is scanned.
+        // The backend now scopes "live" to a rolling time window (default
+        // 30 minutes) rather than a fixed count of most-recent events, so a
+        // single high-volume flow or a burst of broadcast noise can no
+        // longer crowd every other recently-active public IP out of the
+        // feed. max_items stays high since it only affects how many of the
+        // (already-fetched) unique IPs get returned, not how much is
+        // scanned.
         const data =
           await getLiveCorrelationFeed(
-            1000,
+            30,
             2000,
           );
 
@@ -211,8 +273,13 @@ const LiveDashboardView: React.FC<Props> = ({
   }, [load]);
 
 
+  // IPv6 addresses currently dominate this feed (the collector's Suricata
+  // telemetry sees far more IPv6 flow noise than IPv4), which buries the
+  // IPv4 activity analysts actually care about — filter down to IPv4-only
+  // here rather than on the backend so this stays a display concern and
+  // doesn't touch what the collector scans or scores.
   const items =
-    feed?.items || [];
+    (feed?.items || []).filter((item) => isIPv4(item.ip));
 
 
   const sortedItems =
@@ -250,6 +317,29 @@ const LiveDashboardView: React.FC<Props> = ({
     }, [items]);
 
 
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(sortedItems.length / PAGE_SIZE),
+    );
+
+  // Clamped rather than stored back into state — the feed refreshes every
+  // 5s and the live IP count can shrink between polls, so this just falls
+  // back to the last valid page on render instead of needing an effect to
+  // keep `page` in sync with data it doesn't control.
+  const currentPage =
+    Math.min(page, totalPages);
+
+  const pageStart =
+    (currentPage - 1) * PAGE_SIZE;
+
+  const pageItems =
+    sortedItems.slice(
+      pageStart,
+      pageStart + PAGE_SIZE,
+    );
+
+
   return (
     <div className="space-y-5">
 
@@ -271,8 +361,9 @@ const LiveDashboardView: React.FC<Props> = ({
           </h2>
 
           <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Public IPs observed in Suricata flow telemetry
-            and scored by MedShield ML.
+            Public IPv4 addresses observed in Suricata flow telemetry
+            and scored by MedShield ML. IPv6 flows are scored too but
+            filtered out of this view.
           </p>
 
         </div>
@@ -323,18 +414,18 @@ const LiveDashboardView: React.FC<Props> = ({
           <StatusCard
             label="Records scanned"
             value={feed?.records_scanned ?? 0}
-            helper="Recent MedShield correlation records"
+            helper={`Last ${feed?.window_minutes ?? 30} min of MedShield correlation records`}
           />
 
           <StatusCard
-            label="Public IPs"
-            value={feed?.unique_public_ips ?? 0}
-            helper="Unique public addresses detected"
+            label="Public IPv4s"
+            value={items.length}
+            helper="Unique public IPv4 addresses detected"
           />
 
           <StatusCard
             label="Suspicious"
-            value={feed?.suspicious_count ?? 0}
+            value={items.filter((item) => item.suspicious).length}
             helper="Require analyst attention"
           />
 
@@ -372,8 +463,10 @@ const LiveDashboardView: React.FC<Props> = ({
             Live Feed
           </h3>
           <span className="text-[11px] text-slate-400">
-            {sortedItems.length} {sortedItems.length === 1 ? 'IP' : 'IPs'}
-            {feed?.suspicious_count ? ` · ${feed.suspicious_count} suspicious` : ''}
+            {sortedItems.length > PAGE_SIZE
+              ? `${pageStart + 1}–${Math.min(pageStart + PAGE_SIZE, sortedItems.length)} of ${sortedItems.length} IPv4s`
+              : `${sortedItems.length} ${sortedItems.length === 1 ? 'IPv4' : 'IPv4s'}`}
+            {items.some((item) => item.suspicious) ? ` · ${items.filter((item) => item.suspicious).length} suspicious` : ''}
           </span>
         </div>
 
@@ -449,7 +542,7 @@ const LiveDashboardView: React.FC<Props> = ({
 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
 
-                {sortedItems.map(
+                {pageItems.map(
                   (
                     item: LiveCorrelationFeedItem,
                   ) => (
@@ -598,6 +691,64 @@ const LiveDashboardView: React.FC<Props> = ({
               </tbody>
 
             </table>
+
+          </div>
+        )}
+
+        {totalPages > 1 && (
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+
+            <span className="text-[11px] text-slate-400">
+              Page {currentPage} of {totalPages}
+            </span>
+
+            <div className="flex items-center gap-1">
+
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Prev
+              </button>
+
+              {pageNumbers(currentPage, totalPages).map(
+                (entry, idx) =>
+                  entry === 'ellipsis' ? (
+                    <span
+                      key={`ellipsis-${idx}`}
+                      className="px-1.5 text-[11px] text-slate-400"
+                    >
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={entry}
+                      type="button"
+                      onClick={() => setPage(entry)}
+                      className={`min-w-[28px] rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${
+                        entry === currentPage
+                          ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300'
+                          : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {entry}
+                    </button>
+                  ),
+              )}
+
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Next
+              </button>
+
+            </div>
 
           </div>
         )}

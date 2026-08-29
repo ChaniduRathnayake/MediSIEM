@@ -159,8 +159,11 @@ def _threat_signal_statement(alert: Alert, extreme_threat: bool) -> str:
         bits.append(
             f"Threat category '{threat.category}' is on the extreme-threat list."
         )
-    elif extreme_threat and threat.cas_score is not None and threat.cas_score >= 9.0:
-        bits.append("CAS score is in the extreme band (>=9.0).")
+    # 8.0 mirrors classifier.py's EXTREME_CAS_THRESHOLD — kept in sync
+    # deliberately (importing it here would create a circular import, since
+    # classifier.py imports build_rationale from this module).
+    elif extreme_threat and threat.cas_score is not None and threat.cas_score >= 8.0:
+        bits.append("CAS score is in the extreme band (>=8.0).")
 
     return " ".join(bits)
 

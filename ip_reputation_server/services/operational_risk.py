@@ -97,6 +97,13 @@ def _raise_one_level(
 def _local_risk(
     correlation: Optional[Dict[str, Any]],
 ) -> str:
+    """
+    Determine current local operational risk.
+
+    Attack-Preserving MIRS v2 explicit attack evidence inside the current
+    correlation result set has operational precedence over a later
+    ordinary flow.
+    """
 
     if not correlation:
         return "Unknown"
@@ -109,6 +116,61 @@ def _local_risk(
         0,
     ) <= 0:
         return "Unknown"
+
+    events = correlation.get("events") or []
+
+    # -----------------------------------------------------
+    # 1. Explicit Attack-Preserving MIRS v2 evidence
+    # -----------------------------------------------------
+
+    explicit_levels = []
+
+    for event in events:
+        event = event or {}
+
+        breakdown = (
+            event.get("mirs_breakdown")
+            or {}
+        )
+
+        candidates = (
+            breakdown.get("primary_candidates")
+            or {}
+        )
+
+        is_v2 = (
+            breakdown.get("mirs_version")
+            == "attack_preserving_v2"
+        )
+
+        has_explicit_attack = (
+            breakdown.get("primary_attack_source")
+            == "attack_evidence"
+            or candidates.get("attack_evidence")
+            is not None
+        )
+
+        if is_v2 and has_explicit_attack:
+            level = _normalize_risk(
+                breakdown.get("risk_level")
+                or event.get("risk_level")
+            )
+
+            if level != "Unknown":
+                explicit_levels.append(level)
+
+    if explicit_levels:
+        return max(
+            explicit_levels,
+            key=lambda level: RISK_ORDER.get(
+                level,
+                -1,
+            ),
+        )
+
+    # -----------------------------------------------------
+    # 2. Normal correlation MIRS fallback
+    # -----------------------------------------------------
 
     result = "Minimal"
 
@@ -282,6 +344,48 @@ def _wazuh_risk(
     return result
 
 
+def _local_suricata_risk(
+    correlation: Optional[Dict[str, Any]],
+):
+    """
+    Extract native Suricata alert evidence directly from MedShield local
+    correlation events.
+
+    The active Windows deployment has no Wazuh evidence source, so alerts
+    that only ever reached Suricata (never Wazuh) would otherwise never be
+    counted in the Wazuh/Suricata SIEM dimension at all. This does not
+    imply that Wazuh is available.
+    """
+
+    if not correlation:
+        return "Unknown", 0
+
+    result = "Unknown"
+    count = 0
+
+    for event in correlation.get("events") or []:
+        event = event or {}
+
+        if event.get("event_type") != "alert":
+            continue
+
+        alert = event.get("suricata_alert") or {}
+
+        if not alert:
+            continue
+
+        count += 1
+
+        result = _max_risk(
+            result,
+            _suricata_severity_to_risk(
+                alert.get("severity")
+            ),
+        )
+
+    return result, count
+
+
 # =========================================================
 # MAIN OPERATIONAL RISK ENGINE
 # =========================================================
@@ -307,6 +411,18 @@ def evaluate_operational_risk(
 
     wazuh_level = _wazuh_risk(
         wazuh_evidence
+    )
+
+    (
+        native_suricata_level,
+        native_suricata_count,
+    ) = _local_suricata_risk(
+        local_correlation
+    )
+
+    siem_level = _max_risk(
+        wazuh_level,
+        native_suricata_level,
     )
 
     final_risk = "Minimal"
@@ -379,12 +495,21 @@ def evaluate_operational_risk(
         ) > 0
     )
 
-    if wazuh_evidence_found:
+    native_suricata_evidence_found = (
+        native_suricata_count > 0
+    )
+
+    if (
+        wazuh_evidence_found
+        or native_suricata_evidence_found
+    ):
 
         final_risk = _max_risk(
             final_risk,
-            wazuh_level,
+            siem_level,
         )
+
+    if wazuh_evidence_found:
 
         matched = wazuh_evidence.get(
             "matched_alert_count",
@@ -409,8 +534,8 @@ def evaluate_operational_risk(
             f"{matched} matching alert(s), "
             f"including {suricata_count} "
             "Suricata alert(s). "
-            f"The strongest SIEM evidence maps "
-            f"to {wazuh_level} operational risk "
+            f"The strongest Wazuh-backed SIEM evidence "
+            f"maps to {wazuh_level} operational risk "
             f"(highest Wazuh rule level: "
             f"{highest_rule})."
         )
@@ -421,10 +546,30 @@ def evaluate_operational_risk(
             "and rule level determine this dimension."
         )
 
-    else:
+    if native_suricata_evidence_found:
 
         reasons.append(
-            "No matching Wazuh/Suricata alert "
+            "Native Suricata correlation found "
+            f"{native_suricata_count} matching alert(s) "
+            "in the current correlation result set. The "
+            "strongest native Suricata severity maps to "
+            f"{native_suricata_level} SIEM risk."
+        )
+
+        reasons.append(
+            "Native Suricata evidence also feeds the "
+            "Attack-Preserving MIRS path and is therefore "
+            "not counted as an independent corroborating "
+            "signal for cross-signal escalation."
+        )
+
+    if not (
+        wazuh_evidence_found
+        or native_suricata_evidence_found
+    ):
+
+        reasons.append(
+            "No matching Wazuh or native Suricata alert "
             "evidence was available for this IP."
         )
 
@@ -625,7 +770,10 @@ def evaluate_operational_risk(
     if local_evidence_found:
         evidence_dimensions += 1
 
-    if wazuh_evidence_found:
+    if (
+        wazuh_evidence_found
+        or native_suricata_evidence_found
+    ):
         evidence_dimensions += 1
 
     if internal_status not in {
@@ -745,7 +893,7 @@ def evaluate_operational_risk(
                 local_level,
 
             "wazuh_suricata":
-                wazuh_level,
+                siem_level,
 
             "internal_intelligence":
                 internal_status,

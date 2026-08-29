@@ -312,4 +312,20 @@ export function getAlertStats() {
   return { totalCount, severityTotals: { ...severityTotals } };
 }
 
-export default { startPipeline, stopPipeline, getBufferedAlerts, getAlertStats };
+/** Dev-only reset (see routes/dev.js): empties the live queue and its cumulative stats.
+ * Deliberately leaves `lastTimestamp` alone — nulling it would make the next poll's
+ * `fetchNewAlerts(null)` re-run as a cold-start match_all and replay the Indexer's
+ * entire history back in as if it were new (see the ALERT_STALENESS_THRESHOLD_MS
+ * comment above), undoing the wipe within one poll interval. */
+export function clearBufferedAlerts() {
+  buffer = [];
+  totalCount = 0;
+  severityTotals.CRITICAL = 0;
+  severityTotals.HIGH = 0;
+  severityTotals.MEDIUM = 0;
+  severityTotals.LOW = 0;
+  dedupSignatures.clear();
+  recentRawIds.clear();
+}
+
+export default { startPipeline, stopPipeline, getBufferedAlerts, getAlertStats, clearBufferedAlerts };

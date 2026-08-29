@@ -21,6 +21,27 @@ def _optional_number(value: Any) -> Optional[float]:
         return None
 
 
+def _percentage_value(value: Any) -> Optional[float]:
+    """
+    Return a 0-100 percentage, tolerating older stored events that saved
+    RF/IF scores as a 0.0-1.0 fraction instead of 0-100 (mirrors
+    routers/correlation.py's identical compatibility handling). The
+    current app.py already returns attack_probability/anomaly_score on a
+    0-100 scale, so this is a no-op for current events and only rescales
+    genuinely old ones.
+    """
+
+    number = _optional_number(value)
+
+    if number is None:
+        return None
+
+    if 0 <= number <= 1:
+        number *= 100
+
+    return number
+
+
 def _round_or_none(value: Optional[float], digits: int = 2):
     if value is None:
         return None
@@ -91,9 +112,17 @@ async def fetch_local_ml_records(
     try:
         records: List[Dict[str, Any]] = []
 
+        # MedShield is IPv4-only. The collector stopped forwarding IPv6
+        # flows going forward, but ~44% of already-stored events predate
+        # that filter and are fe80::/ff02:: link-local/multicast noise, not
+        # real traffic -- left unfiltered here they were crowding out real
+        # IPv4 evidence from this scan window (see the earlier scan_limit
+        # bump: "recent" wasn't actually recent once nearly half of it was
+        # this kind of chatter). IPv4 never contains ':'; every IPv6
+        # representation does.
         cursor = (
             events_collection
-            .find()
+            .find({"src_ip": {"$not": {"$regex": ":"}}})
             .sort("_id", -1)
             .limit(limit)
         )
@@ -189,7 +218,7 @@ async def correlate_ip_with_local_ml(
         value
         for item in matches
         if (
-            value := _optional_number(
+            value := _percentage_value(
                 (item.get("random_forest") or {}).get("attack_probability")
             )
         ) is not None
@@ -199,7 +228,7 @@ async def correlate_ip_with_local_ml(
         value
         for item in matches
         if (
-            value := _optional_number(
+            value := _percentage_value(
                 (item.get("isolation_forest") or {}).get("anomaly_score")
             )
         ) is not None
@@ -343,8 +372,8 @@ async def correlate_ip_with_local_ml(
                 "prediction": (item.get("random_forest") or {}).get(
                     "prediction_label"
                 ),
-                "attack_probability": (item.get("random_forest") or {}).get(
-                    "attack_probability"
+                "attack_probability": _percentage_value(
+                    (item.get("random_forest") or {}).get("attack_probability")
                 ),
                 "confidence": (item.get("random_forest") or {}).get("confidence"),
             },
@@ -352,8 +381,8 @@ async def correlate_ip_with_local_ml(
                 "prediction": (item.get("isolation_forest") or {}).get(
                     "prediction"
                 ),
-                "anomaly_score": (item.get("isolation_forest") or {}).get(
-                    "anomaly_score"
+                "anomaly_score": _percentage_value(
+                    (item.get("isolation_forest") or {}).get("anomaly_score")
                 ),
                 "anomaly_score_normalised": (
                     item.get("isolation_forest") or {}

@@ -40,13 +40,6 @@ CLINICIAN_ENDPOINT = os.getenv(
     "https://clinician-pager.example/internal/notify",
 )
 
-# Mirror server.py's flag so the recorded deny-path text matches what actually
-# happened. Quarantine is off by default (see server.py for the rationale);
-# when off, a denied Tier 3 asset stays in Monitored Mode, not quarantined.
-ENABLE_QUARANTINE = os.getenv("ENABLE_QUARANTINE", "false").strip().lower() in (
-    "1", "true", "yes", "on",
-)
-
 
 def run(decision: Dict[str, Any], log: ActionLog | None = None) -> List[Dict[str, Any]]:
     """Run the Tier 3 dispatch flow (Phase A only).
@@ -100,6 +93,7 @@ def record_clinician_response(
     asset_id: str,
     approved: bool,
     clinician_id: str,
+    stays_quarantined: bool = False,
     log: ActionLog | None = None,
 ) -> Dict[str, Any]:
     """Record the clinician's response (Phase B) in the action log.
@@ -107,6 +101,14 @@ def record_clinician_response(
     The HTTP handler in server.py is responsible for *also* notifying the
     engine via its /clinician-decision endpoint. This function only writes
     the playbook-side record.
+
+    `stays_quarantined` (ignored when approved=True) is the caller's own,
+    already-computed answer to "does this specific asset have a configured
+    clinical-peer group?" (enforcement.has_clinical_peers) — NOT a global
+    on/off flag. Quarantine being enabled overall doesn't mean every denied
+    asset can safely stay quarantined: one with no configured peers has no
+    known-safe dependency list, so server.py releases it back to Monitored
+    Mode instead and passes stays_quarantined=False here.
 
     Returns the action entry that was written.
     """
@@ -118,7 +120,7 @@ def record_clinician_response(
         )
         status = "approved"
     else:
-        if ENABLE_QUARANTINE:
+        if stays_quarantined:
             detail = (
                 f"Clinician {clinician_id} DENIED the disruptive escalation on {asset_id}. "
                 "Asset stays quarantined on the clinical-only segment (contained; "

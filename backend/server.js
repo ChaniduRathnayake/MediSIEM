@@ -27,6 +27,7 @@ import settingsRoutes from './routes/settings.js';
 import assistantRoutes from './routes/assistant.js';
 import ipReputationRoutes from './routes/ipReputation.js';
 import lifeCriticalOrchestrationRoutes from './routes/lifeCriticalOrchestration.js';
+import devRoutes from './routes/dev.js';
 import { startPipeline } from './services/alertPipeline.js';
 import { initCveIntel } from './services/cveIntelService.js';
 import MedicalDevice from './models/MedicalDevice.js';
@@ -95,12 +96,22 @@ app.use(mongoSanitize()); // strips '$'/'.' keys — defense against NoSQL opera
 // Auth routes layer their own stricter limiter on top of this. message is a
 // JSON object (not the package's plain-text default) so a 429 here parses
 // the same way as any other API error response on the frontend.
+//
+// 300 req/15min was sized for occasional requests, not a live dashboard —
+// SocConsole alone polls 2 endpoints every 10s (~180 req/15min just for
+// Playbooks, see its own comment on this same budget), and that's before
+// presence (3/min), device status (2/min), and every other panel's poll are
+// added on top. In practice this meant the limiter tripped during completely
+// normal use and then looked "stuck" for the rest of its 15-minute window.
+// A shorter window with a much higher ceiling keeps the same brute-force/DoS
+// backstop while actually covering this app's real polling footprint, and
+// recovers in seconds instead of minutes if it's ever hit.
 app.use('/api', rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 300,
+  windowMs: 60 * 1000,
+  limit: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests. Please try again in a few minutes.' },
+  message: { error: 'Too many requests. Please try again in a moment.' },
 }));
 
 app.use('/api/auth', authRoutes);
@@ -121,6 +132,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/ip-reputation', ipReputationRoutes);
 app.use('/api/life-critical', lifeCriticalOrchestrationRoutes);
+app.use('/api/dev', devRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'MediSIEM API is running', timestamp: new Date().toISOString() });

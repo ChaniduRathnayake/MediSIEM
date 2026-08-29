@@ -7,8 +7,11 @@ logic is at least minimally correct for the curated demo cases.
 
 Edge-case tests cover:
   - the fail-safe rule (missing criticality_score -> life_critical / 10)
-  - the full 12-cell decision matrix (3 criticality bands x 4 CAS bands)
-  - the engine's "extreme threat" detection (CAS >= 9, category in extreme set,
+  - the full 9-cell decision matrix (3 criticality bands x 3 CAS bands — v1.2
+    merged the old "high" and "extreme" CAS bands into one: Tier 1's
+    isolate_host cutoff and the extreme-threat trigger share the same 8.0
+    threshold, so there's no longer a "high but not extreme" zone)
+  - the engine's "extreme threat" detection (CAS >= 8, category in extreme set,
     or technical_severity == "critical" with no cas_score)
   - v1.1: cvss_score is retired from decision-making entirely — accepted and
     parsed, but never read by the classifier, even when present and extreme
@@ -119,32 +122,33 @@ def _alert_with(score=None, cvss=None, category=None, technical_severity=None, c
     })
 
 
-# ---------- Decision matrix: all 12 cells (3 bands x 4 CAS bands) ----------
+# ---------- Decision matrix: all 9 cells (3 criticality bands x 3 CAS bands) ----------
+# v1.2: CAS_MEDIUM_MAX and EXTREME_CAS_THRESHOLD are both 8.0 (see
+# classifier.py) — Tier 1's isolate_host band and the Tier 2/3 extreme trigger
+# fire off the exact same cutoff, so a fourth "high but not extreme" sample
+# would just duplicate one of the other three rows.
 
 @pytest.mark.parametrize(
     "score, cas, expected_tier, expected_action",
     [
-        # non_critical (1-4) x 4 CAS bands
+        # non_critical (1-4) x 3 CAS bands
         (2,  2.0, Tier.TIER_1, "log_only"),       # low
         (2,  5.5, Tier.TIER_1, "block_port"),     # medium
-        (2,  7.5, Tier.TIER_1, "isolate_host"),   # high
         (2,  9.5, Tier.TIER_1, "isolate_host"),   # extreme (CAS-driven)
 
-        # clinical_support (5-7) x 4 CAS bands
+        # clinical_support (5-7) x 3 CAS bands
         (6,  2.0, Tier.TIER_2, "monitored_mode"),
         (6,  5.5, Tier.TIER_2, "monitored_mode"),
-        (6,  7.5, Tier.TIER_2, "monitored_mode"),
         (6,  9.5, Tier.TIER_3, "await_clinician_approval"),
 
-        # life_critical (8-10) x 4 CAS bands
+        # life_critical (8-10) x 3 CAS bands
         (9,  2.0, Tier.TIER_2, "monitored_mode"),
         (9,  5.5, Tier.TIER_2, "monitored_mode"),
-        (9,  7.5, Tier.TIER_2, "monitored_mode"),
         (9,  9.5, Tier.TIER_3, "await_clinician_approval"),
     ],
 )
-def test_decision_matrix_all_12_cells(score, cas, expected_tier, expected_action):
-    """The full 3 x 4 decision matrix from docs/alert-schema.md, driven by CAS."""
+def test_decision_matrix_all_9_cells(score, cas, expected_tier, expected_action):
+    """The full 3 x 3 decision matrix from docs/alert-schema.md, driven by CAS."""
     decision = classify(_alert_with(score=score, cas=cas))
     assert decision.tier == expected_tier, (
         f"score={score}, cas={cas}: expected {expected_tier}, "
@@ -334,8 +338,8 @@ def test_extreme_threat_field_false_for_low_severity():
     assert decision.extreme_threat is False
 
 
-def test_extreme_threat_field_true_for_cas_above_9():
-    decision = classify(_alert_with(score=9, cas=9.5))
+def test_extreme_threat_field_true_for_cas_above_threshold():
+    decision = classify(_alert_with(score=9, cas=8.5))
     assert decision.extreme_threat is True
 
 

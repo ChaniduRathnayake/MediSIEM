@@ -142,6 +142,17 @@ export async function apiGetRecentDecisions(token: string, limit = 50): Promise<
   return getJson(`/life-critical/recent-decisions?limit=${limit}`, token);
 }
 
+// Durable equivalent of apiGetRecentDecisions — reads MediSIEM's own SoarAction
+// mirror (backend/models/SoarAction.js) instead of the engine's in-memory ring
+// buffer, so it survives an engine restart and includes every decision the
+// engine made, including repeat occurrences of an alert signature that the
+// live alert feed folded into an existing entry. Prefer this for any view
+// that needs to match "everything CRITICAL on the Alerts page", not just the
+// last N minutes of engine uptime.
+export async function apiGetDecisionsHistory(token: string, limit = 200): Promise<{ items: LifeCriticalDecisionItem[] }> {
+  return getJson(`/life-critical/decisions-history?limit=${limit}`, token);
+}
+
 export async function apiGetPendingApprovals(token: string): Promise<{ pending: LifeCriticalDecisionItem[] }> {
   return getJson('/life-critical/pending-approvals', token);
 }

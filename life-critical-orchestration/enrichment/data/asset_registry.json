@@ -178,6 +178,34 @@
       "time_sensitivity": 5.0,
       "shift": "day",
       "_note": "Alias: maps the emulated device's Wazuh agent identity to ICU-VENT-003."
+    },
+    {
+      "asset_id": "ADMIN-WS-132",
+      "hostname": "Ubuntu-VM",
+      "ip_address": "192.168.16.132",
+      "asset_type": "workstation",
+      "device_category": "admin_workstation",
+      "department": "Administration",
+      "patient_facing": false,
+      "criticality_score": 3,
+      "patient_dependency": "none",
+      "time_sensitivity": 1.0,
+      "shift": "day",
+      "_note": "Real Wazuh agent 'Ubuntu-VM' (lab VM 192.168.16.132) — non-critical asset for Tier 1 demo."
+    },
+    {
+      "asset_id": "WARD-MON-134",
+      "hostname": "RHEL_8",
+      "ip_address": "192.168.16.134",
+      "asset_type": "medical_device",
+      "device_category": "patient_monitor",
+      "department": "Ward",
+      "patient_facing": true,
+      "criticality_score": 6,
+      "patient_dependency": "high",
+      "time_sensitivity": 4.0,
+      "shift": "day",
+      "_note": "Real Wazuh agent 'RHEL_8' (lab VM 192.168.16.134) — clinical_support asset for Tier 2 demo. 'Redhat_CLI' (192.168.16.139) is deliberately NOT registered here, to demo the fail-safe path."
     }
   ]
 }

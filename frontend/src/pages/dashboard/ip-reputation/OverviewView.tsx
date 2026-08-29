@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getIntelligenceProfiles, getAllLists, getAuditEvents } from './ipReputationApi';
 import type { IntelligenceProfile, ListEntry, AuditEvent } from './ipReputationApi';
-import { SectionCard, MetricTile, DataRow, Badge, EmptyNotice, ErrorBanner, LoadingBlock, RefreshButton, fmtDateTime, toneOf, formatLabel } from './shared';
+import { SectionCard, MetricTile, DataRow, Badge, EmptyNotice, ErrorBanner, LoadingBlock, RefreshButton, fmtDateTime, toneOf, formatLabel, isIPv4 } from './shared';
 
 const RISK_LEVELS = ['Critical', 'High', 'Medium', 'Low', 'Minimal'];
 
@@ -23,7 +23,10 @@ const OverviewView: React.FC = () => {
         getAllLists(),
         getAuditEvents(10),
       ]);
-      setProfiles(intelligenceData.profiles || []);
+      // IPv6 noise dominates the raw feed and buries the IPv4 activity
+      // analysts actually care about here — filter to IPv4-only, same as
+      // LiveDashboardView's live feed.
+      setProfiles((intelligenceData.profiles || []).filter((p) => isIPv4(p.ip)));
       setLists(listData.items || []);
       setAudit(auditData.events || []);
     } catch (err: unknown) {

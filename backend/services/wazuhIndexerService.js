@@ -85,4 +85,36 @@ export async function fetchNewAlerts(sinceTimestamp, size = 100) {
   return (data.hits?.hits || []).map((hit) => ({ id: hit._id, ...hit._source }));
 }
 
-export default { fetchNewAlerts };
+/**
+ * Dev-only reset (see routes/dev.js): deletes every document in the configured index
+ * so a restart's cold-start match_all (see alertPipeline.js's ALERT_STALENESS_THRESHOLD_MS
+ * comment) has nothing left to replay. This is the actual backlog — Mongo only stores
+ * derivative records (AlertLog/Assignment/Closure/...), so clearing those alone leaves
+ * the source data intact and the "empty" dashboard refills on the next poll or restart.
+ * Leaves the index/mapping in place so flow_consumer.py's next write still lands cleanly.
+ */
+export async function deleteAllAlerts() {
+  const res = await fetch(`${WAZUH_INDEXER_URL}/${WAZUH_INDEXER_INDEX}/_delete_by_query?conflicts=proceed&refresh=true`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({ query: { match_all: {} } }),
+    dispatcher,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const parsed = (() => { try { return JSON.parse(body); } catch { return null; } })();
+    if (res.status === 404 && parsed?.error?.type === 'index_not_found_exception') {
+      return { deleted: 0 }; // nothing written yet — nothing to delete
+    }
+    throw new Error(`Wazuh Indexer delete failed: ${res.status} ${res.statusText} — ${body}`);
+  }
+
+  const data = await res.json();
+  return { deleted: data.deleted ?? 0 };
+}
+
+export default { fetchNewAlerts, deleteAllAlerts };

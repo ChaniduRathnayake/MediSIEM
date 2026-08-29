@@ -619,14 +619,20 @@ CLINICAL_NETWORK = os.getenv("SHUFFLE_CLINICAL_NETWORK", "clinical-only")
 # (e.g. MQTT_HOST=broker), so it must match what the device actually expects
 # to reach that peer by.
 #
-# Only ICU-VENT-003 has a real emulated dependency today (the MQTT broker +
-# HL7 receiver it publishes vitals to). Override / extend via the
+# ICU-VENT-003 has a real emulated dependency (the MQTT broker + HL7 receiver
+# it publishes vitals to) — quarantine actually moves its docker container.
+# 192.168.16.138 is a demo-only grouping: none of .138/.140/.142 map to a real
+# container in _DEFAULT_MAP, so quarantining .138 always takes the "simulated"
+# branch below — but it now records .140/.142 as its clinical peers in that
+# simulated entry, so the demo shows a configured (non-default) peer group,
+# not just the one real ICU-VENT-003 case. Override / extend via the
 # SHUFFLE_CLINICAL_PEERS_MAP env var, e.g.:
 #   SHUFFLE_CLINICAL_PEERS_MAP='{"RAD-LINAC-001": {"iomt-orthanc": "pacs"}}'
 # --------------------------------------------------------------------------
 
 _DEFAULT_CLINICAL_PEERS: Dict[str, Dict[str, str]] = {
     "ICU-VENT-003": {"iomt-broker": "broker", "iomt-clinical-receiver": "clinical-receiver"},
+    "192.168.16.138": {"192.168.16.140": "192.168.16.140", "192.168.16.142": "192.168.16.142"},
 }
 
 
@@ -653,6 +659,20 @@ def clinical_peers_for(asset_id: str) -> Dict[str, str]:
     some OTHER device's peers.
     """
     return dict(_load_clinical_peers().get(asset_id, {}))
+
+
+def has_clinical_peers(asset_id: str) -> bool:
+    """True if asset_id has an explicit entry in the clinical-peers config —
+    distinct from clinical_peers_for() returning {} for BOTH "not configured"
+    and "configured with an empty peer dict".
+
+    Used by the Tier 3 clinician-denial path (server.py's /clinician-decision)
+    to decide whether an asset is safe to leave quarantined on denial (its
+    dependencies are known and were already granted reachability) or must
+    fall back to Monitored Mode instead (they aren't known, so staying walled
+    off risks silently cutting something clinical it actually depends on).
+    """
+    return asset_id in _load_clinical_peers()
 
 
 # Remember the general network we pulled the device off, to rejoin on release.
@@ -697,16 +717,21 @@ def quarantine(
     mapping = _load_map().get(asset_id)
 
     if mapping is None or not _docker_available():
+        peers = clinical_peers_for(asset_id)
+        detail = f"Quarantine recorded for {asset_id} (no container / docker). "
+        detail += (
+            f"In production the device would move to a clinical-only VLAN, keeping "
+            f"{', '.join(peers)} reachable."
+            if peers else
+            "In production the device would move to a clinical-only VLAN."
+        )
         entry = log.record(
             decision_id=decision_id, asset_id=asset_id, workflow=WORKFLOW_NAME,
             step="quarantine", status="simulated",
-            detail=(
-                f"Quarantine recorded for {asset_id} (no container / docker). In "
-                "production the device would move to a clinical-only VLAN."
-            ),
-            extra={"mode": "simulated", "reason": reason},
+            detail=detail,
+            extra={"mode": "simulated", "reason": reason, "clinical_peers": peers},
         )
-        return {"ok": True, "mode": "simulated", "asset_id": asset_id, "entry": entry}
+        return {"ok": True, "mode": "simulated", "asset_id": asset_id, "clinical_peers": peers, "entry": entry}
 
     container = mapping["container"]
     peers = clinical_peers_for(asset_id)

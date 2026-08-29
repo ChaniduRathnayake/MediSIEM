@@ -193,18 +193,98 @@ export interface AnalystIntelligence {
 }
 
 // ─── Local ML / healthcare-context correlation + MIRS ───────────────────────
-export interface MirsDimension {
-  score?: number | null;
-  effective_weight?: number | null;
-  base_weight?: number | null;
+// Mirrors adaptive_weight_engine.py's calculate_adaptive_mirs() return shape
+// exactly (see ip-reputation/ml/backend/adaptive_weight_engine.py) — this is
+// stored verbatim in Mongo by ml_ingest.py's _build_event() and passed
+// through unmodified by local_ml_context.py's _nested_breakdown(), so the
+// field names here must match the Python dict keys, not a paraphrase of them.
+export interface MirsComponent {
+  input_score: number;
+  weighted_contribution: number;
 }
 
+export interface MirsAdaptiveContext {
+  asset_criticality: number;
+  wazuh_severity: number;
+  organizational_trust: number;
+  recent_alert_activity: number;
+  business_hours: boolean;
+  is_internal_or_trusted: boolean;
+}
+
+// MedShield Attack-Preserving MIRS v2 support-dimension breakdown — mirrors
+// calculate_attack_preserving_mirs()'s "support_components" shape exactly
+// (see ip-reputation/ml/backend/adaptive_weight_engine.py).
+export interface MirsSupportComponent {
+  input_score: number;
+  available: boolean;
+  effective_weight: number;
+  weighted_contribution: number;
+}
+
+export interface MirsAttackPreservation {
+  enabled: boolean;
+  minimum_final_score: number;
+  invariant: string;
+}
+
+// Current formula (see calculate_attack_preserving_mirs()). Superseded
+// softmax-weighted score is preserved for research comparison under
+// baseline_adaptive_*/baseline_adaptive_breakdown rather than being dropped.
 export interface MirsBreakdown {
-  components?: Record<string, number>;
-  dimensions?: Record<string, MirsDimension>;
-  configured_weights?: Record<string, number>;
-  effective_weights?: Record<string, number>;
+  adaptive_MIRS?: number;
+  mirs_version?: string;
+  risk_level?: string;
+  formula?: string;
+
+  // Attack-Preserving MIRS v2 fields.
+  primary_attack_score?: number;
+  primary_attack_source?: string;
+  primary_candidates?: Record<string, number>;
+  support_score?: number;
+  support_gain?: number;
+  support_increment?: number;
+  support_weights?: Record<string, number>;
+  support_availability?: Record<string, boolean>;
+  support_components?: Record<string, MirsSupportComponent>;
+  attack_preservation?: MirsAttackPreservation;
+  external_frameworks_used_in_formula?: boolean;
+  explanation?: string;
+
+  // Superseded softmax-weighted adaptive MIRS, retained for research
+  // comparison (see context_engine.py's baseline_adaptive_* fields).
+  baseline_adaptive_MIRS?: number;
+  baseline_adaptive_risk_level?: string;
+  baseline_adaptive_breakdown?: {
+    adaptive_MIRS?: number;
+    risk_level?: string;
+    formula?: string;
+    weights?: Record<string, number>;
+    weight_percentages?: Record<string, number>;
+    raw_adaptive_weights?: Record<string, number>;
+    raw_weight_percentages?: Record<string, number>;
+    availability?: Record<string, boolean>;
+    availability_denominator?: number;
+    availability_formula?: string;
+    components?: Record<string, MirsComponent>;
+    model_disagreement?: number;
+    adaptive_context?: MirsAdaptiveContext;
+    adaptation_reasons?: string[];
+  };
+
+  // Present only on the pre-v2 shape (kept for backward compatibility with
+  // any already-stored events from before the v2 rollout).
+  weights?: Record<string, number>;
+  weight_percentages?: Record<string, number>;
+  raw_adaptive_weights?: Record<string, number>;
+  raw_weight_percentages?: Record<string, number>;
   availability?: Record<string, boolean>;
+  availability_denominator?: number;
+  availability_formula?: string;
+  components?: Record<string, MirsComponent>;
+  model_disagreement?: number;
+  adaptive_context?: MirsAdaptiveContext;
+  adaptation_reasons?: string[];
 }
 
 export interface MirsEvidence {
@@ -604,6 +684,7 @@ export interface LiveCorrelationFeedItem {
 export interface LiveCorrelationFeedResult {
   available: boolean;
   status: string;
+  window_minutes: number;
   records_scanned: number;
   unique_public_ips: number;
   returned_count: number;
@@ -612,12 +693,14 @@ export interface LiveCorrelationFeedResult {
 }
 
 export async function getLiveCorrelationFeed(
-  scanLimit = 1000,
+  windowMinutes = 30,
   maxItems = 100,
+  scanLimit = 20000,
 ): Promise<LiveCorrelationFeedResult> {
   const params = new URLSearchParams({
-    scan_limit: String(scanLimit),
+    window_minutes: String(windowMinutes),
     max_items: String(maxItems),
+    scan_limit: String(scanLimit),
   });
 
   return request(`/correlation/live-feed?${params.toString()}`);

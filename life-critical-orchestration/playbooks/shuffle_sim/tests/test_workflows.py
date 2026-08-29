@@ -108,8 +108,22 @@ class TestTier3Dispatch:
             log=tmp_log,
         )
         assert entry["status"] == "denied"
-        # Quarantine is off by default (needs site-specific segment definitions),
-        # so on denial the device stays in Monitored Mode — the non-disruptive
-        # containment applied throughout the Tier 3 wait — per FR-06.
+        # stays_quarantined defaults to False — server.py only passes True for
+        # an asset with a configured clinical-peer group (enforcement.
+        # has_clinical_peers); everything else falls back to Monitored Mode,
+        # the non-disruptive containment applied throughout the Tier 3 wait.
         assert "Monitored Mode" in entry["detail"]
+        assert "FR-06" in entry["detail"]
+
+    def test_record_clinician_response_denied_stays_quarantined_when_configured(self, tmp_log, tier3_decision):
+        entry = tier3_dispatch.record_clinician_response(
+            decision_id=tier3_decision["decision_id"],
+            asset_id=tier3_decision["asset_id"],
+            approved=False,
+            clinician_id="dr-test",
+            stays_quarantined=True,
+            log=tmp_log,
+        )
+        assert entry["status"] == "denied"
+        assert "quarantined" in entry["detail"].lower()
         assert "FR-06" in entry["detail"]

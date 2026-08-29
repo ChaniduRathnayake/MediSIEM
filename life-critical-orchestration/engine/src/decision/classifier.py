@@ -5,21 +5,25 @@ The classifier is deliberately rule-based and deterministic. No ML, no
 probabilities, no opacity. Same input always produces same output, and every
 decision is fully explainable via the matched_rule field on the Decision.
 
-Decision logic (v1.1 — CAS-driven, CVSS retired from decision-making):
+Decision logic (v1.2 — CAS-driven, CVSS retired from decision-making):
 
   IF criticality_score < 5  (non_critical asset):
       Tier 1 — pick action by CAS band:
-          cas < 4   → log_only
-          cas < 7   → block_port
+          cas < 5   → log_only
+          cas < 8   → block_port
           else      → isolate_host
-  ELIF threat is extreme  (cas >= 9 OR category in extreme set):
+  ELIF threat is extreme  (cas >= 8 OR category in extreme set):
       Tier 3 — await_clinician_approval (proposed: isolate_host)
   ELSE:
       Tier 2 — monitored_mode
 
-"Extreme" threat is defined as cas_score >= EXTREME_CAS_THRESHOLD (9.0) OR
+"Extreme" threat is defined as cas_score >= EXTREME_CAS_THRESHOLD (8.0) OR
 threat.category in EXTREME_THREAT_CATEGORIES. Thresholds are named
-constants so they can be tuned without hunting through the code.
+constants so they can be tuned without hunting through the code. Note the
+Tier 1 top band and the Tier 3 extreme trigger share this same 8.0 cutoff
+by design (the spec's cas_score >= 0.80 on its native 0-1 scale) — it's one
+severity threshold applied differently depending on whether the asset is
+protected, not two independent numbers.
 
 v1.1 change: threat.cvss_score is no longer read anywhere in this module.
 MediSIEM's CAAP-blended cas_score (technical risk + attack exploitability +
@@ -42,12 +46,14 @@ from .rationale import build_rationale
 
 
 # Tunable constants — change in one place, not scattered through the code.
-EXTREME_CAS_THRESHOLD = 9.0
+EXTREME_CAS_THRESHOLD = 8.0
 EXTREME_THREAT_CATEGORIES = {"ransomware", "active_exploitation"}
 
-# CAS band thresholds used to pick Tier 1 actions (0-10 scale).
-CAS_LOW_MAX = 4.0    # cas < 4.0 → log_only
-CAS_MEDIUM_MAX = 7.0 # cas < 7.0 → block_port
+# CAS band thresholds used to pick Tier 1 actions (0-10 scale). Mirrors the
+# spec's 0-1 scale (cas < 0.50 → log_only, 0.50 <= cas < 0.80 → block_port,
+# cas >= 0.80 → isolate_host) times 10.
+CAS_LOW_MAX = 5.0    # cas < 5.0 → log_only
+CAS_MEDIUM_MAX = 8.0 # cas < 8.0 → block_port
 
 # Criticality score thresholds (v1.0: 1–10 scale).
 PROTECTED_SCORE_MIN = 5         # cc_score >= 5 → protected (clinical_support or life_critical)
@@ -169,9 +175,9 @@ def _pick_tier1_action(alert: Alert) -> Tuple[str, str]:
     Returns (action, matched_rule_suffix).
 
     Band mapping (0-10 scale):
-      cas < 4.0           → log_only
-      4.0 <= cas < 7.0    → block_port
-      cas >= 7.0          → isolate_host
+      cas < 5.0           → log_only
+      5.0 <= cas < 8.0    → block_port
+      cas >= 8.0          → isolate_host
       (no cas_score)      → fall back to technical_severity, same bands
 
     For non-critical assets the engine will always pick *some* disruptive

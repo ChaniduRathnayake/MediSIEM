@@ -7,7 +7,8 @@ Endpoints:
   GET  /audit              — read the audit log (newest last)
   GET  /audit/verify       — verify the audit log's hash chain
   GET  /alerts/recent      — peek at recently classified alerts (ring buffer,
-                             newest first). Lets the dashboard show alerts
+                             newest first, persisted to disk and reloaded on
+                             startup). Lets the dashboard show alerts
                              injected via the enrichment shim.
   POST /clinician-decision — Phase B of the Tier 3 two-phase flow. Records
                              the clinician's approve/deny response as a
@@ -26,8 +27,10 @@ Run locally:
 Then visit http://localhost:8000/docs for interactive API docs.
 """
 
+import json
 import os
 import logging
+import threading
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +48,13 @@ from .audit import AuditLogger
 
 
 logger = logging.getLogger("engine")
+
+# Gates POST /dev/reset — a demo/dev-only utility (see MediSIEM's
+# backend/routes/dev.js POST /api/dev/wipe-playbooks). This engine has no
+# auth at all (see routes/lifeCriticalOrchestration.js's module docstring),
+# so this flag is the only thing standing between "reset button" and
+# "anyone who can reach this port wipes the audit log" — never remove it.
+ENGINE_DEV_MODE = os.getenv("ENVIRONMENT", "development").strip().lower() != "production"
 
 
 # ---------- App + audit log setup ----------
@@ -79,10 +89,76 @@ audit = AuditLogger(AUDIT_LOG_PATH)
 # Ring buffer of recently classified alerts. Keeps the last N alerts the
 # engine has seen, paired with their decision, so the dashboard can show
 # shim-injected alerts that didn't come from the bundled stub feed.
-# Intentionally in-memory only — this is a read-side cache, not a record.
-# The audit log remains the durable source of truth.
-RECENT_ALERTS_BUFFER_SIZE = int(os.getenv("RECENT_ALERTS_BUFFER_SIZE", "50"))
+#
+# This used to be in-memory only, which meant every stop/start of the
+# engine (this is a plain uvicorn dev process with no supervisor — see
+# scripts/start_all.sh) silently wiped the Alert Feed and Pending Approvals
+# tray. In practice that read as "SOAR alerts stop showing after a day":
+# nothing was actually lost from the durable, hash-chained audit log below,
+# just this ring-buffer *view* of it. Persisting to a plain JSONL file
+# (append + periodic trim, no hash chain — this is a display cache, not
+# the tamper-evident record) and reloading it on startup fixes that
+# without changing the audit log's own semantics. The buffer size was also
+# raised from 50 to 2000 so a full day of realistic alert volume — not
+# just the most recent few dozen — actually fits.
+RECENT_ALERTS_BUFFER_SIZE = int(os.getenv("RECENT_ALERTS_BUFFER_SIZE", "2000"))
 _recent_alerts: Deque[Dict] = deque(maxlen=RECENT_ALERTS_BUFFER_SIZE)
+
+RECENT_ALERTS_LOG_PATH = os.getenv(
+    "RECENT_ALERTS_LOG_PATH",
+    str(Path(__file__).resolve().parent.parent / "data" / "recent_alerts.jsonl"),
+)
+_recent_alerts_path = Path(RECENT_ALERTS_LOG_PATH)
+_recent_alerts_path.parent.mkdir(parents=True, exist_ok=True)
+_recent_alerts_path.touch(exist_ok=True)
+_recent_alerts_lock = threading.Lock()
+# Counts appends since the last trim so the file is rewritten to the
+# buffer's own size roughly once per buffer-size appends, rather than
+# either growing unboundedly or paying a full rewrite on every /decide.
+_recent_alerts_appends_since_trim = 0
+
+
+def _load_recent_alerts() -> None:
+    """Restore the ring buffer from disk on startup."""
+    if not _recent_alerts_path.exists():
+        return
+    try:
+        with _recent_alerts_path.open("r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    _recent_alerts.append(json.loads(line))
+                except json.JSONDecodeError:
+                    # Tolerate a torn trailing line, same as AuditLogger —
+                    # a process killed mid-write shouldn't break startup.
+                    logger.warning(
+                        "Skipping unparseable recent-alerts line %d", i + 1
+                    )
+    except Exception as exc:  # noqa: BLE001 — best-effort restore
+        logger.warning("Failed to reload recent alerts cache: %s", exc)
+
+
+def _persist_recent_alert(entry: Dict) -> None:
+    """Append one entry to disk, trimming the file back to buffer size
+    roughly every RECENT_ALERTS_BUFFER_SIZE appends."""
+    global _recent_alerts_appends_since_trim
+    with _recent_alerts_lock:
+        try:
+            with _recent_alerts_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+            _recent_alerts_appends_since_trim += 1
+            if _recent_alerts_appends_since_trim >= RECENT_ALERTS_BUFFER_SIZE:
+                _recent_alerts_appends_since_trim = 0
+                with _recent_alerts_path.open("w", encoding="utf-8") as f:
+                    for item in _recent_alerts:
+                        f.write(json.dumps(item) + "\n")
+        except Exception as exc:  # noqa: BLE001 — best-effort persistence
+            logger.warning("Failed to persist recent alerts cache: %s", exc)
+
+
+_load_recent_alerts()
 
 
 # ---------- Shuffle integration (optional, fire-and-forget) ----------
@@ -144,10 +220,12 @@ def decide(alert: Alert, background_tasks: BackgroundTasks) -> Decision:
     # surface this on the dashboard without the dashboard needing direct
     # access to the audit log's full alert payload.
     decision_payload = decision.model_dump(mode="json")
-    _recent_alerts.append({
+    recent_entry = {
         "alert": alert.model_dump(mode="json"),
         "decision": decision_payload,
-    })
+    }
+    _recent_alerts.append(recent_entry)
+    _persist_recent_alert(recent_entry)
     # Fire-and-forget push to Shuffle. No-op if SHUFFLE_WEBHOOK_URL is unset.
     background_tasks.add_task(_push_to_shuffle, decision_payload)
     return decision
@@ -157,9 +235,11 @@ def decide(alert: Alert, background_tasks: BackgroundTasks) -> Decision:
 def recent_alerts(limit: int = 50) -> List[Dict]:
     """Return recently classified alerts, newest first.
 
-    Backed by an in-memory ring buffer; resets when the engine restarts.
-    Used by the dashboard to surface alerts injected via the enrichment
-    shim (i.e. ones that didn't come from the bundled stub feed).
+    Backed by an in-memory ring buffer (size RECENT_ALERTS_BUFFER_SIZE)
+    that is also persisted to RECENT_ALERTS_LOG_PATH and reloaded on
+    startup, so it survives an engine restart. Used by the dashboard to
+    surface alerts injected via the enrichment shim (i.e. ones that didn't
+    come from the bundled stub feed).
     """
     if limit <= 0:
         return []
@@ -185,6 +265,27 @@ def audit_verify() -> dict:
     return {"ok": True, "error": None}
 
 
+@app.post("/dev/reset")
+def dev_reset() -> dict:
+    """Dev-only: wipe the audit log and the recent-alerts cache for a clean
+    demo reset. Mirrors MediSIEM's POST /api/dev/wipe-alerts, which resets
+    the alert side of the same demo (see backend/routes/dev.js) — this is
+    the Playbooks-panel counterpart, called from the same /devbomb button.
+    """
+    if not ENGINE_DEV_MODE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Dev utilities are disabled in production.")
+    audit.reset()
+    global _recent_alerts_appends_since_trim
+    with _recent_alerts_lock:
+        _recent_alerts.clear()
+        _recent_alerts_appends_since_trim = 0
+        try:
+            _recent_alerts_path.write_text("", encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 — best-effort, same posture as _persist_recent_alert
+            logger.warning("Failed to truncate recent alerts cache: %s", exc)
+    return {"ok": True}
+
+
 # ---------- Clinician decision callback (Phase B of Tier 3) ----------
 
 class ClinicianDecisionRequest(BaseModel):
@@ -197,6 +298,16 @@ class ClinicianDecisionRequest(BaseModel):
     decision_id: str = Field(..., description="The original Tier 3 decision_id")
     approved: bool
     clinician_id: str = Field(default="clinician-on-call")
+    # Optional override from a caller that knows the real per-asset enforcement
+    # outcome (the Shuffle sim, via its enforcement.has_clinical_peers check —
+    # see playbooks/shuffle_sim/server.py's /clinician-decision) for what a
+    # DENIAL actually resulted in: "quarantine" if the asset stayed quarantined
+    # (it has a configured clinical-peer group), or "monitored_mode" if it was
+    # released. Ignored when approved=True. Only meaningful for denial; when
+    # omitted (e.g. a direct call bypassing the sim, which is the only caller
+    # that knows the clinical-peers config), this engine falls back to its own
+    # conservative default of always "monitored_mode" on denial.
+    final_action: Optional[str] = None
 
 
 def _find_original_decision(decision_id: str) -> Optional[Dict]:
@@ -223,8 +334,10 @@ def clinician_decision(req: ClinicianDecisionRequest) -> Dict:
     appends a follow-up entry to the chain capturing the clinician outcome:
 
       - approved=True   → the response would escalate to isolate_host.
-      - approved=False  → no state change; asset stays in Monitored Mode
-                          per FR-06 fail-safe.
+      - approved=False  → asset stays quarantined if req.final_action says so
+                          (the caller — the Shuffle sim — checked this asset
+                          has a configured clinical-peer group); otherwise
+                          falls back to Monitored Mode per FR-06 fail-safe.
 
     Idempotency: this endpoint does NOT enforce single-response-per-decision
     by design. A clinician revising their decision (rare but possible) is a
@@ -244,7 +357,7 @@ def clinician_decision(req: ClinicianDecisionRequest) -> Dict:
     final_action = (
         original_decision.get("proposed_action_if_approved", "isolate_host")
         if req.approved
-        else "monitored_mode"
+        else (req.final_action or "monitored_mode")
     )
 
     payload = {

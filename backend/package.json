@@ -10,6 +10,7 @@
     "dev:soar": "node scripts/startLifeCriticalServices.js",
     "dev:ip": "node scripts/startIpReputation.js",
     "dev:full": "npm run dev:soar && npm run dev:ip && nodemon server.js",
+    "demo:wazuh-alerts": "node scripts/demoWazuhAlerts.js",
     "seed": "node seed.js",
     "test": "node --env-file=.env --test"
   },

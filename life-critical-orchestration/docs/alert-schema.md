@@ -114,7 +114,7 @@ The decision engine reads `cas_score` if present; otherwise falls back to
 The engine treats a threat as **extreme** when **either** of the following
 is true:
 
-- `cas_score >= 9.0`, when a producer supplies one — the sole numeric
+- `cas_score >= 8.0`, when a producer supplies one — the sole numeric
   decision signal as of v1.1 (`cvss_score` is never consulted, even when
   present alongside or instead of `cas_score`). With no `cas_score` at all,
   the engine falls back to `technical_severity == "critical"`. OR
@@ -295,21 +295,21 @@ Asset criticality (rows) gates whether the asset is treated as protected
 at all. Threat severity (columns) drives the Tier 1 action choice and the
 Tier 2 / Tier 3 split for protected assets.
 
-| `criticality_score` (band) | low CAS (<4) | medium (4–6.9) | high (7–8.9) | extreme (≥9 OR ransomware / active_exploitation) |
-|----------------------------|---------------|----------------|--------------|--------------------------------------------------|
-| 1–4 (`non_critical`)       | **Tier 1** `log_only`     | **Tier 1** `block_port`   | **Tier 1** `isolate_host` | **Tier 1** `isolate_host` |
-| 5–7 (`clinical_support`)   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | **Tier 3** `await_clinician_approval` |
-| 8–10 (`life_critical`)     | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | **Tier 3** `await_clinician_approval` |
+| `criticality_score` (band) | low CAS (<5) | medium (5–7.9) | extreme (≥8 OR ransomware / active_exploitation) |
+|----------------------------|---------------|----------------|--------------------------------------------------|
+| 1–4 (`non_critical`)       | **Tier 1** `log_only`     | **Tier 1** `block_port`   | **Tier 1** `isolate_host` |
+| 5–7 (`clinical_support`)   | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | **Tier 3** `await_clinician_approval` |
+| 8–10 (`life_critical`)     | Tier 2 `monitored_mode`   | Tier 2 `monitored_mode`   | **Tier 3** `await_clinician_approval` |
 
 **Pseudocode:**
 
 ```
 IF criticality_score < 5:
     pick action by CAS band:
-        cas < 4   → Tier 1, log_only
-        cas < 7   → Tier 1, block_port
+        cas < 5   → Tier 1, log_only
+        cas < 8   → Tier 1, block_port
         else      → Tier 1, isolate_host
-ELIF threat is extreme (cas_score >= 9 OR category in {ransomware, active_exploitation}):
+ELIF threat is extreme (cas_score >= 8 OR category in {ransomware, active_exploitation}):
     → Tier 3, await_clinician_approval
 ELSE:
     → Tier 2, monitored_mode

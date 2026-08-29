@@ -4,7 +4,7 @@
 // CompliancePanel.tsx's card/stat-tile/badge conventions) instead of the
 // original app's bespoke App.css classes.
 import React from 'react';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 
 export type Tone = 'good' | 'warn' | 'bad' | 'neutral';
 
@@ -116,6 +116,14 @@ export function fmtDateTime(value?: string | null): string {
   return date.toLocaleString();
 }
 
+// IPv4 addresses never contain ':' and every IPv6 representation does
+// (including the shortened/compressed forms Suricata emits) — cheaper and
+// just as reliable as a full dotted-quad regex for telling the two apart in
+// data that's already been through IP classification upstream.
+export function isIPv4(ip?: string | null): boolean {
+  return !!ip && !ip.includes(':');
+}
+
 export function formatLabel(value?: string | null): string {
   if (!value) return 'Unknown';
   return value.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
@@ -126,3 +134,39 @@ export function formatMirsDimension(score?: number | null, weight?: number | nul
   if (weight == null) return scoreText;
   return `${scoreText} • weight ${(Number(weight) * 100).toFixed(2)}%`;
 }
+
+// Pretty-printed JSON block — used for the raw MIRS weight objects and the
+// bottom-of-page "raw investigation evidence" dump, where showing the exact
+// key/value shape the backend returned is more useful (and more honest about
+// what's actually available) than reformatting it into prose.
+export const JsonBlock: React.FC<{ data: unknown; maxHeight?: string }> = ({ data, maxHeight }) => (
+  <pre
+    className="text-xs bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-lg p-3 overflow-auto text-slate-700 dark:text-slate-300 font-mono leading-relaxed"
+    style={maxHeight ? { maxHeight } : undefined}
+  >
+    {JSON.stringify(data, null, 2) ?? 'null'}
+  </pre>
+);
+
+export type EvidenceState = 'ok' | 'warn' | 'missing';
+
+const EVIDENCE_ICON: Record<EvidenceState, React.ReactNode> = {
+  ok: <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />,
+  warn: <AlertTriangle className="w-4 h-4 text-amber-500 dark:text-amber-400 flex-shrink-0" />,
+  missing: <XCircle className="w-4 h-4 text-slate-400 dark:text-slate-600 flex-shrink-0" />,
+};
+
+// One tile in the "Evidence Availability" grid — reports whether a given
+// evidence source actually returned something for this investigation, not
+// just whether the API call succeeded, since an empty-but-successful
+// response (e.g. zero historical observations) is a meaningfully different
+// state from a source that's actually unreachable.
+export const EvidenceTile: React.FC<{ label: string; state: EvidenceState; detail: string }> = ({ label, state, detail }) => (
+  <div className="rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 p-3">
+    <div className="flex items-center gap-2">
+      {EVIDENCE_ICON[state]}
+      <p className="text-xs font-semibold text-slate-900 dark:text-white">{label}</p>
+    </div>
+    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">{detail}</p>
+  </div>
+);

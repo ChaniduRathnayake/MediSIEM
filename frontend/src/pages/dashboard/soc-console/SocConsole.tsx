@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Radio, WifiOff } from 'lucide-react';
 import {
-  apiGetLifeCriticalStatus, apiGetRecentDecisions,
+  apiGetLifeCriticalStatus, apiGetDecisionsHistory,
 } from '../../../services/lifeCriticalApi';
 import type { LifeCriticalDecision, LifeCriticalDecisionItem } from '../../../services/lifeCriticalApi';
 import type { StubAlert } from './socTypes';
@@ -110,7 +110,11 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
       setStatusDetail(err instanceof Error ? err.message : 'Could not reach MediSIEM\'s backend to check.');
     }
     try {
-      const { items } = await apiGetRecentDecisions(token, 50);
+      // Durable history (backend's SoarAction mirror), not the engine's own
+      // ephemeral ring buffer — see apiGetDecisionsHistory's doc comment for
+      // why: the ring buffer resets on an engine restart and never included
+      // decisions for dedup-folded repeat alerts in the first place.
+      const { items } = await apiGetDecisionsHistory(token, 200);
       setLiveItems(items);
     } catch {
       // Engine offline / proxy unreachable / rate-limited — status badge above already covers this.
@@ -123,12 +127,17 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Live decisions only — the bundled pre-CAS demo stubs (life-critical-orchestration's
-  // original 12 sample alerts) never carry a cas_score at all, so they're filtered out
-  // entirely rather than shown with a fabricated/missing value. Sorted tier desc / cc
-  // desc / cas desc / newest first. Adapted from App.jsx's feedAlerts useMemo.
+  // Every durable decision from apiGetDecisionsHistory, full stop — this used
+  // to also filter out any item without a numeric cas_score (a leftover from
+  // when this list could include life-critical-orchestration's bundled demo
+  // stubs, which never carried one). Those stubs never reach this endpoint —
+  // it's exclusively SoarAction's own history — so that filter was instead
+  // silently hiding real decisions whose alert payload predates the
+  // alertSnapshot field or has no matching AlertLog row for a CAS score.
+  // Sorted tier desc / cc desc / cas desc / newest first. Adapted from
+  // App.jsx's feedAlerts useMemo.
   const feedAlerts = useMemo<StubAlert[]>(() => {
-    const taggedLive = liveItems.map(liveItemToStubAlert).filter((a) => typeof a.threat?.cas_score === 'number');
+    const taggedLive = liveItems.map(liveItemToStubAlert);
 
     const seen = new Map<string, StubAlert>();
     for (const item of taggedLive) {
@@ -155,9 +164,10 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
     return deduped;
   }, [liveItems]);
 
-  // feedAlerts is now live-only (every entry has cas_score + _liveDecision by
-  // construction — see the filter above), so this always has a decision on
-  // hand already; no on-demand /decide classification needed anymore.
+  // feedAlerts is built entirely from liveItemToStubAlert, so every entry has
+  // _liveDecision by construction (cas_score may still be missing for older
+  // history — see the feedAlerts comment above) — this always has a decision
+  // on hand already; no on-demand /decide classification needed anymore.
   function handleSelectAlert(alert: StubAlert) {
     setSelectedAlert(alert);
     setDecideError(null);
@@ -183,7 +193,7 @@ const SocConsole: React.FC<{ token: string }> = ({ token }) => {
             <h2 className="text-xs uppercase tracking-wider text-soc-muted">
               Alert Feed
               <span className="ml-2 text-soc-muted normal-case">
-                ({feedAlerts.length} CAS-scored)
+                ({feedAlerts.length} decisions)
               </span>
             </h2>
           </div>

@@ -104,6 +104,15 @@ class ActionLog:
         items.reverse()
         return items[: max(0, limit)]
 
+    # ---------- Dev reset ----------
+
+    def reset(self) -> None:
+        """Dev-only: clear the in-memory ring and truncate the on-disk log
+        (see MediSIEM's backend/routes/dev.js POST /api/dev/wipe-playbooks)."""
+        with self._lock:
+            self._ring.clear()
+            self.path.write_text("", encoding="utf-8")
+
     # ---------- Internals ----------
 
     def _rehydrate(self) -> None:

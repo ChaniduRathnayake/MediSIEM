@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import (
@@ -77,6 +78,12 @@ def _public_candidate(ip: Any) -> bool:
     try:
         classification = classify_ip(ip)
 
+        # MedShield is IPv4-only. A genuinely public/global IPv6 address
+        # is still "external_reputation_applicable", so that check alone
+        # doesn't exclude it here.
+        if classification.get("version") != 4:
+            return False
+
         return bool(
             classification.get(
                 "external_reputation_applicable",
@@ -86,6 +93,14 @@ def _public_candidate(ip: Any) -> bool:
 
     except Exception:
         return False
+
+
+# LAN broadcast/multicast noise (SSDP/mDNS/NetBIOS chatter etc.) can never
+# resolve to a public candidate on either side of a flow, so it's excluded
+# straight from the Mongo query below rather than burning scan budget on it
+# in Python. 224.0.0.0/4-239.0.0.0/8 is the multicast block; a trailing
+# ".255" is the common LAN directed-broadcast pattern (e.g. 192.168.1.255).
+_NOISE_DEST_REGEX = r"^(22[4-9]\.|23[0-9]\.)|\.255$"
 
 
 # =========================================================
@@ -100,10 +115,22 @@ def _public_candidate(ip: Any) -> bool:
 )
 async def live_ip_feed(
 
-    scan_limit: int = Query(
-        default=1000,
+    # "Live" now means a rolling time window rather than a fixed count of
+    # most-recent events. A fixed event count let a single high-volume flow
+    # (or a burst of broadcast noise) fill the entire scan and silently push
+    # every other recently-active public IP out of the feed, even though it
+    # was still genuinely active within the window. scan_limit remains as a
+    # safety ceiling on how many matching documents a busy window can return.
+    window_minutes: int = Query(
+        default=30,
         ge=1,
-        le=5000,
+        le=1440,
+    ),
+
+    scan_limit: int = Query(
+        default=20000,
+        ge=1,
+        le=50000,
     ),
 
     max_items: int = Query(
@@ -115,10 +142,27 @@ async def live_ip_feed(
 
     try:
 
+        window_start = (
+            datetime.now(timezone.utc)
+            - timedelta(minutes=window_minutes)
+        )
+
+        # ingested_at is a real BSON Date (stamped at ingest, indexed for TTL
+        # — see database.py) and, unlike the collector's own "timestamp"
+        # string, safe to range-query and sort on directly. Sorting on it
+        # (rather than _id) lets Mongo satisfy the $gte filter and the sort
+        # from the same index instead of pulling the whole window into an
+        # in-memory sort, which is what made an earlier version of this
+        # query take several seconds against a several-thousand-document
+        # window instead of well under one.
         cursor = (
             events_collection
-            .find({})
-            .sort("_id", -1)
+            .find({
+                "ingested_at": {"$gte": window_start},
+                "src_ip": {"$not": {"$regex": ":"}},
+                "dest_ip": {"$not": {"$regex": _NOISE_DEST_REGEX}},
+            })
+            .sort("ingested_at", -1)
             .limit(scan_limit)
         )
 
@@ -404,6 +448,7 @@ async def live_ip_feed(
         return {
             "available": True,
             "status": "live_ml_ip_feed",
+            "window_minutes": window_minutes,
             "records_scanned": scanned,
             "unique_public_ips": len(feed),
             "returned_count": len(items),

@@ -7,6 +7,15 @@ side of the pipeline (`flow_consumer.py`, `live_feature_extractor.py`,
 [../../ml-pipeline/](../../ml-pipeline) at the repo root — see its README for
 how that side works. This folder is the *attacker*-side tooling only.
 
+**Two generations of demo live in this folder.** Everything below this
+notice is the original scapy/CAAP-flow-scoring track (VM-to-VM ARP-spoof /
+port-scan / SYN-flood, driving `ml-pipeline`'s flow classifier). For the
+*current* Wazuh-agent + `life-critical-orchestration` pipeline and SOC
+dashboard — real SSH brute-force + ransomware-pattern attacks fired straight
+from this Windows PC at the three lab VMs, no VM-to-VM setup required, with
+one-click `.cmd` launchers for a live presentation — see
+[LiveVM_PowerShell/](LiveVM_PowerShell/README.md) instead.
+
 **RUN ONLY IN AN ISOLATED LAB/VM NETWORK YOU OWN.** Spoofed ARP / SYN-flood /
 port-scan traffic on any other network is illegal without explicit
 authorization.
